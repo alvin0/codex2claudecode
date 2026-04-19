@@ -1,0 +1,30 @@
+{
+  "name": "codex2claudecode",
+  "version": "0.1.0",
+  "author": "alvin0 <chaulamdinhai@gmail.com>",
+  "type": "module",
+  "bin": {
+    "codex2claudecode": "./bin/codex2claudecode"
+  },
+  "files": [
+    "bin",
+    "images",
+    "src",
+    "index.ts",
+    "README.md"
+  ],
+  "scripts": {
+    "start": "bun index.ts",
+    "dev": "bun --watch index.ts",
+    "example": "CODEX_RUN_EXAMPLE=1 bun index.ts",
+    "check": "bun build index.ts --target=bun --outfile=/tmp/codex2claudecode.js",
+    "test": "bun test test/*.test.ts --test-name-pattern='^(?!.*live Codex smoke test)'",
+    "coverage": "bun test test/*.test.ts --test-name-pattern='^(?!.*live Codex smoke test)' --coverage --coverage-reporter=text",
+    "test:live": "CODEX_AUTH_FILE=auth-codex.json bun test test/live.test.ts"
+  },
+  "dependencies": {
+    "ink": "^7.0.1",
+    "react": "^19.2.5",
+    "react-devtools-core": "^7.0.1"
+  }
+}

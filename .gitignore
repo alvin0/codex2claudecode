@@ -1,0 +1,4 @@
+node_modules
+.account-info.json
+.claude-env.json
+auth-codex.json

@@ -1,0 +1,66 @@
+import { LOG_BODY_PREVIEW_LIMIT } from "../constants"
+import type { CodexStandaloneClient } from "../client"
+import { normalizeReasoningBody } from "../reasoning"
+import type { ClaudeMessagesRequest, JsonObject } from "../types"
+
+import { claudeToResponsesBody, estimateClaudeInputTokens } from "./convert"
+import { claudeErrorResponse } from "./errors"
+import { collectClaudeMessage, claudeStreamResponse } from "./response"
+
+export async function handleClaudeMessages(client: CodexStandaloneClient, request: Request, requestId: string, logBody?: boolean) {
+  let body: ClaudeMessagesRequest
+  try {
+    body = (await request.json()) as ClaudeMessagesRequest
+  } catch (error) {
+    return claudeErrorResponse(`Invalid JSON: ${error instanceof Error ? error.message : String(error)}`, 400)
+  }
+
+  if (!Array.isArray(body.messages)) return claudeErrorResponse("Claude messages request requires messages", 400)
+
+  const responsesBody = claudeToResponsesBody(body)
+  if (logBody) logUpstreamBody(requestId, responsesBody)
+
+  const response = await client.proxy(responsesBody, {
+    headers: request.headers,
+    signal: request.signal,
+  })
+
+  if (!response.ok) {
+    const text = await response.text()
+    console.error(`Claude messages upstream error ${response.status}: ${text.slice(0, LOG_BODY_PREVIEW_LIMIT)}`)
+    return claudeErrorResponse(`Codex request failed: ${response.status} ${text}`, response.status)
+  }
+
+  if (body.stream) return claudeStreamResponse(response, body)
+  return Response.json(await collectClaudeMessage(response, body))
+}
+
+export async function handleClaudeCountTokens(request: Request) {
+  let body: ClaudeMessagesRequest
+  try {
+    body = (await request.json()) as ClaudeMessagesRequest
+  } catch (error) {
+    return claudeErrorResponse(`Invalid JSON: ${error instanceof Error ? error.message : String(error)}`, 400)
+  }
+
+  if (!Array.isArray(body.messages)) return claudeErrorResponse("Claude count_tokens request requires messages", 400)
+
+  return Response.json({
+    input_tokens: estimateClaudeInputTokens(body),
+  })
+}
+
+function logUpstreamBody(id: string, body: JsonObject) {
+  console.log(
+    `[${id}] upstream body ${redactSecrets(JSON.stringify(normalizeReasoningBody(body))).slice(0, LOG_BODY_PREVIEW_LIMIT)}`,
+  )
+}
+
+function redactSecrets(text: string) {
+  return text
+    .replace(/Bearer\s+[A-Za-z0-9._~+/=-]+/g, "Bearer [redacted]")
+    .replace(
+      /"?(api[_-]?key|authorization|x-api-key|anthropic-api-key|access|refresh|access_token|refresh_token)"?\s*:\s*"[^"]+"/gi,
+      '"$1":"[redacted]"',
+    )
+}
