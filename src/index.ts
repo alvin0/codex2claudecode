@@ -1,6 +1,7 @@
 export * from "./types"
 export * from "./cli"
 export * from "./account-info"
+export * from "./package-info"
 export * from "./auth"
 export * from "./client"
 export * from "./reasoning"

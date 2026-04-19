@@ -32,7 +32,7 @@ export async function startRuntime(options?: RuntimeOptions) {
 
       if (!quiet) logRequestStart(requestId, request, url, bodyPreview)
 
-      function requestLog(response: Response, durationMs: number, error = "-"): RequestLogEntry {
+      async function requestLog(response: Response, durationMs: number, error?: string): Promise<RequestLogEntry> {
         return {
           id: requestId,
           at: new Date().toISOString(),
@@ -40,14 +40,14 @@ export async function startRuntime(options?: RuntimeOptions) {
           path: `${url.pathname}${url.search}`,
           status: response.status,
           durationMs,
-          error,
+          error: error ?? await responseErrorMessage(response),
         }
       }
 
       async function finish(response: Response) {
         const durationMs = Date.now() - started
         if (!quiet) logResponseEnd(requestId, request, url, response, durationMs)
-        onRequestLog?.(requestLog(response, durationMs))
+        onRequestLog?.(await requestLog(response, durationMs))
         return response
       }
 
@@ -64,7 +64,7 @@ export async function startRuntime(options?: RuntimeOptions) {
             { status: 500 },
           ),
         )
-        onRequestLog?.(requestLog(response, durationMs, error instanceof Error ? error.message : String(error)))
+        onRequestLog?.(await requestLog(response, durationMs, error instanceof Error ? error.message : String(error)))
         return response
       }
 
@@ -134,7 +134,7 @@ export async function startRuntime(options?: RuntimeOptions) {
           )
           const durationMs = Date.now() - started
           if (!quiet) logResponseEnd(requestId, request, url, errorResponse, durationMs)
-          onRequestLog?.(requestLog(errorResponse, durationMs, text.slice(0, LOG_BODY_PREVIEW_LIMIT)))
+          onRequestLog?.(await requestLog(errorResponse, durationMs, text.slice(0, LOG_BODY_PREVIEW_LIMIT)))
           return errorResponse
         }
         return finish(
@@ -208,6 +208,35 @@ function logRequestError(id: string, request: Request, url: URL, error: unknown,
   console.error(
     `[${id}] !! ${request.method} ${url.pathname} ${durationMs}ms ${error instanceof Error ? error.stack || error.message : String(error)}`,
   )
+}
+
+async function responseErrorMessage(response: Response) {
+  if (response.status < 400) return "-"
+  try {
+    return responseErrorText(await response.clone().text())
+  } catch (error) {
+    return `<failed to read error: ${error instanceof Error ? error.message : String(error)}>`
+  }
+}
+
+function responseErrorText(text: string) {
+  if (!text) return "-"
+  try {
+    const body = JSON.parse(text) as JsonObject
+    const error = body.error
+    if (typeof error === "string") return redactSecrets(error).slice(0, LOG_BODY_PREVIEW_LIMIT)
+    if (isJsonObject(error) && typeof error.message === "string") {
+      return redactSecrets(error.message).slice(0, LOG_BODY_PREVIEW_LIMIT)
+    }
+    if ("message" in body && typeof body.message === "string") return redactSecrets(body.message).slice(0, LOG_BODY_PREVIEW_LIMIT)
+  } catch {
+    return redactSecrets(text).slice(0, LOG_BODY_PREVIEW_LIMIT)
+  }
+  return redactSecrets(text).slice(0, LOG_BODY_PREVIEW_LIMIT)
+}
+
+function isJsonObject(value: unknown): value is JsonObject {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value)
 }
 
 function interestingHeaders(headers: Headers) {

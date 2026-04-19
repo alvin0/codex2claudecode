@@ -1,11 +1,28 @@
-#!/usr/bin/env bun
-import { parseCliOptions } from "../src/cli.ts"
-import { runExample, startRuntime } from "../src/index.ts"
-import { runUi } from "../src/ui/index.tsx"
+#!/usr/bin/env node
+import { spawnSync } from "node:child_process"
+import { dirname, join } from "node:path"
+import { fileURLToPath } from "node:url"
 
-const options = parseCliOptions()
+const root = dirname(fileURLToPath(import.meta.url))
+const entry = join(root, "..", "index.ts")
+const args = [entry, ...process.argv.slice(2)]
+const result = spawnSync("bun", args, { stdio: "inherit", env: process.env })
 
-Promise.resolve(process.env.CODEX_RUN_EXAMPLE === "1" ? runExample() : process.env.CODEX_NO_UI === "1" ? startRuntime({ port: options.port }) : runUi(options)).catch((error) => {
-  console.error(error)
+if (result.error?.code === "ENOENT") {
+  console.error("codex2claudecode requires Bun to run.")
+  console.error("")
+  console.error("Install Bun first:")
+  console.error("  macOS/Linux: curl -fsSL https://bun.sh/install | bash")
+  console.error("  Windows PowerShell: powershell -c \"irm bun.sh/install.ps1 | iex\"")
+  console.error("")
+  console.error("Then run again:")
+  console.error("  npx codex2claudecode")
   process.exit(1)
-})
+}
+
+if (result.error) {
+  console.error(result.error.message)
+  process.exit(1)
+}
+
+process.exit(result.status ?? 0)

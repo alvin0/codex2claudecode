@@ -10,15 +10,22 @@ import {
   claudeEnvironmentExports,
   claudeEnvironmentPowerShellCommands,
   echoClaudeEnvironment,
+  echoClaudeEnvironmentUnset,
   detectShell,
+  persistClaudeEnvironment,
+  persistClaudeEnvironmentUnset,
   readClaudeEnvironmentConfig,
+  runClaudeEnvironmentSet,
+  runClaudeEnvironmentUnset,
+  unsetClaudeEnvironment,
   writeClaudeEnvironmentConfig,
+  claudeEnvironmentUnsetCommands,
 } from "../src/ui/claude-env"
 
 const keys = [
-  "ANTHROPIC_AUTH_TOKEN",
   "ANTHROPIC_BASE_URL",
   "ANTHROPIC_API_KEY",
+  "ANTHROPIC_MODEL",
   "ANTHROPIC_DEFAULT_OPUS_MODEL",
   "ANTHROPIC_DEFAULT_SONNET_MODEL",
   "ANTHROPIC_DEFAULT_HAIKU_MODEL",
@@ -36,6 +43,7 @@ afterEach(async () => {
 
 test("formats, applies, and echoes Claude environment exports", async () => {
   const draft = {
+    ANTHROPIC_MODEL: "gpt-5.4",
     ANTHROPIC_DEFAULT_OPUS_MODEL: "gpt-5.4_high",
     ANTHROPIC_DEFAULT_SONNET_MODEL: "gpt-5.3-codex_high",
     ANTHROPIC_DEFAULT_HAIKU_MODEL: "gpt-5.4-mini_high",
@@ -43,10 +51,27 @@ test("formats, applies, and echoes Claude environment exports", async () => {
   expect(claudeEnvironmentExports(draft, "http://127.0.0.1:8787")).toContain('export ANTHROPIC_BASE_URL="http://127.0.0.1:8787"')
   expect(claudeEnvironmentCommands(draft, "http://127.0.0.1:8787", "posix")).toContain('export ANTHROPIC_BASE_URL="http://127.0.0.1:8787"')
   expect(claudeEnvironmentPowerShellCommands(draft, "http://127.0.0.1:8787")).toContain('$env:ANTHROPIC_BASE_URL="http://127.0.0.1:8787"')
+  expect(claudeEnvironmentCommands(draft, "http://127.0.0.1:8787", "posix")).toContain('export ANTHROPIC_MODEL="gpt-5.4"')
   expect(claudeEnvironmentCommands(draft, "http://127.0.0.1:8787", "powershell")).toContain('$env:ANTHROPIC_DEFAULT_OPUS_MODEL="gpt-5.4_high"')
   applyClaudeEnvironment(draft, "http://127.0.0.1:8787")
+  expect(process.env.ANTHROPIC_MODEL).toBe("gpt-5.4")
   expect(process.env.ANTHROPIC_DEFAULT_OPUS_MODEL).toBe("gpt-5.4_high")
   await expect(echoClaudeEnvironment(draft, "http://127.0.0.1:8787")).resolves.toContain('export ANTHROPIC_DEFAULT_HAIKU_MODEL="gpt-5.4-mini_high"')
+  await expect(runClaudeEnvironmentSet(draft, "http://127.0.0.1:8787", "posix", { persist: false })).resolves.toContain("ANTHROPIC_BASE_URL=http://127.0.0.1:8787")
+})
+
+test("unsets and echoes Claude environment commands", async () => {
+  process.env.ANTHROPIC_BASE_URL = "http://127.0.0.1:8787"
+  process.env.ANTHROPIC_DEFAULT_OPUS_MODEL = "gpt"
+  unsetClaudeEnvironment()
+  expect(process.env.ANTHROPIC_BASE_URL).toBeUndefined()
+  expect(process.env.ANTHROPIC_DEFAULT_OPUS_MODEL).toBeUndefined()
+  expect(claudeEnvironmentUnsetCommands("posix")).toEqual([
+    "unset ANTHROPIC_BASE_URL ANTHROPIC_API_KEY ANTHROPIC_MODEL ANTHROPIC_DEFAULT_OPUS_MODEL ANTHROPIC_DEFAULT_SONNET_MODEL ANTHROPIC_DEFAULT_HAIKU_MODEL",
+  ])
+  expect(claudeEnvironmentUnsetCommands("powershell")).toContain("Remove-Item Env:ANTHROPIC_BASE_URL -ErrorAction SilentlyContinue")
+  await expect(echoClaudeEnvironmentUnset("posix")).resolves.toContain("unset ANTHROPIC_BASE_URL")
+  await expect(runClaudeEnvironmentUnset("posix", { persist: false })).resolves.toBe("No ANTHROPIC environment variables found.")
 })
 
 test("detects supported and unsupported shells", () => {
@@ -61,6 +86,7 @@ test("persists Claude model env defaults and keeps base URL dynamic", async () =
   tempDirs.push(dir)
   const authFile = path.join(dir, "auth-codex.json")
   const draft = {
+    ANTHROPIC_MODEL: "model_custom",
     ANTHROPIC_DEFAULT_OPUS_MODEL: "opus_custom",
     ANTHROPIC_DEFAULT_SONNET_MODEL: "sonnet_custom",
     ANTHROPIC_DEFAULT_HAIKU_MODEL: "haiku_custom",
@@ -71,4 +97,41 @@ test("persists Claude model env defaults and keeps base URL dynamic", async () =
   expect(claudeEnvironmentConfigPath(authFile)).toBe(path.join(dir, ".claude-env.json"))
   expect(await readFile(path.join(dir, ".claude-env.json"), "utf8")).toContain("opus_custom")
   expect(claudeEnvironmentExports(draft, "http://127.0.0.1:8786")).toContain('export ANTHROPIC_BASE_URL="http://127.0.0.1:8786"')
+})
+
+test("persists POSIX shell integration files", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "claude-env-profile-test-"))
+  tempDirs.push(dir)
+  const authFile = path.join(dir, "auth-codex.json")
+  const profileFile = path.join(dir, ".zshrc")
+  const draft = {
+    ANTHROPIC_MODEL: "gpt-5.4",
+    ANTHROPIC_DEFAULT_OPUS_MODEL: "opus_custom",
+    ANTHROPIC_DEFAULT_SONNET_MODEL: "sonnet_custom",
+    ANTHROPIC_DEFAULT_HAIKU_MODEL: "haiku_custom",
+  }
+
+  await persistClaudeEnvironment(draft, "http://127.0.0.1:8787", { kind: "posix", name: "zsh" }, { authFile, profileFile })
+  expect(await readFile(path.join(dir, ".claude-env.sh"), "utf8")).toContain('export ANTHROPIC_BASE_URL="http://127.0.0.1:8787"')
+  expect(await readFile(profileFile, "utf8")).toContain("codex2claudecode")
+  await persistClaudeEnvironmentUnset({ kind: "posix", name: "zsh" }, { authFile, profileFile })
+  expect(await readFile(path.join(dir, ".claude-env.sh"), "utf8")).toContain("unset ANTHROPIC_BASE_URL")
+})
+
+test("updates an existing POSIX profile block when the auth directory changes", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "claude-env-profile-replace-test-"))
+  tempDirs.push(dir)
+  const authFile = path.join(dir, "auth-codex.json")
+  const profileFile = path.join(dir, ".zshrc")
+  const draft = {
+    ANTHROPIC_MODEL: "gpt-5.4",
+    ANTHROPIC_DEFAULT_OPUS_MODEL: "opus_custom",
+    ANTHROPIC_DEFAULT_SONNET_MODEL: "sonnet_custom",
+    ANTHROPIC_DEFAULT_HAIKU_MODEL: "haiku_custom",
+  }
+
+  await persistClaudeEnvironment(draft, "http://127.0.0.1:8787", { kind: "posix", name: "zsh" }, { authFile: path.join(dir, "old", "auth-codex.json"), profileFile })
+  await persistClaudeEnvironment(draft, "http://127.0.0.1:8787", { kind: "posix", name: "zsh" }, { authFile, profileFile })
+  expect(await readFile(profileFile, "utf8")).toContain(path.join(dir, ".claude-env.sh"))
+  expect(await readFile(profileFile, "utf8")).not.toContain(path.join(dir, "old", ".claude-env.sh"))
 })

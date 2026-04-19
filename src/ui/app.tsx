@@ -5,15 +5,28 @@ import { readAccountInfoFile, refreshActiveAccountInfo, writeAccountInfoFile, wr
 import { readAuthFileData } from "../auth"
 import { CodexStandaloneClient } from "../client"
 import { connectAccount, connectAccountFromCodexAuth, type ConnectAccountDraft } from "../connect-account"
+import { packageInfo } from "../package-info"
 import { resolveAuthFile } from "../paths"
 import { startRuntime } from "../runtime"
 import type { AuthFileData, RequestLogEntry } from "../types"
 import { authDataToAccounts, selectedAccountIndex } from "./accounts"
-import { applyClaudeEnvironment, defaultClaudeEnvironment, detectShell, echoClaudeEnvironment, readClaudeEnvironmentConfig, writeClaudeEnvironmentConfig, type ClaudeEnvironmentDraft } from "./claude-env"
+import {
+  applyClaudeEnvironment,
+  defaultClaudeEnvironment,
+  detectShell,
+  CLAUDE_MODEL_ENV_KEYS,
+  readClaudeEnvironmentConfig,
+  runClaudeEnvironmentSet,
+  runClaudeEnvironmentUnset,
+  unsetClaudeEnvironment,
+  writeClaudeEnvironmentConfig,
+  type ClaudeEnvironmentDraft,
+} from "./claude-env"
 import { filterCommands } from "./commands"
 import { AccountInfoPanel } from "./components/account-info-panel"
 import { AccountSelector } from "./components/account-selector"
 import { ClaudeEnvironmentEditor } from "./components/claude-environment-editor"
+import { ClaudeEnvironmentUnsetConfirm } from "./components/claude-environment-unset-confirm"
 import { CommandInput } from "./components/command-input"
 import { CommandOutput } from "./components/command-output"
 import { ConnectAccountWizard } from "./components/connect-account-wizard"
@@ -40,10 +53,12 @@ export function CodexCodeApp(props: { port?: number }) {
   const [inputValue, setInputValue] = useState("")
   const [inputMessage, setInputMessage] = useState("Type / for commands")
   const [commandIndex, setCommandIndex] = useState(0)
-  const [mode, setMode] = useState<"home" | "account-selector" | "logs" | "claude-env-editor" | "claude-env-confirm" | "connect-source" | "connect-account">("home")
+  const [mode, setMode] = useState<
+    "home" | "account-selector" | "logs" | "claude-env-editor" | "claude-env-confirm" | "claude-env-unset-confirm" | "connect-source" | "connect-account"
+  >("home")
   const [selectorIndex, setSelectorIndex] = useState(0)
   const [requestLogs, setRequestLogs] = useState<RequestLogEntry[]>([])
-  const [logsScroll, setLogsScroll] = useState(0)
+  const [logsSelected, setLogsSelected] = useState(0)
   const [claudeEnvDraft, setClaudeEnvDraft] = useState<ClaudeEnvironmentDraft>(() => defaultClaudeEnvironment())
   const [claudeEnvIndex, setClaudeEnvIndex] = useState(0)
   const [commandOutput, setCommandOutput] = useState<{ title: string; output: string }>()
@@ -53,6 +68,7 @@ export function CodexCodeApp(props: { port?: number }) {
   const [connectStep, setConnectStep] = useState(0)
   const [connectSaving, setConnectSaving] = useState(false)
   const [authRevision, setAuthRevision] = useState(0)
+  const pkg = useMemo(() => packageInfo(), [])
 
   const accounts = useMemo(() => (authData ? authDataToAccounts(authData) : []), [authData])
   const account = accounts[selected]
@@ -168,11 +184,11 @@ export function CodexCodeApp(props: { port?: number }) {
         setInputMessage("Type / for commands")
         return
       }
-      if (mode === "claude-env-editor" || mode === "claude-env-confirm") {
+      if (mode === "claude-env-editor" || mode === "claude-env-confirm" || mode === "claude-env-unset-confirm") {
         setMode("home")
         setInputValue("")
         setCommandIndex(0)
-        setInputMessage("Claude environment edit cancelled")
+        setInputMessage(mode === "claude-env-unset-confirm" ? "Claude environment unset cancelled" : "Claude environment edit cancelled")
         return
       }
       if (mode === "logs") {
@@ -238,9 +254,18 @@ export function CodexCodeApp(props: { port?: number }) {
         void writeClaudeEnvironmentConfig(authFile, claudeEnvDraft).catch((error) =>
           setInputMessage(`Claude environment saved failed: ${error instanceof Error ? error.message : String(error)}`),
         )
-        void echoClaudeEnvironment(claudeEnvDraft, baseUrl(hostname, port), shell)
-          .then((output) => setCommandOutput({ title: "Claude environment", output }))
-          .catch((error) => setCommandOutput({ title: "Claude environment echo failed", output: error instanceof Error ? error.message : String(error) }))
+        void runClaudeEnvironmentSet(claudeEnvDraft, baseUrl(hostname, port), shell, { authFile })
+          .then((output) => setCommandOutput({ title: "Set Claude environment - env | grep ANTHROPIC", output }))
+          .catch((error) => setCommandOutput({ title: "Set Claude environment failed", output: error instanceof Error ? error.message : String(error) }))
+        return
+      }
+      if (mode === "claude-env-unset-confirm") {
+        unsetClaudeEnvironment()
+        setMode("home")
+        setInputMessage("Claude environment unset")
+        void runClaudeEnvironmentUnset(shell, { authFile })
+          .then((output) => setCommandOutput({ title: "Unset Claude environment - env | grep ANTHROPIC", output }))
+          .catch((error) => setCommandOutput({ title: "Unset Claude environment echo failed", output: error instanceof Error ? error.message : String(error) }))
         return
       }
       if (mode === "claude-env-editor") {
@@ -270,7 +295,7 @@ export function CodexCodeApp(props: { port?: number }) {
           return
         }
         if (command.name === "/logs") {
-          setLogsScroll(0)
+          setLogsSelected(Math.max(0, requestLogs.length - 1))
           setMode("logs")
           setInputValue("")
           setCommandIndex(0)
@@ -297,6 +322,18 @@ export function CodexCodeApp(props: { port?: number }) {
             .catch(() => setClaudeEnvDraft(defaultClaudeEnvironment()))
           setClaudeEnvIndex(0)
           setMode("claude-env-editor")
+          setInputValue("")
+          setCommandIndex(0)
+          return
+        }
+        if (command.name === "/unset-claude-env") {
+          if (shell.kind === "unsupported") {
+            setInputMessage(shell.reason)
+            setInputValue("")
+            setCommandIndex(0)
+            return
+          }
+          setMode("claude-env-unset-confirm")
           setInputValue("")
           setCommandIndex(0)
           return
@@ -331,8 +368,8 @@ export function CodexCodeApp(props: { port?: number }) {
       return
     }
     if (mode === "logs") {
-      if (key.upArrow) setLogsScroll((value) => Math.min(value + 1, Math.max(0, requestLogs.length - 1)))
-      if (key.downArrow) setLogsScroll((value) => Math.max(0, value - 1))
+      if (key.upArrow) setLogsSelected((value) => Math.max(0, value - 1))
+      if (key.downArrow) setLogsSelected((value) => Math.min(Math.max(0, requestLogs.length - 1), value + 1))
       return
     }
     if (mode === "claude-env-confirm") {
@@ -343,9 +380,9 @@ export function CodexCodeApp(props: { port?: number }) {
         void writeClaudeEnvironmentConfig(authFile, claudeEnvDraft).catch((error) =>
           setInputMessage(`Claude environment saved failed: ${error instanceof Error ? error.message : String(error)}`),
         )
-        void echoClaudeEnvironment(claudeEnvDraft, baseUrl(hostname, port), shell)
-          .then((output) => setCommandOutput({ title: "Claude environment", output }))
-          .catch((error) => setCommandOutput({ title: "Claude environment echo failed", output: error instanceof Error ? error.message : String(error) }))
+        void runClaudeEnvironmentSet(claudeEnvDraft, baseUrl(hostname, port), shell, { authFile })
+          .then((output) => setCommandOutput({ title: "Set Claude environment - env | grep ANTHROPIC", output }))
+          .catch((error) => setCommandOutput({ title: "Set Claude environment failed", output: error instanceof Error ? error.message : String(error) }))
       }
       if (input === "n") {
         setMode("home")
@@ -353,9 +390,24 @@ export function CodexCodeApp(props: { port?: number }) {
       }
       return
     }
+    if (mode === "claude-env-unset-confirm") {
+      if (input === "y") {
+        unsetClaudeEnvironment()
+        setMode("home")
+        setInputMessage("Claude environment unset")
+        void runClaudeEnvironmentUnset(shell, { authFile })
+          .then((output) => setCommandOutput({ title: "Unset Claude environment - env | grep ANTHROPIC", output }))
+          .catch((error) => setCommandOutput({ title: "Unset Claude environment echo failed", output: error instanceof Error ? error.message : String(error) }))
+      }
+      if (input === "n") {
+        setMode("home")
+        setInputMessage("Claude environment unset cancelled")
+      }
+      return
+    }
     if (mode === "claude-env-editor") {
-      if (key.upArrow) setClaudeEnvIndex((value) => (value - 1 + 3) % 3)
-      else if (key.downArrow) setClaudeEnvIndex((value) => (value + 1) % 3)
+      if (key.upArrow) setClaudeEnvIndex((value) => (value - 1 + CLAUDE_MODEL_ENV_KEYS.length) % CLAUDE_MODEL_ENV_KEYS.length)
+      else if (key.downArrow) setClaudeEnvIndex((value) => (value + 1) % CLAUDE_MODEL_ENV_KEYS.length)
       else if (input && !key.leftArrow && !key.rightArrow) setClaudeEnvDraft((draft) => updateClaudeEnvDraft(draft, claudeEnvIndex, (value) => `${value}${input}`))
       return
     }
@@ -386,7 +438,7 @@ export function CodexCodeApp(props: { port?: number }) {
     <Box flexDirection="column" paddingX={1} paddingY={1}>
       <Box marginLeft={1}>
         <Text color="#d97757">─── </Text>
-        <Text color="#aab3cf">v0.1.0 - Author: alvin0 - chaulamdinhai@gmail.com </Text>
+        <Text color="#aab3cf">v{pkg.version} - Author: {pkg.author} </Text>
         <Text color="#d97757">────────────────────────────────────────</Text>
       </Box>
       <Box borderStyle="round" borderColor="#d97757" minHeight={18}>
@@ -402,11 +454,13 @@ export function CodexCodeApp(props: { port?: number }) {
       {mode === "logs" && (
         <>
           <CommandInput value={inputValue} message={inputMessage} selected={commandIndex} />
-          <RequestLogsPanel logs={requestLogs} scroll={logsScroll} />
+          <RequestLogsPanel logs={requestLogs} selected={logsSelected} />
         </>
       )}
       {(mode === "claude-env-editor" || mode === "claude-env-confirm") ? (
         <ClaudeEnvironmentEditor draft={claudeEnvDraft} selected={claudeEnvIndex} baseUrl={baseUrl(hostname, port)} confirm={mode === "claude-env-confirm"} shell={shell.kind === "unsupported" ? "posix" : shell.kind} />
+      ) : mode === "claude-env-unset-confirm" ? (
+        <ClaudeEnvironmentUnsetConfirm shell={shell.kind === "unsupported" ? "posix" : shell.kind} />
       ) : mode === "connect-account" ? (
         <ConnectAccountWizard draft={connectDraft} step={connectStep} saving={connectSaving} />
       ) : (
@@ -438,8 +492,7 @@ function updateConnectDraft(draft: ConnectAccountDraft, step: number, update: (v
 }
 
 function updateClaudeEnvDraft(draft: ClaudeEnvironmentDraft, index: number, update: (value: string) => string): ClaudeEnvironmentDraft {
-  const keys = ["ANTHROPIC_DEFAULT_OPUS_MODEL", "ANTHROPIC_DEFAULT_SONNET_MODEL", "ANTHROPIC_DEFAULT_HAIKU_MODEL"] as const
-  const key = keys[index]
+  const key = CLAUDE_MODEL_ENV_KEYS[index]
   return {
     ...draft,
     [key]: update(draft[key]),

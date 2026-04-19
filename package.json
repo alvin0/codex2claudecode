@@ -3,6 +3,9 @@
   "version": "0.1.3",
   "author": "alvin0 <chaulamdinhai@gmail.com>",
   "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  },
   "homepage": "https://github.com/alvin0/codex2claudecode#readme",
   "repository": {
     "type": "git",

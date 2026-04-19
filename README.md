@@ -9,11 +9,26 @@ Run OpenAI Codex/ChatGPT account credentials behind a local Claude-compatible AP
 
 ## Quick Start
 
+codex2claudecode runs on Bun. Install Bun first:
+
+```sh
+curl -fsSL https://bun.sh/install | bash
+```
+
+Windows PowerShell:
+
+```powershell
+powershell -c "irm bun.sh/install.ps1 | iex"
+```
+
 Run with npm:
 
 ```sh
 npx codex2claudecode
 ```
+
+`npx` uses a small Node launcher that checks for Bun and prints install
+instructions if Bun is missing.
 
 Run with Bun:
 
@@ -73,9 +88,9 @@ After the server is running, point Claude Code at it:
 macOS/Linux:
 
 ```sh
-export ANTHROPIC_AUTH_TOKEN=""
 export ANTHROPIC_BASE_URL="http://127.0.0.1:8787"
 export ANTHROPIC_API_KEY=""
+export ANTHROPIC_MODEL="gpt-5.4"
 export ANTHROPIC_DEFAULT_OPUS_MODEL="gpt-5.4_high"
 export ANTHROPIC_DEFAULT_SONNET_MODEL="gpt-5.3-codex_high"
 export ANTHROPIC_DEFAULT_HAIKU_MODEL="gpt-5.4-mini_high"
@@ -84,9 +99,9 @@ export ANTHROPIC_DEFAULT_HAIKU_MODEL="gpt-5.4-mini_high"
 PowerShell:
 
 ```powershell
-$env:ANTHROPIC_AUTH_TOKEN=""
 $env:ANTHROPIC_BASE_URL="http://127.0.0.1:8787"
 $env:ANTHROPIC_API_KEY=""
+$env:ANTHROPIC_MODEL="gpt-5.4"
 $env:ANTHROPIC_DEFAULT_OPUS_MODEL="gpt-5.4_high"
 $env:ANTHROPIC_DEFAULT_SONNET_MODEL="gpt-5.3-codex_high"
 $env:ANTHROPIC_DEFAULT_HAIKU_MODEL="gpt-5.4-mini_high"
@@ -122,8 +137,18 @@ CODEX2CLAUDECODE_SHELL=powershell npx codex2claudecode
 /limits           Show Codex account and model limits
 /logs             Show recent runtime request logs
 /set-claude-env   Edit Claude Code environment exports
+/unset-claude-env Remove Claude Code environment variables
 /quit             Quit codex2claudecode
 ```
+
+`/set-claude-env` applies values to the running codex2claudecode process. For
+POSIX shells, it writes `~/.codex2claudecode/.claude-env.sh` and adds a managed
+source block to common shell profiles (`.zshrc`, `.zprofile`, `.bashrc`,
+`.bash_profile`, or `.profile`) so future terminals load the values. Existing
+terminals still need to source the profile or be reopened. For PowerShell, it
+writes user environment variables.
+`/unset-claude-env` asks for confirmation, then unsets the running process and
+persists the corresponding unset/remove operation for future terminals.
 
 ## Local API
 

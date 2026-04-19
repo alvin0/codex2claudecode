@@ -9,6 +9,7 @@ export const UI_COMMANDS: UiCommand[] = [
   { name: "/connect", description: "Add or update a Codex account" },
   { name: "/account", description: "Switch Codex account for this runtime" },
   { name: "/set-claude-env", description: "Edit and apply Claude Code environment exports" },
+  { name: "/unset-claude-env", description: "Unset Claude Code environment variables" },
   { name: "/quit", description: "Quit Codex2ClaudeCode" },
 ]
 

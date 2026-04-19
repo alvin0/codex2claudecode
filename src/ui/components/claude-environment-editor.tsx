@@ -9,6 +9,8 @@ export function ClaudeEnvironmentEditor(props: {
   confirm: boolean
   shell: ShellKind
 }) {
+  const fixedLines = claudeEnvironmentCommands(props.draft, props.baseUrl, props.shell).filter((line) => !CLAUDE_MODEL_ENV_KEYS.some((key) => line.includes(`${key}=`)))
+
   return (
     <Box flexDirection="column" marginTop={1}>
       <Text color="#aab3cf">────────────────────────────────────────────────────────────────────────────</Text>
@@ -17,7 +19,7 @@ export function ClaudeEnvironmentEditor(props: {
         <Text color="gray">  ↑/↓ field · type edit · Enter {props.confirm ? "apply" : "confirm"} · Esc cancel</Text>
       </Box>
       <Box marginTop={1} flexDirection="column">
-        {claudeEnvironmentCommands(props.draft, props.baseUrl, props.shell).slice(0, 3).map((line) => (
+        {fixedLines.map((line) => (
           <Text key={line} color="gray">{line}</Text>
         ))}
         {CLAUDE_MODEL_ENV_KEYS.map((key, index) => (
@@ -26,7 +28,7 @@ export function ClaudeEnvironmentEditor(props: {
               <Text color={props.selected === index ? "#d97757" : "gray"}>{props.selected === index ? "›" : " "}</Text>
             </Box>
             <Box width={38}>
-              <Text color={props.selected === index ? "white" : "#aab3cf"}>export {key}=</Text>
+              <Text color={props.selected === index ? "white" : "#aab3cf"}>{props.shell === "powershell" ? `$env:${key}=` : `export ${key}=`}</Text>
             </Box>
             <Text color={props.selected === index ? "#d97757" : "gray"}>"{props.draft[key]}"</Text>
             {props.selected === index && !props.confirm && <Text inverse> </Text>}
@@ -36,7 +38,7 @@ export function ClaudeEnvironmentEditor(props: {
       {props.confirm && (
         <Box marginTop={1} flexDirection="column">
           <Text color="yellow">Apply these values to the current Codex2ClaudeCode process?</Text>
-          <Text color="gray">Press Enter or y to apply · n or Esc to cancel. Shell parent env cannot be changed from here.</Text>
+          <Text color="gray">Press Enter or y to execute set · n or Esc to cancel.</Text>
         </Box>
       )}
     </Box>

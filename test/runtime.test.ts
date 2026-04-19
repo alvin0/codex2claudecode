@@ -91,7 +91,7 @@ describe("runtime server", () => {
       expect(logs).toEqual(
         expect.arrayContaining([
           expect.objectContaining({ method: "GET", path: "/health", status: 200, durationMs: expect.any(Number), at: expect.any(String) }),
-          expect.objectContaining({ method: "POST", path: "/v1/unknown", status: 404, error: "-" }),
+          expect.objectContaining({ method: "POST", path: "/v1/unknown", status: 404, error: "Not found" }),
         ]),
       )
     } finally {
@@ -116,6 +116,25 @@ describe("runtime server", () => {
         expect.arrayContaining([
           expect.objectContaining({ status: 418, error: "upstream bad" }),
           expect.objectContaining({ status: 500, error: expect.stringContaining("JSON") }),
+        ]),
+      )
+    } finally {
+      server.stop(true)
+    }
+  })
+
+  test("logs Claude endpoint error messages", async () => {
+    globalThis.fetch = mockFetch()
+    const logs: any[] = []
+    const server = await startRuntime({ authFile: await authFile(), port: 0, healthIntervalMs: 0, logBody: false, onRequestLog: (entry) => logs.push(entry) })
+    const base = `http://${server.hostname}:${server.port}`
+    try {
+      const invalid = await originalFetch(`${base}/v1/messages`, { method: "POST", body: "{" })
+      expect(invalid.status).toBe(400)
+      expect(await invalid.json()).toMatchObject({ error: { message: expect.stringContaining("Invalid JSON") } })
+      expect(logs).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ method: "POST", path: "/v1/messages", status: 400, error: expect.stringContaining("Invalid JSON") }),
         ]),
       )
     } finally {
