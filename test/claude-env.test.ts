@@ -3,7 +3,17 @@ import { mkdtemp, readFile, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
 
-import { applyClaudeEnvironment, claudeEnvironmentConfigPath, claudeEnvironmentExports, echoClaudeEnvironment, readClaudeEnvironmentConfig, writeClaudeEnvironmentConfig } from "../src/ui/claude-env"
+import {
+  applyClaudeEnvironment,
+  claudeEnvironmentCommands,
+  claudeEnvironmentConfigPath,
+  claudeEnvironmentExports,
+  claudeEnvironmentPowerShellCommands,
+  echoClaudeEnvironment,
+  detectShell,
+  readClaudeEnvironmentConfig,
+  writeClaudeEnvironmentConfig,
+} from "../src/ui/claude-env"
 
 const keys = [
   "ANTHROPIC_AUTH_TOKEN",
@@ -31,9 +41,19 @@ test("formats, applies, and echoes Claude environment exports", async () => {
     ANTHROPIC_DEFAULT_HAIKU_MODEL: "gpt-5.4-mini_high",
   }
   expect(claudeEnvironmentExports(draft, "http://127.0.0.1:8787")).toContain('export ANTHROPIC_BASE_URL="http://127.0.0.1:8787"')
+  expect(claudeEnvironmentCommands(draft, "http://127.0.0.1:8787", "posix")).toContain('export ANTHROPIC_BASE_URL="http://127.0.0.1:8787"')
+  expect(claudeEnvironmentPowerShellCommands(draft, "http://127.0.0.1:8787")).toContain('$env:ANTHROPIC_BASE_URL="http://127.0.0.1:8787"')
+  expect(claudeEnvironmentCommands(draft, "http://127.0.0.1:8787", "powershell")).toContain('$env:ANTHROPIC_DEFAULT_OPUS_MODEL="gpt-5.4_high"')
   applyClaudeEnvironment(draft, "http://127.0.0.1:8787")
   expect(process.env.ANTHROPIC_DEFAULT_OPUS_MODEL).toBe("gpt-5.4_high")
   await expect(echoClaudeEnvironment(draft, "http://127.0.0.1:8787")).resolves.toContain('export ANTHROPIC_DEFAULT_HAIKU_MODEL="gpt-5.4-mini_high"')
+})
+
+test("detects supported and unsupported shells", () => {
+  expect(detectShell({ SHELL: "/bin/zsh" }, "darwin")).toEqual({ kind: "posix", name: "zsh" })
+  expect(detectShell({ CODEX2CLAUDECODE_SHELL: "powershell" }, "linux")).toEqual({ kind: "powershell", name: "powershell" })
+  expect(detectShell({ SHELL: "/usr/bin/fish" }, "linux")).toMatchObject({ kind: "unsupported", name: "fish" })
+  expect(detectShell({ CODEX2CLAUDECODE_SHELL: "cmd" }, "win32")).toMatchObject({ kind: "unsupported", name: "cmd" })
 })
 
 test("persists Claude model env defaults and keeps base URL dynamic", async () => {

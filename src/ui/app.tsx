@@ -9,7 +9,7 @@ import { resolveAuthFile } from "../paths"
 import { startRuntime } from "../runtime"
 import type { AuthFileData, RequestLogEntry } from "../types"
 import { authDataToAccounts, selectedAccountIndex } from "./accounts"
-import { applyClaudeEnvironment, defaultClaudeEnvironment, echoClaudeEnvironment, readClaudeEnvironmentConfig, writeClaudeEnvironmentConfig, type ClaudeEnvironmentDraft } from "./claude-env"
+import { applyClaudeEnvironment, defaultClaudeEnvironment, detectShell, echoClaudeEnvironment, readClaudeEnvironmentConfig, writeClaudeEnvironmentConfig, type ClaudeEnvironmentDraft } from "./claude-env"
 import { filterCommands } from "./commands"
 import { AccountInfoPanel } from "./components/account-info-panel"
 import { AccountSelector } from "./components/account-selector"
@@ -47,6 +47,7 @@ export function CodexCodeApp(props: { port?: number }) {
   const [claudeEnvDraft, setClaudeEnvDraft] = useState<ClaudeEnvironmentDraft>(() => defaultClaudeEnvironment())
   const [claudeEnvIndex, setClaudeEnvIndex] = useState(0)
   const [commandOutput, setCommandOutput] = useState<{ title: string; output: string }>()
+  const shell = useMemo(() => detectShell(), [])
   const [connectDraft, setConnectDraft] = useState<ConnectAccountDraft>({ accountId: "", accessToken: "", refreshToken: "" })
   const [connectSourceIndex, setConnectSourceIndex] = useState(0)
   const [connectStep, setConnectStep] = useState(0)
@@ -237,7 +238,7 @@ export function CodexCodeApp(props: { port?: number }) {
         void writeClaudeEnvironmentConfig(authFile, claudeEnvDraft).catch((error) =>
           setInputMessage(`Claude environment saved failed: ${error instanceof Error ? error.message : String(error)}`),
         )
-        void echoClaudeEnvironment(claudeEnvDraft, baseUrl(hostname, port))
+        void echoClaudeEnvironment(claudeEnvDraft, baseUrl(hostname, port), shell)
           .then((output) => setCommandOutput({ title: "Claude environment", output }))
           .catch((error) => setCommandOutput({ title: "Claude environment echo failed", output: error instanceof Error ? error.message : String(error) }))
         return
@@ -285,6 +286,12 @@ export function CodexCodeApp(props: { port?: number }) {
           return
         }
         if (command.name === "/set-claude-env") {
+          if (shell.kind === "unsupported") {
+            setInputMessage(shell.reason)
+            setInputValue("")
+            setCommandIndex(0)
+            return
+          }
           void readClaudeEnvironmentConfig(authFile)
             .then((draft) => setClaudeEnvDraft(draft))
             .catch(() => setClaudeEnvDraft(defaultClaudeEnvironment()))
@@ -336,7 +343,7 @@ export function CodexCodeApp(props: { port?: number }) {
         void writeClaudeEnvironmentConfig(authFile, claudeEnvDraft).catch((error) =>
           setInputMessage(`Claude environment saved failed: ${error instanceof Error ? error.message : String(error)}`),
         )
-        void echoClaudeEnvironment(claudeEnvDraft, baseUrl(hostname, port))
+        void echoClaudeEnvironment(claudeEnvDraft, baseUrl(hostname, port), shell)
           .then((output) => setCommandOutput({ title: "Claude environment", output }))
           .catch((error) => setCommandOutput({ title: "Claude environment echo failed", output: error instanceof Error ? error.message : String(error) }))
       }
@@ -399,7 +406,7 @@ export function CodexCodeApp(props: { port?: number }) {
         </>
       )}
       {(mode === "claude-env-editor" || mode === "claude-env-confirm") ? (
-        <ClaudeEnvironmentEditor draft={claudeEnvDraft} selected={claudeEnvIndex} baseUrl={baseUrl(hostname, port)} confirm={mode === "claude-env-confirm"} />
+        <ClaudeEnvironmentEditor draft={claudeEnvDraft} selected={claudeEnvIndex} baseUrl={baseUrl(hostname, port)} confirm={mode === "claude-env-confirm"} shell={shell.kind === "unsupported" ? "posix" : shell.kind} />
       ) : mode === "connect-account" ? (
         <ConnectAccountWizard draft={connectDraft} step={connectStep} saving={connectSaving} />
       ) : (

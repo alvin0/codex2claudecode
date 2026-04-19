@@ -15,6 +15,8 @@ export const CLAUDE_MODEL_ENV_KEYS = [
 
 export type ClaudeModelEnvKey = (typeof CLAUDE_MODEL_ENV_KEYS)[number]
 export type ClaudeEnvironmentDraft = Record<ClaudeModelEnvKey, string>
+export type ShellKind = "posix" | "powershell"
+export type ShellDetection = { kind: ShellKind; name: string } | { kind: "unsupported"; name: string; reason: string }
 
 export function defaultClaudeEnvironment(): ClaudeEnvironmentDraft {
   return {
@@ -42,11 +44,27 @@ export async function writeClaudeEnvironmentConfig(authFile: string, draft: Clau
 }
 
 export function claudeEnvironmentExports(draft: ClaudeEnvironmentDraft, baseUrl: string) {
+  return claudeEnvironmentCommands(draft, baseUrl, "posix")
+}
+
+export function claudeEnvironmentCommands(draft: ClaudeEnvironmentDraft, baseUrl: string, shell: ShellKind | ShellDetection = detectShell()) {
+  const kind = typeof shell === "string" ? shell : shell.kind
+  if (kind === "unsupported") throw new Error(typeof shell === "string" ? "Unsupported shell" : shell.reason)
+  if (kind === "powershell") return claudeEnvironmentPowerShellCommands(draft, baseUrl)
   return [
     `export ANTHROPIC_AUTH_TOKEN=${quoteShell(CLAUDE_ENV_FIXED.ANTHROPIC_AUTH_TOKEN)}`,
     `export ANTHROPIC_BASE_URL=${quoteShell(baseUrl)}`,
     `export ANTHROPIC_API_KEY=${quoteShell(CLAUDE_ENV_FIXED.ANTHROPIC_API_KEY)}`,
     ...CLAUDE_MODEL_ENV_KEYS.map((key) => `export ${key}=${quoteShell(draft[key])}`),
+  ]
+}
+
+export function claudeEnvironmentPowerShellCommands(draft: ClaudeEnvironmentDraft, baseUrl: string) {
+  return [
+    `$env:ANTHROPIC_AUTH_TOKEN=${quotePowerShell(CLAUDE_ENV_FIXED.ANTHROPIC_AUTH_TOKEN)}`,
+    `$env:ANTHROPIC_BASE_URL=${quotePowerShell(baseUrl)}`,
+    `$env:ANTHROPIC_API_KEY=${quotePowerShell(CLAUDE_ENV_FIXED.ANTHROPIC_API_KEY)}`,
+    ...CLAUDE_MODEL_ENV_KEYS.map((key) => `$env:${key}=${quotePowerShell(draft[key])}`),
   ]
 }
 
@@ -59,9 +77,11 @@ export function applyClaudeEnvironment(draft: ClaudeEnvironmentDraft, baseUrl: s
   })
 }
 
-export async function echoClaudeEnvironment(draft: ClaudeEnvironmentDraft, baseUrl: string) {
-  const lines = claudeEnvironmentExports(draft, baseUrl)
-  const proc = Bun.spawn(["echo", lines.join("\n")], {
+export async function echoClaudeEnvironment(draft: ClaudeEnvironmentDraft, baseUrl: string, shell: ShellKind | ShellDetection = detectShell()) {
+  const output = claudeEnvironmentCommands(draft, baseUrl, shell).join("\n")
+  const kind = typeof shell === "string" ? shell : shell.kind
+  if (kind === "unsupported") throw new Error(typeof shell === "string" ? "Unsupported shell" : shell.reason)
+  const proc = Bun.spawn(echoCommand(output, kind), {
     stdout: "pipe",
     stderr: "pipe",
   })
@@ -72,6 +92,29 @@ export async function echoClaudeEnvironment(draft: ClaudeEnvironmentDraft, baseU
 
 function quoteShell(value: string) {
   return `"${value.replace(/(["\\$`])/g, "\\$1")}"`
+}
+
+function quotePowerShell(value: string) {
+  return `"${value.replace(/[`"$]/g, (match) => `\`${match}`)}"`
+}
+
+export function detectShell(env: NodeJS.ProcessEnv = process.env, platform = process.platform): ShellDetection {
+  const override = env.CODEX2CLAUDECODE_SHELL?.toLowerCase()
+  if (override === "posix" || override === "powershell") return { kind: override, name: override }
+  if (override) return { kind: "unsupported", name: override, reason: `Unsupported shell: ${override}` }
+  if (platform === "win32") {
+    const processName = (env.PSModulePath || env.POWERSHELL_DISTRIBUTION_CHANNEL ? "powershell" : env.ComSpec || "cmd").toLowerCase()
+    if (processName.includes("powershell") || processName.includes("pwsh")) return { kind: "powershell", name: "PowerShell" }
+    return { kind: "unsupported", name: "cmd", reason: "Unsupported shell: cmd. Use PowerShell or set CODEX2CLAUDECODE_SHELL=powershell." }
+  }
+  const shell = (env.SHELL ?? "sh").split("/").pop()?.toLowerCase() ?? "sh"
+  if (["sh", "bash", "zsh", "dash", "ksh"].includes(shell)) return { kind: "posix", name: shell }
+  return { kind: "unsupported", name: shell, reason: `Unsupported shell: ${shell}. Supported shells: sh, bash, zsh, dash, ksh, PowerShell.` }
+}
+
+function echoCommand(output: string, shell: ShellKind) {
+  if (shell === "powershell") return ["powershell", "-NoProfile", "-Command", `Write-Output @'\n${output}\n'@`]
+  return ["echo", output]
 }
 
 function normalizeClaudeEnvironment(input: Partial<ClaudeEnvironmentDraft>): ClaudeEnvironmentDraft {

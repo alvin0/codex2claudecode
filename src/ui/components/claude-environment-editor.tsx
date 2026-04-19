@@ -1,12 +1,13 @@
 import { Box, Text } from "ink"
 
-import { CLAUDE_MODEL_ENV_KEYS, claudeEnvironmentExports, type ClaudeEnvironmentDraft } from "../claude-env"
+import { CLAUDE_MODEL_ENV_KEYS, claudeEnvironmentCommands, type ClaudeEnvironmentDraft, type ShellKind } from "../claude-env"
 
 export function ClaudeEnvironmentEditor(props: {
   draft: ClaudeEnvironmentDraft
   selected: number
   baseUrl: string
   confirm: boolean
+  shell: ShellKind
 }) {
   return (
     <Box flexDirection="column" marginTop={1}>
@@ -16,7 +17,7 @@ export function ClaudeEnvironmentEditor(props: {
         <Text color="gray">  ↑/↓ field · type edit · Enter {props.confirm ? "apply" : "confirm"} · Esc cancel</Text>
       </Box>
       <Box marginTop={1} flexDirection="column">
-        {claudeEnvironmentExports(props.draft, props.baseUrl).slice(0, 3).map((line) => (
+        {claudeEnvironmentCommands(props.draft, props.baseUrl, props.shell).slice(0, 3).map((line) => (
           <Text key={line} color="gray">{line}</Text>
         ))}
         {CLAUDE_MODEL_ENV_KEYS.map((key, index) => (

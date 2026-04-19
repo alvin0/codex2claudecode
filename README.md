@@ -1,8 +1,11 @@
 # codex2claudecode
 
+[![Publish to npm](https://github.com/alvin0/codex2claudecode/actions/workflows/publish.yml/badge.svg)](https://github.com/alvin0/codex2claudecode/actions/workflows/publish.yml)
+[![npm version](https://img.shields.io/npm/v/codex2claudecode.svg)](https://www.npmjs.com/package/codex2claudecode)
+
 Run OpenAI Codex/ChatGPT account credentials behind a local Claude-compatible API for Claude Code.
 
-![codex2claudecode overview](./images/overview.png)
+![codex2claudecode overview](https://cdn.jsdelivr.net/npm/codex2claudecode@latest/images/overview.png)
 
 ## Quick Start
 
@@ -23,12 +26,6 @@ Use a custom port:
 ```sh
 npx codex2claudecode --port 8786
 bunx codex2claudecode -p 8786
-```
-
-Run without the Ink UI:
-
-```sh
-CODEX_NO_UI=1 npx codex2claudecode
 ```
 
 ## Connect an Account
@@ -73,6 +70,8 @@ Manual mode uses the refresh token to fetch a fresh access token before saving.
 
 After the server is running, point Claude Code at it:
 
+macOS/Linux:
+
 ```sh
 export ANTHROPIC_AUTH_TOKEN=""
 export ANTHROPIC_BASE_URL="http://127.0.0.1:8787"
@@ -82,13 +81,38 @@ export ANTHROPIC_DEFAULT_SONNET_MODEL="gpt-5.3-codex_high"
 export ANTHROPIC_DEFAULT_HAIKU_MODEL="gpt-5.4-mini_high"
 ```
 
+PowerShell:
+
+```powershell
+$env:ANTHROPIC_AUTH_TOKEN=""
+$env:ANTHROPIC_BASE_URL="http://127.0.0.1:8787"
+$env:ANTHROPIC_API_KEY=""
+$env:ANTHROPIC_DEFAULT_OPUS_MODEL="gpt-5.4_high"
+$env:ANTHROPIC_DEFAULT_SONNET_MODEL="gpt-5.3-codex_high"
+$env:ANTHROPIC_DEFAULT_HAIKU_MODEL="gpt-5.4-mini_high"
+```
+
 The UI command:
 
 ```text
 /set-claude-env
 ```
 
-lets you edit the three default model values and echoes the export commands. `ANTHROPIC_BASE_URL` is always generated from the active host/port.
+lets you edit the three default model values and echoes shell-specific commands. The app auto-detects the current shell:
+
+```text
+sh/bash/zsh/dash/ksh -> export ...
+PowerShell           -> $env:...
+```
+
+Unsupported shells show a warning in the UI instead of printing commands that may not work. If detection is wrong, override it:
+
+```sh
+CODEX2CLAUDECODE_SHELL=posix npx codex2claudecode
+CODEX2CLAUDECODE_SHELL=powershell npx codex2claudecode
+```
+
+`ANTHROPIC_BASE_URL` is always generated from the active host/port.
 
 ## UI Commands
 
@@ -135,69 +159,10 @@ gpt-5.4-mini_low
 Suffixes are mapped to the OpenAI Responses `reasoning.effort` field:
 
 ```text
-none, low, medium, high, xhigh
+none, low, medium (default), high, xhigh
 ```
 
 If no suffix is supplied for a GPT-5 model, `medium` is used.
-
-## Storage
-
-By default, codex2claudecode stores data in:
-
-```text
-~/.codex2claudecode/
-```
-
-Files:
-
-```text
-auth-codex.json      OAuth tokens for one or more Codex accounts
-.account-info.json   Non-secret account metadata and active account state
-.claude-env.json     Saved Claude Code model defaults
-```
-
-`auth-codex.json` uses an array:
-
-```json
-[
-  {
-    "type": "oauth",
-    "access": "...",
-    "refresh": "...",
-    "expires": 1777190270176,
-    "accountId": "..."
-  }
-]
-```
-
-`.account-info.json` uses account IDs as keys:
-
-```json
-{
-  "activeAccount": "b444d19b-3e17-4b93-8b78-32111b4e797c",
-  "accounts": {
-    "b444d19b-3e17-4b93-8b78-32111b4e797c": {
-      "email": "you@example.com",
-      "plan": "pro",
-      "accountId": "b444d19b-3e17-4b93-8b78-32111b4e797c",
-      "updatedAt": "2026-04-19T00:00:00.000Z"
-    }
-  }
-}
-```
-
-## Environment Variables
-
-```sh
-HOST=127.0.0.1
-PORT=8787
-CODEX_AUTH_FILE=~/.codex2claudecode/auth-codex.json
-CODEX_AUTH_ACCOUNT=<accountId>
-LOG_BODY=0
-CODEX_NO_UI=1
-```
-
-CLI `--port` / `-p` takes precedence over `PORT`.
 
 ## Development
 
@@ -213,11 +178,53 @@ bun run test
 bun run coverage
 ```
 
+Current deterministic test status:
+
+```text
+bun run check
+PASS - Bundled 163 modules
+
+bun run test
+PASS - 43 pass, 1 filtered out, 0 fail
+```
+
 Live smoke test using `auth-codex.json`:
 
 ```sh
 bun run test:live
 ```
+
+The publish workflow also runs:
+
+```text
+bun install --frozen-lockfile
+bun run check
+bun run test
+npm pack --dry-run
+npm publish --access public --provenance
+```
+
+## CI Evidence
+
+GitHub Actions workflow:
+
+```text
+https://github.com/alvin0/codex2claudecode/actions/workflows/publish.yml
+```
+
+Every publish run uploads an artifact named `npm-publish-evidence` containing:
+
+```text
+check.log
+test.log
+npm-pack.log
+```
+
+Use those artifacts as release evidence that the package was built, tested, and dry-packed before publishing.
+
+## License
+
+MIT. See [LICENSE](./LICENSE).
 
 ## Notes
 

@@ -1,0 +1,61 @@
+name: Publish to npm
+
+on:
+  workflow_dispatch:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build check
+        run: |
+          set -o pipefail
+          bun run check 2>&1 | tee check.log
+
+      - name: Test
+        run: |
+          set -o pipefail
+          bun run test 2>&1 | tee test.log
+
+      - name: Pack dry run
+        run: |
+          set -o pipefail
+          npm pack --dry-run 2>&1 | tee npm-pack.log
+
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-publish-evidence
+          path: |
+            check.log
+            test.log
+            npm-pack.log
+
+      - name: Publish
+        run: npm publish --access public --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
