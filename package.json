@@ -1,6 +1,6 @@
 {
   "name": "codex2claudecode",
-  "version": "0.1.3",
+  "version": "0.1.5",
   "author": "alvin0 <chaulamdinhai@gmail.com>",
   "license": "MIT",
   "engines": {
@@ -20,6 +20,7 @@
   },
   "files": [
     "bin",
+    "dist",
     "images",
     "src",
     "index.ts",
@@ -27,10 +28,12 @@
     "LICENSE"
   ],
   "scripts": {
+    "build": "bun build index.ts --target=bun --outfile=dist/index.js",
     "start": "bun index.ts",
     "dev": "bun --watch index.ts",
     "example": "CODEX_RUN_EXAMPLE=1 bun index.ts",
-    "check": "bun build index.ts --target=bun --outfile=/tmp/codex2claudecode.js",
+    "check": "bun run build",
+    "prepublishOnly": "bun run build",
     "test": "bun test test/*.test.ts --test-name-pattern='^(?!.*live Codex smoke test)'",
     "coverage": "bun test test/*.test.ts --test-name-pattern='^(?!.*live Codex smoke test)' --coverage --coverage-reporter=text",
     "test:live": "CODEX_AUTH_FILE=auth-codex.json bun test test/live.test.ts"
