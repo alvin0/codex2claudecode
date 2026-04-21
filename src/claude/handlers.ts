@@ -1,13 +1,18 @@
 import { LOG_BODY_PREVIEW_LIMIT } from "../constants"
 import type { CodexStandaloneClient } from "../client"
 import { normalizeReasoningBody } from "../reasoning"
-import type { ClaudeMessagesRequest, JsonObject } from "../types"
+import type { ClaudeMessagesRequest, JsonObject, RequestProxyLog } from "../types"
 
 import { claudeToResponsesBody, estimateClaudeInputTokens } from "./convert"
 import { claudeErrorResponse } from "./errors"
 import { collectClaudeMessage, claudeStreamResponse } from "./response"
 
-export async function handleClaudeMessages(client: CodexStandaloneClient, request: Request, requestId: string, logBody?: boolean) {
+export async function handleClaudeMessages(
+  client: CodexStandaloneClient,
+  request: Request,
+  requestId: string,
+  options?: { logBody?: boolean; onProxy?: (entry: RequestProxyLog) => void },
+) {
   let body: ClaudeMessagesRequest
   try {
     body = (await request.json()) as ClaudeMessagesRequest
@@ -18,18 +23,40 @@ export async function handleClaudeMessages(client: CodexStandaloneClient, reques
   if (!Array.isArray(body.messages)) return claudeErrorResponse("Claude messages request requires messages", 400)
 
   const responsesBody = claudeToResponsesBody(body)
-  if (logBody) logUpstreamBody(requestId, responsesBody)
+  const requestBody = stringifyBody(responsesBody)
+  if (options?.logBody) logUpstreamBody(requestId, responsesBody)
 
+  const started = Date.now()
   const response = await client.proxy(responsesBody, {
     headers: request.headers,
     signal: request.signal,
   })
+  const durationMs = Date.now() - started
 
   if (!response.ok) {
     const text = await response.text()
+    options?.onProxy?.({
+      label: "Codex responses",
+      method: "POST",
+      target: "/v1/responses",
+      status: response.status,
+      durationMs,
+      error: redactSecrets(text).slice(0, LOG_BODY_PREVIEW_LIMIT) || "-",
+      requestBody,
+    })
     console.error(`Claude messages upstream error ${response.status}: ${text.slice(0, LOG_BODY_PREVIEW_LIMIT)}`)
     return claudeErrorResponse(`Codex request failed: ${response.status} ${text}`, response.status)
   }
+
+  options?.onProxy?.({
+    label: "Codex responses",
+    method: "POST",
+    target: "/v1/responses",
+    status: response.status,
+    durationMs,
+    error: "-",
+    requestBody,
+  })
 
   if (body.stream) return claudeStreamResponse(response, body)
   return Response.json(await collectClaudeMessage(response, body))
@@ -52,8 +79,16 @@ export async function handleClaudeCountTokens(request: Request) {
 
 function logUpstreamBody(id: string, body: JsonObject) {
   console.log(
-    `[${id}] upstream body ${redactSecrets(JSON.stringify(normalizeReasoningBody(body))).slice(0, LOG_BODY_PREVIEW_LIMIT)}`,
+    `[${id}] upstream body ${previewText(stringifyBody(body))}`,
   )
+}
+
+function stringifyBody(body: JsonObject) {
+  return redactSecrets(JSON.stringify(normalizeReasoningBody(body)))
+}
+
+function previewText(text: string) {
+  return text.slice(0, LOG_BODY_PREVIEW_LIMIT)
 }
 
 function redactSecrets(text: string) {

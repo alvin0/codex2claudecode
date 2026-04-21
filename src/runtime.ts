@@ -4,7 +4,7 @@ import { handleClaudeCountTokens, handleClaudeMessages } from "./claude"
 import { cors, responseHeaders } from "./http"
 import { resolveAuthFile } from "./paths"
 import { normalizeReasoningBody, normalizeRequestBody } from "./reasoning"
-import type { HealthStatus, JsonObject, RequestLogEntry, RuntimeOptions } from "./types"
+import type { HealthStatus, JsonObject, RequestLogEntry, RequestProxyLog, RuntimeOptions } from "./types"
 
 export async function startRuntime(options?: RuntimeOptions) {
   const authFile = resolveAuthFile(options?.authFile ?? process.env.CODEX_AUTH_FILE)
@@ -28,11 +28,13 @@ export async function startRuntime(options?: RuntimeOptions) {
       const requestId = crypto.randomUUID().slice(0, 8)
       const started = Date.now()
       const url = new URL(request.url)
-      const bodyPreview = logBody ? await readBodyPreview(request) : undefined
+      const requestBody = logBody ? await readLoggedBody(request) : undefined
+      const bodyPreview = requestBody ? previewText(requestBody) : undefined
+      const headersPreview = interestingHeaders(request.headers)
 
       if (!quiet) logRequestStart(requestId, request, url, bodyPreview)
 
-      async function requestLog(response: Response, durationMs: number, error?: string): Promise<RequestLogEntry> {
+      async function requestLog(response: Response, durationMs: number, error?: string, proxy?: RequestProxyLog): Promise<RequestLogEntry> {
         return {
           id: requestId,
           at: new Date().toISOString(),
@@ -41,17 +43,20 @@ export async function startRuntime(options?: RuntimeOptions) {
           status: response.status,
           durationMs,
           error: error ?? await responseErrorMessage(response),
+          requestHeaders: headersPreview,
+          requestBody,
+          proxy,
         }
       }
 
-      async function finish(response: Response) {
+      async function finish(response: Response, proxy?: RequestProxyLog) {
         const durationMs = Date.now() - started
         if (!quiet) logResponseEnd(requestId, request, url, response, durationMs)
-        onRequestLog?.(await requestLog(response, durationMs))
+        onRequestLog?.(await requestLog(response, durationMs, undefined, proxy))
         return response
       }
 
-      async function fail(error: unknown) {
+      async function fail(error: unknown, proxy?: RequestProxyLog) {
         const durationMs = Date.now() - started
         if (!quiet) logRequestError(requestId, request, url, error, durationMs)
         const response = cors(
@@ -64,7 +69,7 @@ export async function startRuntime(options?: RuntimeOptions) {
             { status: 500 },
           ),
         )
-        onRequestLog?.(await requestLog(response, durationMs, error instanceof Error ? error.message : String(error)))
+        onRequestLog?.(await requestLog(response, durationMs, error instanceof Error ? error.message : String(error), proxy))
         return response
       }
 
@@ -85,8 +90,10 @@ export async function startRuntime(options?: RuntimeOptions) {
       }
 
       if (request.method === "GET" && (url.pathname === "/usage" || url.pathname === "/wham/usage")) {
+        const proxy = await proxyRequestLog("Codex usage", "GET", "/usage", () => client.usage({ headers: request.headers, signal: request.signal }))
         return finish(
-          cors(await proxyUpstream(() => client.usage({ headers: request.headers, signal: request.signal }))),
+          cors(proxy.response),
+          proxy.entry,
         )
       }
 
@@ -94,8 +101,12 @@ export async function startRuntime(options?: RuntimeOptions) {
         request.method === "GET" &&
         (url.pathname === "/environments" || url.pathname === "/wham/environments")
       ) {
+        const proxy = await proxyRequestLog("Codex environments", "GET", "/environments", () =>
+          client.environments({ headers: request.headers, signal: request.signal }),
+        )
         return finish(
-          cors(await proxyUpstream(() => client.environments({ headers: request.headers, signal: request.signal }))),
+          cors(proxy.response),
+          proxy.entry,
         )
       }
 
@@ -104,7 +115,18 @@ export async function startRuntime(options?: RuntimeOptions) {
       }
 
       if (request.method === "POST" && (url.pathname === "/v1/messages" || url.pathname === "/v1/message")) {
-        return finish(cors(await handleClaudeMessages(client, request, requestId, logBody && !quiet)))
+        let proxy: RequestProxyLog | undefined
+        return finish(
+          cors(
+            await handleClaudeMessages(client, request, requestId, {
+              logBody: logBody && !quiet,
+              onProxy: (entry) => {
+                proxy = entry
+              },
+            }),
+          ),
+          proxy,
+        )
       }
 
       if (request.method !== "POST") {
@@ -118,13 +140,25 @@ export async function startRuntime(options?: RuntimeOptions) {
       try {
         const body = normalizeRequestBody(url.pathname, (await request.json()) as JsonObject)
         if (logBody && !quiet) logUpstreamBody(requestId, body)
+        const proxyStarted = Date.now()
+        const proxyRequestBody = stringifyNormalizedBody(body)
         const response = await client.proxy(body, {
           headers: request.headers,
           signal: request.signal,
         })
+        const proxyDurationMs = Date.now() - proxyStarted
         if (!response.ok) {
           const text = await response.text()
           if (!quiet) console.error(`[${requestId}] upstream error ${response.status}: ${text.slice(0, LOG_BODY_PREVIEW_LIMIT)}`)
+          const proxy: RequestProxyLog = {
+            label: "Codex responses",
+            method: "POST",
+            target: "/v1/responses",
+            status: response.status,
+            durationMs: proxyDurationMs,
+            error: redactSecrets(text).slice(0, LOG_BODY_PREVIEW_LIMIT) || "-",
+            requestBody: proxyRequestBody,
+          }
           const errorResponse = cors(
             new Response(text, {
               status: response.status,
@@ -134,8 +168,17 @@ export async function startRuntime(options?: RuntimeOptions) {
           )
           const durationMs = Date.now() - started
           if (!quiet) logResponseEnd(requestId, request, url, errorResponse, durationMs)
-          onRequestLog?.(await requestLog(errorResponse, durationMs, text.slice(0, LOG_BODY_PREVIEW_LIMIT)))
+          onRequestLog?.(await requestLog(errorResponse, durationMs, text.slice(0, LOG_BODY_PREVIEW_LIMIT), proxy))
           return errorResponse
+        }
+        const proxy: RequestProxyLog = {
+          label: "Codex responses",
+          method: "POST",
+          target: "/v1/responses",
+          status: response.status,
+          durationMs: proxyDurationMs,
+          error: "-",
+          requestBody: proxyRequestBody,
         }
         return finish(
           cors(
@@ -145,6 +188,7 @@ export async function startRuntime(options?: RuntimeOptions) {
               headers: responseHeaders(response.headers),
             }),
           ),
+          proxy,
         )
       } catch (error) {
         return fail(error)
@@ -176,11 +220,11 @@ export async function startRuntime(options?: RuntimeOptions) {
   return server
 }
 
-async function readBodyPreview(request: Request) {
+async function readLoggedBody(request: Request) {
   if (request.method === "GET" || request.method === "HEAD" || request.method === "OPTIONS") return
   try {
     const text = await request.clone().text()
-    return redactSecrets(text).slice(0, LOG_BODY_PREVIEW_LIMIT)
+    return redactSecrets(text)
     /* node:coverage ignore next 3 */
   } catch (error) {
     return `<failed to read body: ${error instanceof Error ? error.message : String(error)}>`
@@ -195,7 +239,7 @@ function logRequestStart(id: string, request: Request, url: URL, bodyPreview?: s
 
 function logUpstreamBody(id: string, body: JsonObject) {
   console.log(
-    `[${id}] upstream body ${redactSecrets(JSON.stringify(normalizeReasoningBody(body))).slice(0, LOG_BODY_PREVIEW_LIMIT)}`,
+    `[${id}] upstream body ${previewText(stringifyNormalizedBody(body))}`,
   )
 }
 
@@ -254,6 +298,14 @@ function redactSecrets(text: string) {
     .replace(/"?(api[_-]?key|authorization|x-api-key|anthropic-api-key|access|refresh|access_token|refresh_token)"?\s*:\s*"[^"]+"/gi, '"$1":"[redacted]"')
 }
 
+function stringifyNormalizedBody(body: JsonObject) {
+  return redactSecrets(JSON.stringify(normalizeReasoningBody(body)))
+}
+
+function previewText(text: string) {
+  return text.slice(0, LOG_BODY_PREVIEW_LIMIT)
+}
+
 async function proxyUpstream(fetcher: () => Promise<Response>) {
   try {
     const response = await fetcher()
@@ -271,6 +323,22 @@ async function proxyUpstream(fetcher: () => Promise<Response>) {
       },
       { status: 500 },
     )
+  }
+}
+
+async function proxyRequestLog(label: string, method: string, target: string, fetcher: () => Promise<Response>) {
+  const started = Date.now()
+  const response = await proxyUpstream(fetcher)
+  return {
+    response,
+    entry: {
+      label,
+      method,
+      target,
+      status: response.status,
+      durationMs: Date.now() - started,
+      error: await responseErrorMessage(response),
+    } satisfies RequestProxyLog,
   }
 }
 

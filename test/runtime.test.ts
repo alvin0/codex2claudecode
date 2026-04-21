@@ -90,8 +90,17 @@ describe("runtime server", () => {
       expect((await originalFetch(`${base}/v1/responses`, { method: "OPTIONS" })).status).toBe(204)
       expect(logs).toEqual(
         expect.arrayContaining([
-          expect.objectContaining({ method: "GET", path: "/health", status: 200, durationMs: expect.any(Number), at: expect.any(String) }),
-          expect.objectContaining({ method: "POST", path: "/v1/unknown", status: 404, error: "Not found" }),
+          expect.objectContaining({
+            method: "GET",
+            path: "/health",
+            status: 200,
+            durationMs: expect.any(Number),
+            at: expect.any(String),
+            requestHeaders: expect.any(Object),
+          }),
+          expect.objectContaining({ method: "GET", path: "/usage", status: 200, proxy: expect.objectContaining({ status: 200, target: "/usage" }) }),
+          expect.objectContaining({ method: "POST", path: "/v1/messages", status: 200, proxy: expect.objectContaining({ status: 200, target: "/v1/responses" }) }),
+          expect.objectContaining({ method: "POST", path: "/v1/unknown", status: 404, error: "Not found", requestHeaders: expect.any(Object) }),
         ]),
       )
     } finally {
@@ -114,7 +123,7 @@ describe("runtime server", () => {
       expect(await invalid.json()).toMatchObject({ error: { message: expect.any(String) } })
       expect(logs).toEqual(
         expect.arrayContaining([
-          expect.objectContaining({ status: 418, error: "upstream bad" }),
+          expect.objectContaining({ status: 418, error: "upstream bad", proxy: expect.objectContaining({ status: 418, error: "upstream bad" }) }),
           expect.objectContaining({ status: 500, error: expect.stringContaining("JSON") }),
         ]),
       )
@@ -134,7 +143,13 @@ describe("runtime server", () => {
       expect(await invalid.json()).toMatchObject({ error: { message: expect.stringContaining("Invalid JSON") } })
       expect(logs).toEqual(
         expect.arrayContaining([
-          expect.objectContaining({ method: "POST", path: "/v1/messages", status: 400, error: expect.stringContaining("Invalid JSON") }),
+          expect.objectContaining({
+            method: "POST",
+            path: "/v1/messages",
+            status: 400,
+            error: expect.stringContaining("Invalid JSON"),
+            proxy: undefined,
+          }),
         ]),
       )
     } finally {
@@ -155,6 +170,24 @@ describe("runtime server", () => {
       expect(response.status).toBe(200)
     } finally {
       Request.prototype.clone = originalClone
+      server.stop(true)
+    }
+  })
+
+  test("stores full request body in logs even when console preview is limited", async () => {
+    globalThis.fetch = mockFetch()
+    const logs: any[] = []
+    const server = await startRuntime({ authFile: await authFile(), port: 0, healthIntervalMs: 0, logBody: true, onRequestLog: (entry) => logs.push(entry) })
+    const base = `http://${server.hostname}:${server.port}`
+    const longInput = "x".repeat(5000)
+    try {
+      const response = await originalFetch(`${base}/v1/responses`, { method: "POST", body: JSON.stringify({ model: "m", input: longInput }) })
+      expect(response.status).toBe(200)
+      expect(logs.at(-1)?.requestBody).toContain(longInput)
+      expect(logs.at(-1)?.requestBody.length).toBeGreaterThan(4000)
+      expect(logs.at(-1)?.proxy?.requestBody).toContain(longInput)
+      expect(logs.at(-1)?.proxy?.requestBody.length).toBeGreaterThan(4000)
+    } finally {
       server.stop(true)
     }
   })

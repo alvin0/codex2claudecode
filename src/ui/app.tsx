@@ -23,6 +23,7 @@ import {
   type ClaudeEnvironmentDraft,
 } from "./claude-env"
 import { filterCommands } from "./commands"
+import { writeClipboard } from "./clipboard"
 import { AccountInfoPanel } from "./components/account-info-panel"
 import { AccountSelector } from "./components/account-selector"
 import { ClaudeEnvironmentEditor } from "./components/claude-environment-editor"
@@ -32,7 +33,7 @@ import { CommandOutput } from "./components/command-output"
 import { ConnectAccountWizard } from "./components/connect-account-wizard"
 import { ConnectSourceSelector } from "./components/connect-source-selector"
 import { LimitsPanel } from "./components/limits-panel"
-import { RequestLogsPanel } from "./components/request-logs-panel"
+import { formatAllRequestLogs, formatRequestLogDetail, RequestLogsPanel } from "./components/request-logs-panel"
 import { WelcomePanel } from "./components/welcome-panel"
 import { usageToView, type LimitGroupView } from "./limits"
 import type { RuntimeState } from "./types"
@@ -59,6 +60,9 @@ export function CodexCodeApp(props: { port?: number }) {
   const [selectorIndex, setSelectorIndex] = useState(0)
   const [requestLogs, setRequestLogs] = useState<RequestLogEntry[]>([])
   const [logsSelected, setLogsSelected] = useState(0)
+  const [logsDetailOpen, setLogsDetailOpen] = useState(false)
+  const [logsDetailScroll, setLogsDetailScroll] = useState(0)
+  const [logsCopyStatus, setLogsCopyStatus] = useState<{ type: "success" | "error"; message: string }>()
   const [claudeEnvDraft, setClaudeEnvDraft] = useState<ClaudeEnvironmentDraft>(() => defaultClaudeEnvironment())
   const [claudeEnvIndex, setClaudeEnvIndex] = useState(0)
   const [commandOutput, setCommandOutput] = useState<{ title: string; output: string }>()
@@ -72,6 +76,12 @@ export function CodexCodeApp(props: { port?: number }) {
 
   const accounts = useMemo(() => (authData ? authDataToAccounts(authData) : []), [authData])
   const account = accounts[selected]
+
+  useEffect(() => {
+    if (!logsCopyStatus) return
+    const timer = setTimeout(() => setLogsCopyStatus(undefined), 2000)
+    return () => clearTimeout(timer)
+  }, [logsCopyStatus])
 
   useEffect(() => {
     let active = true
@@ -165,6 +175,36 @@ export function CodexCodeApp(props: { port?: number }) {
       app.exit()
       return
     }
+    if (mode === "logs") {
+      if (logsDetailOpen && input.toLowerCase() === "c") {
+        const log = requestLogs[logsSelected]
+        if (!log) return
+        void writeClipboard(formatRequestLogDetail(log))
+          .then(() => {
+            setLogsCopyStatus({ type: "success", message: `Copied request ${log.id} to clipboard` })
+            setInputMessage(`Copied request ${log.id} to clipboard`)
+          })
+          .catch((error) => {
+            const message = `Clipboard copy failed: ${error instanceof Error ? error.message : String(error)}`
+            setLogsCopyStatus({ type: "error", message })
+            setInputMessage(message)
+          })
+        return
+      }
+      if (input.toLowerCase() === "l") {
+        void writeClipboard(formatAllRequestLogs(requestLogs))
+          .then(() => {
+            setLogsCopyStatus({ type: "success", message: `Copied ${requestLogs.length} log(s) to clipboard` })
+            setInputMessage(`Copied ${requestLogs.length} log(s) to clipboard`)
+          })
+          .catch((error) => {
+            const message = `Clipboard copy failed: ${error instanceof Error ? error.message : String(error)}`
+            setLogsCopyStatus({ type: "error", message })
+            setInputMessage(message)
+          })
+        return
+      }
+    }
     if (mode === "home" && input === "q" && !inputValue) {
       if (runtime.status === "running") runtime.server.stop(true)
       app.exit()
@@ -192,9 +232,17 @@ export function CodexCodeApp(props: { port?: number }) {
         return
       }
       if (mode === "logs") {
+        if (logsDetailOpen) {
+          setLogsDetailOpen(false)
+          setLogsDetailScroll(0)
+          setLogsCopyStatus(undefined)
+          setInputMessage("Closed request detail")
+          return
+        }
         setMode("home")
         setInputValue("")
         setCommandIndex(0)
+        setLogsCopyStatus(undefined)
         setInputMessage("Closed request logs")
         return
       }
@@ -283,6 +331,17 @@ export function CodexCodeApp(props: { port?: number }) {
       }
       const commands = filterCommands(inputValue)
       const command = commands[commandIndex] ?? commands[0]
+      if (mode === "logs") {
+        if (requestLogs.length) {
+          setLogsDetailOpen((value) => {
+            const next = !value
+            setLogsDetailScroll(0)
+            setInputMessage(next ? `Showing request ${requestLogs[logsSelected]?.id ?? ""}` : "Closed request detail")
+            return next
+          })
+        }
+        return
+      }
       if (inputValue === "q" || command?.name === "/quit") {
         if (runtime.status === "running") runtime.server.stop(true)
         app.exit()
@@ -296,6 +355,9 @@ export function CodexCodeApp(props: { port?: number }) {
         }
         if (command.name === "/logs") {
           setLogsSelected(Math.max(0, requestLogs.length - 1))
+          setLogsDetailOpen(false)
+          setLogsDetailScroll(0)
+          setLogsCopyStatus(undefined)
           setMode("logs")
           setInputValue("")
           setCommandIndex(0)
@@ -368,8 +430,29 @@ export function CodexCodeApp(props: { port?: number }) {
       return
     }
     if (mode === "logs") {
-      if (key.upArrow) setLogsSelected((value) => Math.max(0, value - 1))
-      if (key.downArrow) setLogsSelected((value) => Math.min(Math.max(0, requestLogs.length - 1), value + 1))
+      if (logsDetailOpen) {
+        if (key.upArrow) {
+          setLogsCopyStatus(undefined)
+          setLogsDetailScroll((value) => Math.max(0, value - 1))
+        }
+        if (key.downArrow) {
+          setLogsCopyStatus(undefined)
+          setLogsDetailScroll((value) => value + 1)
+        }
+        return
+      }
+      if (key.upArrow) {
+        setLogsDetailOpen(false)
+        setLogsDetailScroll(0)
+        setLogsCopyStatus(undefined)
+        setLogsSelected((value) => Math.max(0, value - 1))
+      }
+      if (key.downArrow) {
+        setLogsDetailOpen(false)
+        setLogsDetailScroll(0)
+        setLogsCopyStatus(undefined)
+        setLogsSelected((value) => Math.min(Math.max(0, requestLogs.length - 1), value + 1))
+      }
       return
     }
     if (mode === "claude-env-confirm") {
@@ -454,7 +537,13 @@ export function CodexCodeApp(props: { port?: number }) {
       {mode === "logs" && (
         <>
           <CommandInput value={inputValue} message={inputMessage} selected={commandIndex} />
-          <RequestLogsPanel logs={requestLogs} selected={logsSelected} />
+          <RequestLogsPanel
+            logs={requestLogs}
+            selected={logsSelected}
+            detailOpen={logsDetailOpen}
+            detailScroll={logsDetailScroll}
+            copyStatus={logsCopyStatus}
+          />
         </>
       )}
       {(mode === "claude-env-editor" || mode === "claude-env-confirm") ? (

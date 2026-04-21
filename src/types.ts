@@ -59,6 +59,16 @@ export interface RuntimeOptions {
   onRequestLog?: (entry: RequestLogEntry) => void
 }
 
+export interface RequestProxyLog {
+  label: string
+  method: string
+  target: string
+  status: number
+  durationMs: number
+  error: string
+  requestBody?: string
+}
+
 export interface RequestLogEntry {
   id: string
   at: string
@@ -67,6 +77,9 @@ export interface RequestLogEntry {
   status: number
   durationMs: number
   error: string
+  requestHeaders: Record<string, string>
+  requestBody?: string
+  proxy?: RequestProxyLog
 }
 
 export interface HealthStatus {
@@ -105,10 +118,20 @@ export interface ClaudeMessagesRequest extends JsonObject {
   stream?: boolean
   temperature?: number
   top_p?: number
+  output_config?: {
+    effort?: "none" | "low" | "medium" | "high" | "xhigh" | string
+    format?: {
+      type?: "json_schema" | string
+      name?: string
+      schema?: JsonObject
+      strict?: boolean
+    }
+  }
   stop_sequences?: string[]
   tools?: Array<{
     name: string
     type?: string
+    strict?: boolean
     description?: string
     input_schema?: JsonObject
     max_uses?: number

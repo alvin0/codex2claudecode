@@ -3,9 +3,11 @@ import type { ClaudeMessagesRequest, JsonObject } from "../types"
 export function claudeToResponsesBody(body: ClaudeMessagesRequest): JsonObject {
   const tools = body.tools?.length ? claudeToolsToResponsesTools(body.tools) : undefined
   const hasWebTool = tools?.some((tool) => tool.type === "web_search")
+  const textFormat = claudeOutputFormatToResponsesTextFormat(body.output_config?.format)
 
   return {
     model: body.model,
+    ...(body.output_config?.effort && { reasoning_effort: body.output_config.effort }),
     instructions: [
       claudeSystemToText(body.system) || "You are a helpful assistant.",
       hasWebTool
@@ -17,6 +19,7 @@ export function claudeToResponsesBody(body: ClaudeMessagesRequest): JsonObject {
     input: body.messages.flatMap(claudeMessageToResponsesInput),
     store: false,
     stream: true,
+    ...(textFormat && { text: { format: textFormat } }),
     ...(tools && { tools }),
     ...(hasWebTool && { include: ["web_search_call.action.sources"] }),
     ...(body.tool_choice && { tool_choice: claudeToolChoiceToResponsesToolChoice(body.tool_choice) }),
@@ -53,8 +56,31 @@ function claudeToolToResponsesTool(tool: NonNullable<ClaudeMessagesRequest["tool
     name: tool.name,
     description: tool.description,
     parameters: tool.input_schema ?? { type: "object", properties: {} },
-    strict: false,
+    strict: tool.strict ?? false,
   }
+}
+
+function claudeOutputFormatToResponsesTextFormat(format: ClaudeMessagesRequest["output_config"] extends { format?: infer T } ? T : never) {
+  if (!format || format.type !== "json_schema" || !format.schema) return
+  return {
+    type: "json_schema",
+    name: format.name ?? outputSchemaName(format.schema),
+    schema: format.schema,
+    strict: format.strict ?? true,
+  }
+}
+
+function outputSchemaName(schema: JsonObject) {
+  if (typeof schema.title === "string" && schema.title.trim()) return sanitizeSchemaName(schema.title)
+  return "structured_output"
+}
+
+function sanitizeSchemaName(value: string) {
+  const sanitized = value
+    .trim()
+    .replace(/[^A-Za-z0-9_-]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+  return sanitized || "structured_output"
 }
 
 function isClaudeWebTool(tool: Pick<NonNullable<ClaudeMessagesRequest["tools"]>[number], "name" | "type">) {
@@ -117,7 +143,7 @@ function extractTextFromClaudeContent(content: unknown): string[] {
 
 function claudeSystemToText(system: unknown) {
   if (!system) return
-  if (typeof system === "string") return system
+  if (typeof system === "string") return filterClaudeSystemText(system)
   if (!Array.isArray(system)) return JSON.stringify(system)
   return system
     .map((part) => {
@@ -128,7 +154,17 @@ function claudeSystemToText(system: unknown) {
       return
     })
     .filter((part) => part !== undefined)
+    .map(filterClaudeSystemText)
+    .filter((part) => part !== undefined)
     .join("\n\n")
+}
+
+function filterClaudeSystemText(text: string) {
+  const normalized = text.trim()
+  if (!normalized) return
+  if (normalized.startsWith("x-anthropic-billing-header:")) return
+  if (normalized === "You are Claude Code, Anthropic's official CLI for Claude.") return
+  return text
 }
 
 function claudeContentToResponsesBlocks(role: "user" | "assistant", content: unknown) {

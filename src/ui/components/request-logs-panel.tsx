@@ -4,23 +4,30 @@ import { Box, Text } from "ink"
 import type { RequestLogEntry } from "../../types"
 
 const LOG_HEIGHT = 8
+const DETAIL_HEIGHT = 16
 
-export function RequestLogsPanel(props: { logs: RequestLogEntry[]; selected: number }) {
+export function RequestLogsPanel(props: {
+  logs: RequestLogEntry[]
+  selected: number
+  detailOpen?: boolean
+  detailScroll?: number
+  copyStatus?: { type: "success" | "error"; message: string }
+}) {
   const selected = Math.max(0, Math.min(props.selected, Math.max(0, props.logs.length - 1)))
   const start = Math.min(Math.max(0, selected - LOG_HEIGHT + 1), Math.max(0, props.logs.length - LOG_HEIGHT))
   const rows = props.logs.slice(start, start + LOG_HEIGHT)
   const hasMoreAbove = start > 0
   const hasMoreBelow = start + LOG_HEIGHT < props.logs.length
   const detail = props.logs[selected]
-  const errorDetail = detail?.error !== "-" ? detail : undefined
 
   return (
     <Box flexDirection="column" marginTop={1}>
       <Text color="#aab3cf">────────────────────────────────────────────────────────────────────────────</Text>
       <Box marginTop={1}>
         <Text bold color="#c7d2fe">Request logs</Text>
-        <Text color="gray">  ↑/↓ select id · Esc close</Text>
+        <Text color="gray">  ↑/↓ select request · Enter details · l copy all logs · Esc close</Text>
       </Box>
+      {props.copyStatus && <Text color={props.copyStatus.type === "success" ? "green" : "red"}>{props.copyStatus.message}</Text>}
       <Box>
         <Box width={10}>
           <Text color="gray">Id</Text>
@@ -35,25 +42,20 @@ export function RequestLogsPanel(props: { logs: RequestLogEntry[]; selected: num
           <Text color="gray">Path</Text>
         </Box>
         <Box width={8}>
-          <Text color="gray">Status</Text>
+          <Text color="gray">Client</Text>
+        </Box>
+        <Box width={8}>
+          <Text color="gray">Proxy</Text>
         </Box>
         <Box width={10}>
           <Text color="gray">Duration</Text>
         </Box>
-        <Text color="gray">Error</Text>
+        <Text color="gray">Summary</Text>
       </Box>
       {hasMoreAbove && <Text color="gray">   ↑ more</Text>}
       {rows.length ? rows.map((log, index) => <LogRow key={`${log.id}-${log.at}`} log={log} selected={start + index === selected} />) : <Text color="gray">No requests yet</Text>}
       {hasMoreBelow && <Text color="gray">   ↓ more</Text>}
-      {errorDetail && (
-        <Box flexDirection="column" marginTop={1}>
-          <Text bold color="#c7d2fe">Error detail</Text>
-          <Text color="gray">
-            [{errorDetail.id}] {errorDetail.method} {errorDetail.path} · {errorDetail.status} · {errorDetail.durationMs}ms
-          </Text>
-          <Text color="red">{errorDetail.error}</Text>
-        </Box>
-      )}
+      {props.detailOpen && detail && <LogDetailDialog log={detail} scroll={props.detailScroll ?? 0} />}
     </Box>
   )
 }
@@ -79,16 +81,126 @@ function LogRow(props: { log: RequestLogEntry; selected: boolean }) {
       <Box width={8}>
         <Text color={statusColor(props.log.status)}>{props.log.status}</Text>
       </Box>
+      <Box width={8}>
+        <Text color={props.log.proxy ? statusColor(props.log.proxy.status) : "gray"}>{props.log.proxy?.status ?? "-"}</Text>
+      </Box>
       <Box width={10}>
         <Text color="gray">{props.log.durationMs}ms</Text>
       </Box>
-      <Text color={props.log.error === "-" ? "gray" : "red"}>{truncate(props.log.error, 56)}</Text>
+      <Text color={summaryColor(props.log)}>{truncate(summaryText(props.log), 48)}</Text>
+    </Box>
+  )
+}
+
+function LogDetailDialog(props: { log: RequestLogEntry; scroll: number }) {
+  const { log } = props
+  const lines = buildDetailLines(log)
+  const maxScroll = Math.max(0, lines.length - DETAIL_HEIGHT)
+  const scroll = Math.max(0, Math.min(props.scroll, maxScroll))
+  const visibleLines = lines.slice(scroll, scroll + DETAIL_HEIGHT)
+  return (
+    <Box flexDirection="column" marginTop={1} borderStyle="round" borderColor="#d97757" paddingX={1} paddingY={1}>
+      <Box>
+        <Text bold color="#c7d2fe">Request detail</Text>
+        <Text color="gray">  ↑/↓ scroll · Enter/Esc close</Text>
+      </Box>
+      <Box marginTop={1}>
+        <Text color="#d97757">[c]</Text>
+        <Text color="gray"> copy request</Text>
+        <Text color="#d97757">  [l]</Text>
+        <Text color="gray"> copy all logs</Text>
+      </Box>
+      <Text color="gray">
+        Lines {scroll + 1}-{Math.min(lines.length, scroll + DETAIL_HEIGHT)} / {lines.length}
+      </Text>
+      {visibleLines.map((line, index) => (
+        <Text key={`${scroll}-${index}`} color={line.color}>
+          {line.text}
+        </Text>
+      ))}
     </Box>
   )
 }
 
 function truncate(value: string, width: number) {
   return value.length > width ? `${value.slice(0, width - 1)}…` : value
+}
+
+function summaryText(log: RequestLogEntry) {
+  if (log.proxy && log.proxy.error !== "-") return `proxy: ${log.proxy.error}`
+  if (log.error !== "-") return log.error
+  if (log.proxy) return `${log.proxy.label} ${log.proxy.status}`
+  return "local"
+}
+
+function summaryColor(log: RequestLogEntry) {
+  if (log.proxy?.error !== "-" || log.error !== "-") return "red"
+  if (log.proxy && log.proxy.status >= 400) return statusColor(log.proxy.status)
+  return "gray"
+}
+
+function formatTimestamp(value: string) {
+  return new Date(value).toLocaleString()
+}
+
+function formatKeyValue(value: Record<string, string>) {
+  const entries = Object.entries(value)
+  if (!entries.length) return "-"
+  return entries.map(([key, content]) => `${key}: ${content}`).join(" | ")
+}
+
+function buildDetailLines(log: RequestLogEntry) {
+  return [
+    { text: `[${log.id}] ${formatTimestamp(log.at)} · ${log.method} ${log.path}`, color: "gray" },
+    { text: `Client status: ${log.status} · ${log.durationMs}ms`, color: statusColor(log.status) },
+    { text: `Client error: ${log.error}`, color: log.error === "-" ? "gray" : "red" },
+    { text: "", color: "gray" },
+    { text: "Request headers", color: "#c7d2fe" },
+    ...blockLines(formatKeyValue(log.requestHeaders), "#aab3cf"),
+    { text: "", color: "gray" },
+    { text: "Request body", color: "#c7d2fe" },
+    ...blockLines(formatStructuredText(log.requestBody), log.requestBody ? "#aab3cf" : "gray"),
+    { text: "", color: "gray" },
+    { text: "Proxy", color: "#c7d2fe" },
+    ...(log.proxy
+      ? [
+          { text: `${log.proxy.label} · ${log.proxy.method} ${log.proxy.target}`, color: "gray" },
+          { text: `Proxy status: ${log.proxy.status} · ${log.proxy.durationMs}ms`, color: statusColor(log.proxy.status) },
+          { text: `Proxy error: ${log.proxy.error}`, color: log.proxy.error === "-" ? "gray" : "red" },
+          { text: "Proxy body", color: "gray" },
+          ...blockLines(formatStructuredText(log.proxy.requestBody), log.proxy.requestBody ? "#aab3cf" : "gray"),
+        ]
+      : [{ text: "No upstream proxy for this request", color: "gray" }]),
+  ]
+}
+
+export function formatRequestLogDetail(log: RequestLogEntry) {
+  return buildDetailLines(log)
+    .map((line) => line.text)
+    .join("\n")
+}
+
+export function formatAllRequestLogs(logs: RequestLogEntry[]) {
+  if (!logs.length) return "No request logs"
+  return logs
+    .map((log, index) => {
+      const title = `===== Log ${index + 1}/${logs.length} · ${log.id} =====`
+      return `${title}\n${formatRequestLogDetail(log)}`
+    })
+    .join("\n\n")
+}
+
+function blockLines(value: string, color: string) {
+  return value.split("\n").map((text) => ({ text, color }))
+}
+
+function formatStructuredText(value?: string) {
+  if (!value) return "-"
+  try {
+    return JSON.stringify(JSON.parse(value), null, 2)
+  } catch {
+    return value
+  }
 }
 
 function statusColor(status: number) {

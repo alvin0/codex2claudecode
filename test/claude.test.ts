@@ -86,6 +86,82 @@ describe("Claude request conversion", () => {
       }),
     ).toBeGreaterThan(1)
   })
+
+  test("filters Claude Code billing and CLI system banners from Responses instructions", () => {
+    const body = claudeToResponsesBody({
+      model: "m",
+      system: [
+        { type: "text", text: "x-anthropic-billing-header: cc_version=2.1.114.45a; cc_entrypoint=cli; cch=64fe7;" },
+        { type: "text", text: "You are Claude Code, Anthropic's official CLI for Claude." },
+        { type: "text", text: "\nYou are an interactive agent that helps users with software engineering tasks." },
+      ],
+      messages: [{ role: "user", content: "hi" }],
+    })
+
+    expect(body.instructions).not.toContain("x-anthropic-billing-header:")
+    expect(body.instructions).not.toContain("You are Claude Code, Anthropic's official CLI for Claude.")
+    expect(body.instructions).toContain("You are an interactive agent that helps users with software engineering tasks.")
+  })
+
+  test("maps Claude output_config effort into Responses reasoning_effort", () => {
+    const body = claudeToResponsesBody({
+      model: "gpt-5.4-mini",
+      output_config: { effort: "medium" },
+      messages: [{ role: "user", content: "hi" }],
+    })
+
+    expect(body.reasoning_effort).toBe("medium")
+  })
+
+  test("maps Claude structured outputs into Responses text.format and preserves strict tools", () => {
+    const body = claudeToResponsesBody({
+      model: "gpt-5.4-mini",
+      output_config: {
+        format: {
+          type: "json_schema",
+          schema: {
+            title: "contact info",
+            type: "object",
+            properties: {
+              name: { type: "string" },
+              email: { type: "string" },
+            },
+            required: ["name", "email"],
+            additionalProperties: false,
+          },
+        },
+      },
+      messages: [{ role: "user", content: "hi" }],
+      tools: [{ name: "save_contact", strict: true, input_schema: { type: "object", properties: { id: { type: "string" } } } }],
+    })
+
+    expect(body.text).toEqual({
+      format: {
+        type: "json_schema",
+        name: "contact_info",
+        schema: {
+          title: "contact info",
+          type: "object",
+          properties: {
+            name: { type: "string" },
+            email: { type: "string" },
+          },
+          required: ["name", "email"],
+          additionalProperties: false,
+        },
+        strict: true,
+      },
+    })
+    expect(body.tools).toEqual([
+      {
+        type: "function",
+        name: "save_contact",
+        description: undefined,
+        parameters: { type: "object", properties: { id: { type: "string" } } },
+        strict: true,
+      },
+    ])
+  })
 })
 
 describe("Claude web result mapping", () => {
