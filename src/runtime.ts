@@ -10,7 +10,7 @@ export async function startRuntime(options?: RuntimeOptions) {
   const authFile = resolveAuthFile(options?.authFile ?? process.env.CODEX_AUTH_FILE)
   const authAccount = options?.authAccount ?? process.env.CODEX_AUTH_ACCOUNT
   const hostname = options?.hostname ?? process.env.HOST ?? "127.0.0.1"
-  const port = options?.port ?? Number(process.env.PORT || 8787)
+  const preferredPort = options?.port ?? Number(process.env.PORT || 8787)
   const healthIntervalMs = options?.healthIntervalMs ?? Number(process.env.HEALTH_INTERVAL_MS || 30_000)
   const healthTimeoutMs = options?.healthTimeoutMs ?? Number(process.env.HEALTH_TIMEOUT_MS || 5000)
   const logBody = options?.logBody ?? process.env.LOG_BODY !== "0"
@@ -21,180 +21,188 @@ export async function startRuntime(options?: RuntimeOptions) {
 
   health.start()
 
-  const server = Bun.serve({
-    hostname,
-    port,
-    async fetch(request) {
-      const requestId = crypto.randomUUID().slice(0, 8)
-      const started = Date.now()
-      const url = new URL(request.url)
-      const requestBody = logBody ? await readLoggedBody(request) : undefined
-      const bodyPreview = requestBody ? previewText(requestBody) : undefined
-      const headersPreview = interestingHeaders(request.headers)
+  let server: ReturnType<typeof Bun.serve>
+  try {
+    server = serveWithPortFallback(hostname, preferredPort, (port) =>
+      Bun.serve({
+        hostname,
+        port,
+        async fetch(request) {
+        const requestId = crypto.randomUUID().slice(0, 8)
+        const started = Date.now()
+        const url = new URL(request.url)
+        const requestBody = logBody ? await readLoggedBody(request) : undefined
+        const bodyPreview = requestBody ? previewText(requestBody) : undefined
+        const headersPreview = interestingHeaders(request.headers)
 
-      if (!quiet) logRequestStart(requestId, request, url, bodyPreview)
+        if (!quiet) logRequestStart(requestId, request, url, bodyPreview)
 
-      async function requestLog(response: Response, durationMs: number, error?: string, proxy?: RequestProxyLog): Promise<RequestLogEntry> {
-        return {
-          id: requestId,
-          at: new Date().toISOString(),
-          method: request.method,
-          path: `${url.pathname}${url.search}`,
-          status: response.status,
-          durationMs,
-          error: error ?? await responseErrorMessage(response),
-          requestHeaders: headersPreview,
-          requestBody,
-          proxy,
+        async function requestLog(response: Response, durationMs: number, error?: string, proxy?: RequestProxyLog): Promise<RequestLogEntry> {
+          return {
+            id: requestId,
+            at: new Date().toISOString(),
+            method: request.method,
+            path: `${url.pathname}${url.search}`,
+            status: response.status,
+            durationMs,
+            error: error ?? await responseErrorMessage(response),
+            requestHeaders: headersPreview,
+            requestBody,
+            proxy,
+          }
         }
-      }
 
-      async function finish(response: Response, proxy?: RequestProxyLog) {
-        const durationMs = Date.now() - started
-        if (!quiet) logResponseEnd(requestId, request, url, response, durationMs)
-        onRequestLog?.(await requestLog(response, durationMs, undefined, proxy))
-        return response
-      }
+        async function finish(response: Response, proxy?: RequestProxyLog) {
+          const durationMs = Date.now() - started
+          if (!quiet) logResponseEnd(requestId, request, url, response, durationMs)
+          onRequestLog?.(await requestLog(response, durationMs, undefined, proxy))
+          return response
+        }
 
-      async function fail(error: unknown, proxy?: RequestProxyLog) {
-        const durationMs = Date.now() - started
-        if (!quiet) logRequestError(requestId, request, url, error, durationMs)
-        const response = cors(
-          Response.json(
-            {
-              error: {
-                message: error instanceof Error ? error.message : String(error),
-              },
-            },
-            { status: 500 },
-          ),
-        )
-        onRequestLog?.(await requestLog(response, durationMs, error instanceof Error ? error.message : String(error), proxy))
-        return response
-      }
-
-      if (request.method === "OPTIONS") return finish(cors(new Response(null, { status: 204 })))
-      if (request.method === "GET" && url.pathname === "/health") {
-        return finish(
-          cors(
+        async function fail(error: unknown, proxy?: RequestProxyLog) {
+          const durationMs = Date.now() - started
+          if (!quiet) logRequestError(requestId, request, url, error, durationMs)
+          const response = cors(
             Response.json(
               {
-                ok: health.current.ok,
-                runtime: { ok: true },
-                codex: health.current,
+                error: {
+                  message: error instanceof Error ? error.message : String(error),
+                },
               },
-              { status: health.current.ok ? 200 : 503 },
+              { status: 500 },
             ),
-          ),
-        )
-      }
+          )
+          onRequestLog?.(await requestLog(response, durationMs, error instanceof Error ? error.message : String(error), proxy))
+          return response
+        }
 
-      if (request.method === "GET" && (url.pathname === "/usage" || url.pathname === "/wham/usage")) {
-        const proxy = await proxyRequestLog("Codex usage", "GET", "/usage", () => client.usage({ headers: request.headers, signal: request.signal }))
-        return finish(
-          cors(proxy.response),
-          proxy.entry,
-        )
-      }
+        if (request.method === "OPTIONS") return finish(cors(new Response(null, { status: 204 })))
+        if (request.method === "GET" && url.pathname === "/health") {
+          return finish(
+            cors(
+              Response.json(
+                {
+                  ok: health.current.ok,
+                  runtime: { ok: true },
+                  codex: health.current,
+                },
+                { status: health.current.ok ? 200 : 503 },
+              ),
+            ),
+          )
+        }
 
-      if (
-        request.method === "GET" &&
-        (url.pathname === "/environments" || url.pathname === "/wham/environments")
-      ) {
-        const proxy = await proxyRequestLog("Codex environments", "GET", "/environments", () =>
-          client.environments({ headers: request.headers, signal: request.signal }),
-        )
-        return finish(
-          cors(proxy.response),
-          proxy.entry,
-        )
-      }
+        if (request.method === "GET" && (url.pathname === "/usage" || url.pathname === "/wham/usage")) {
+          const proxy = await proxyRequestLog("Codex usage", "GET", "/usage", () => client.usage({ headers: request.headers, signal: request.signal }))
+          return finish(
+            cors(proxy.response),
+            proxy.entry,
+          )
+        }
 
-      if (request.method === "POST" && url.pathname === "/v1/messages/count_tokens") {
-        return finish(cors(await handleClaudeCountTokens(request)))
-      }
+        if (
+          request.method === "GET" &&
+          (url.pathname === "/environments" || url.pathname === "/wham/environments")
+        ) {
+          const proxy = await proxyRequestLog("Codex environments", "GET", "/environments", () =>
+            client.environments({ headers: request.headers, signal: request.signal }),
+          )
+          return finish(
+            cors(proxy.response),
+            proxy.entry,
+          )
+        }
 
-      if (request.method === "POST" && (url.pathname === "/v1/messages" || url.pathname === "/v1/message")) {
-        let proxy: RequestProxyLog | undefined
-        return finish(
-          cors(
-            await handleClaudeMessages(client, request, requestId, {
-              logBody: logBody && !quiet,
-              onProxy: (entry) => {
-                proxy = entry
-              },
-            }),
-          ),
-          proxy,
-        )
-      }
+        if (request.method === "POST" && url.pathname === "/v1/messages/count_tokens") {
+          return finish(cors(await handleClaudeCountTokens(request)))
+        }
 
-      if (request.method !== "POST") {
-        return finish(cors(Response.json({ error: { message: "Method not allowed" } }, { status: 405 })))
-      }
+        if (request.method === "POST" && (url.pathname === "/v1/messages" || url.pathname === "/v1/message")) {
+          let proxy: RequestProxyLog | undefined
+          return finish(
+            cors(
+              await handleClaudeMessages(client, request, requestId, {
+                logBody: logBody && !quiet,
+                onProxy: (entry) => {
+                  proxy = entry
+                },
+              }),
+            ),
+            proxy,
+          )
+        }
 
-      if (url.pathname !== "/v1/responses" && url.pathname !== "/v1/chat/completions") {
-        return finish(cors(Response.json({ error: { message: "Not found" } }, { status: 404 })))
-      }
+        if (request.method !== "POST") {
+          return finish(cors(Response.json({ error: { message: "Method not allowed" } }, { status: 405 })))
+        }
 
-      try {
-        const body = normalizeRequestBody(url.pathname, (await request.json()) as JsonObject)
-        if (logBody && !quiet) logUpstreamBody(requestId, body)
-        const proxyStarted = Date.now()
-        const proxyRequestBody = stringifyNormalizedBody(body)
-        const response = await client.proxy(body, {
-          headers: request.headers,
-          signal: request.signal,
-        })
-        const proxyDurationMs = Date.now() - proxyStarted
-        if (!response.ok) {
-          const text = await response.text()
-          if (!quiet) console.error(`[${requestId}] upstream error ${response.status}: ${text.slice(0, LOG_BODY_PREVIEW_LIMIT)}`)
+        if (url.pathname !== "/v1/responses" && url.pathname !== "/v1/chat/completions") {
+          return finish(cors(Response.json({ error: { message: "Not found" } }, { status: 404 })))
+        }
+
+        try {
+          const body = normalizeRequestBody(url.pathname, (await request.json()) as JsonObject)
+          if (logBody && !quiet) logUpstreamBody(requestId, body)
+          const proxyStarted = Date.now()
+          const proxyRequestBody = stringifyNormalizedBody(body)
+          const response = await client.proxy(body, {
+            headers: request.headers,
+            signal: request.signal,
+          })
+          const proxyDurationMs = Date.now() - proxyStarted
+          if (!response.ok) {
+            const text = await response.text()
+            if (!quiet) console.error(`[${requestId}] upstream error ${response.status}: ${text.slice(0, LOG_BODY_PREVIEW_LIMIT)}`)
+            const proxy: RequestProxyLog = {
+              label: "Codex responses",
+              method: "POST",
+              target: "/v1/responses",
+              status: response.status,
+              durationMs: proxyDurationMs,
+              error: redactSecrets(text).slice(0, LOG_BODY_PREVIEW_LIMIT) || "-",
+              requestBody: proxyRequestBody,
+            }
+            const errorResponse = cors(
+              new Response(text, {
+                status: response.status,
+                statusText: response.statusText,
+                headers: responseHeaders(response.headers),
+              }),
+            )
+            const durationMs = Date.now() - started
+            if (!quiet) logResponseEnd(requestId, request, url, errorResponse, durationMs)
+            onRequestLog?.(await requestLog(errorResponse, durationMs, text.slice(0, LOG_BODY_PREVIEW_LIMIT), proxy))
+            return errorResponse
+          }
           const proxy: RequestProxyLog = {
             label: "Codex responses",
             method: "POST",
             target: "/v1/responses",
             status: response.status,
             durationMs: proxyDurationMs,
-            error: redactSecrets(text).slice(0, LOG_BODY_PREVIEW_LIMIT) || "-",
+            error: "-",
             requestBody: proxyRequestBody,
           }
-          const errorResponse = cors(
-            new Response(text, {
-              status: response.status,
-              statusText: response.statusText,
-              headers: responseHeaders(response.headers),
-            }),
+          return finish(
+            cors(
+              new Response(response.body, {
+                status: response.status,
+                statusText: response.statusText,
+                headers: responseHeaders(response.headers),
+              }),
+            ),
+            proxy,
           )
-          const durationMs = Date.now() - started
-          if (!quiet) logResponseEnd(requestId, request, url, errorResponse, durationMs)
-          onRequestLog?.(await requestLog(errorResponse, durationMs, text.slice(0, LOG_BODY_PREVIEW_LIMIT), proxy))
-          return errorResponse
+        } catch (error) {
+          return fail(error)
         }
-        const proxy: RequestProxyLog = {
-          label: "Codex responses",
-          method: "POST",
-          target: "/v1/responses",
-          status: response.status,
-          durationMs: proxyDurationMs,
-          error: "-",
-          requestBody: proxyRequestBody,
-        }
-        return finish(
-          cors(
-            new Response(response.body, {
-              status: response.status,
-              statusText: response.statusText,
-              headers: responseHeaders(response.headers),
-            }),
-          ),
-          proxy,
-        )
-      } catch (error) {
-        return fail(error)
-      }
-    },
-  })
+        },
+      }),
+    )
+  } catch (error) {
+    health.stop()
+    throw error
+  }
 
   const stop = server.stop.bind(server)
   server.stop = (closeActiveConnections?: boolean) => {
@@ -218,6 +226,32 @@ export async function startRuntime(options?: RuntimeOptions) {
   }
 
   return server
+}
+
+function serveWithPortFallback(
+  hostname: string,
+  preferredPort: number,
+  createServer: (port: number) => ReturnType<typeof Bun.serve>,
+) {
+  if (preferredPort === 0) return createServer(0)
+
+  let port = preferredPort
+  while (port <= 65_535) {
+    try {
+      return createServer(port)
+    } catch (error) {
+      if (!isPortInUseError(error) || port === 65_535) throw error
+      port += 1
+    }
+  }
+
+  throw new Error(`Unable to find an available port starting from ${preferredPort}`)
+}
+
+function isPortInUseError(error: unknown) {
+  if (typeof error === "object" && error !== null && "code" in error && error.code === "EADDRINUSE") return true
+  const message = error instanceof Error ? error.message : String(error)
+  return message.includes("EADDRINUSE") || message.toLowerCase().includes("address already in use")
 }
 
 async function readLoggedBody(request: Request) {

@@ -113,21 +113,28 @@ The UI command:
 /set-claude-env
 ```
 
-lets you edit the three default model values and echoes shell-specific commands. The app auto-detects the current shell:
+lets you edit the four default model values and preview what will be written into
+`~/.claude/settings.json` under the `env` object. `ANTHROPIC_BASE_URL` is always
+generated from the active host/port.
 
-```text
-sh/bash/zsh/dash/ksh -> export ...
-PowerShell           -> $env:...
+The local Claude environment config is stored next to the auth file as
+`.claude-env.json`. Besides the model keys, it supports:
+
+```json
+{
+  "extraEnv": {
+    "CUSTOM_ENV": "custom-value"
+  },
+  "unsetEnv": ["HTTP_PROXY"]
+}
 ```
 
-Unsupported shells show a warning in the UI instead of printing commands that may not work. If detection is wrong, override it:
-
-```sh
-CODEX2CLAUDECODE_SHELL=posix npx codex2claudecode
-CODEX2CLAUDECODE_SHELL=powershell npx codex2claudecode
-```
-
-`ANTHROPIC_BASE_URL` is always generated from the active host/port.
+`extraEnv` adds or updates more keys inside `~/.claude/settings.json` -> `env`.
+`unsetEnv` removes the listed keys from that same `env` object during
+`/set-claude-env`, and both lists are also included in `/unset-claude-env`.
+Other top-level settings in `~/.claude/settings.json` are preserved. Built-in
+defaults, locked env values, and editable env keys are defined in
+`src/claude-code-env.config.ts`.
 
 ## UI Commands
 
@@ -141,14 +148,10 @@ CODEX2CLAUDECODE_SHELL=powershell npx codex2claudecode
 /quit             Quit codex2claudecode
 ```
 
-`/set-claude-env` applies values to the running codex2claudecode process. For
-POSIX shells, it writes `~/.codex2claudecode/.claude-env.sh` and adds a managed
-source block to common shell profiles (`.zshrc`, `.zprofile`, `.bashrc`,
-`.bash_profile`, or `.profile`) so future terminals load the values. Existing
-terminals still need to source the profile or be reopened. For PowerShell, it
-writes user environment variables.
-`/unset-claude-env` asks for confirmation, then unsets the running process and
-persists the corresponding unset/remove operation for future terminals.
+`/set-claude-env` writes the managed keys into `~/.claude/settings.json` under
+the `env` object, updating existing values and preserving all unrelated content.
+`/unset-claude-env` asks for confirmation, then removes only the managed keys
+from that `env` object.
 
 ## Local API
 

@@ -11,15 +11,16 @@ import { startRuntime } from "../runtime"
 import type { AuthFileData, RequestLogEntry } from "../types"
 import { authDataToAccounts, selectedAccountIndex } from "./accounts"
 import {
-  applyClaudeEnvironment,
+  claudeSettingsPathForScope,
+  claudeSettingsScopeLabel,
   defaultClaudeEnvironment,
   detectShell,
   CLAUDE_MODEL_ENV_KEYS,
   readClaudeEnvironmentConfig,
   runClaudeEnvironmentSet,
   runClaudeEnvironmentUnset,
-  unsetClaudeEnvironment,
   writeClaudeEnvironmentConfig,
+  type ClaudeSettingsScope,
   type ClaudeEnvironmentDraft,
 } from "./claude-env"
 import { filterCommands } from "./commands"
@@ -27,6 +28,7 @@ import { writeClipboard } from "./clipboard"
 import { AccountInfoPanel } from "./components/account-info-panel"
 import { AccountSelector } from "./components/account-selector"
 import { ClaudeEnvironmentEditor } from "./components/claude-environment-editor"
+import { ClaudeEnvironmentScopeSelector } from "./components/claude-environment-scope-selector"
 import { ClaudeEnvironmentUnsetConfirm } from "./components/claude-environment-unset-confirm"
 import { CommandInput } from "./components/command-input"
 import { CommandOutput } from "./components/command-output"
@@ -55,7 +57,7 @@ export function CodexCodeApp(props: { port?: number }) {
   const [inputMessage, setInputMessage] = useState("Type / for commands")
   const [commandIndex, setCommandIndex] = useState(0)
   const [mode, setMode] = useState<
-    "home" | "account-selector" | "logs" | "claude-env-editor" | "claude-env-confirm" | "claude-env-unset-confirm" | "connect-source" | "connect-account"
+    "home" | "account-selector" | "logs" | "claude-env-scope" | "claude-env-editor" | "claude-env-confirm" | "claude-env-unset-confirm" | "connect-source" | "connect-account"
   >("home")
   const [selectorIndex, setSelectorIndex] = useState(0)
   const [requestLogs, setRequestLogs] = useState<RequestLogEntry[]>([])
@@ -65,6 +67,8 @@ export function CodexCodeApp(props: { port?: number }) {
   const [logsCopyStatus, setLogsCopyStatus] = useState<{ type: "success" | "error"; message: string }>()
   const [claudeEnvDraft, setClaudeEnvDraft] = useState<ClaudeEnvironmentDraft>(() => defaultClaudeEnvironment())
   const [claudeEnvIndex, setClaudeEnvIndex] = useState(0)
+  const [claudeEnvScopeIndex, setClaudeEnvScopeIndex] = useState(0)
+  const [claudeEnvAction, setClaudeEnvAction] = useState<"set" | "unset">("set")
   const [commandOutput, setCommandOutput] = useState<{ title: string; output: string }>()
   const shell = useMemo(() => detectShell(), [])
   const [connectDraft, setConnectDraft] = useState<ConnectAccountDraft>({ accountId: "", accessToken: "", refreshToken: "" })
@@ -73,9 +77,14 @@ export function CodexCodeApp(props: { port?: number }) {
   const [connectSaving, setConnectSaving] = useState(false)
   const [authRevision, setAuthRevision] = useState(0)
   const pkg = useMemo(() => packageInfo(), [])
+  const activePort = runtime.status === "running" ? runtime.server.port : port
 
   const accounts = useMemo(() => (authData ? authDataToAccounts(authData) : []), [authData])
   const account = accounts[selected]
+  const claudeEnvScopes: ClaudeSettingsScope[] = ["user", "project", "local"]
+  const claudeEnvScope = claudeEnvScopes[claudeEnvScopeIndex] ?? "user"
+  const claudeSettingsFile = claudeSettingsPathForScope(claudeEnvScope)
+  const claudeSettingsTarget = claudeSettingsScopeLabel(claudeEnvScope)
 
   useEffect(() => {
     if (!logsCopyStatus) return
@@ -224,7 +233,7 @@ export function CodexCodeApp(props: { port?: number }) {
         setInputMessage("Type / for commands")
         return
       }
-      if (mode === "claude-env-editor" || mode === "claude-env-confirm" || mode === "claude-env-unset-confirm") {
+      if (mode === "claude-env-scope" || mode === "claude-env-editor" || mode === "claude-env-confirm" || mode === "claude-env-unset-confirm") {
         setMode("home")
         setInputValue("")
         setCommandIndex(0)
@@ -295,24 +304,26 @@ export function CodexCodeApp(props: { port?: number }) {
           .finally(() => setConnectSaving(false))
         return
       }
+      if (mode === "claude-env-scope") {
+        setMode(claudeEnvAction === "set" ? "claude-env-editor" : "claude-env-unset-confirm")
+        return
+      }
       if (mode === "claude-env-confirm") {
-        applyClaudeEnvironment(claudeEnvDraft, baseUrl(hostname, port))
         setMode("home")
-        setInputMessage("Claude environment applied to current process")
+        setInputMessage("Claude settings updated")
         void writeClaudeEnvironmentConfig(authFile, claudeEnvDraft).catch((error) =>
           setInputMessage(`Claude environment saved failed: ${error instanceof Error ? error.message : String(error)}`),
         )
-        void runClaudeEnvironmentSet(claudeEnvDraft, baseUrl(hostname, port), shell, { authFile })
-          .then((output) => setCommandOutput({ title: "Set Claude environment - env | grep ANTHROPIC", output }))
+        void runClaudeEnvironmentSet(claudeEnvDraft, baseUrl(hostname, activePort), shell, { authFile, settingsFile: claudeSettingsFile })
+          .then((output) => setCommandOutput({ title: `Set Claude environment - ${claudeSettingsTarget}`, output }))
           .catch((error) => setCommandOutput({ title: "Set Claude environment failed", output: error instanceof Error ? error.message : String(error) }))
         return
       }
       if (mode === "claude-env-unset-confirm") {
-        unsetClaudeEnvironment()
         setMode("home")
-        setInputMessage("Claude environment unset")
-        void runClaudeEnvironmentUnset(shell, { authFile })
-          .then((output) => setCommandOutput({ title: "Unset Claude environment - env | grep ANTHROPIC", output }))
+        setInputMessage("Claude settings env entries removed")
+        void runClaudeEnvironmentUnset(claudeEnvDraft, shell, { authFile, settingsFile: claudeSettingsFile })
+          .then((output) => setCommandOutput({ title: `Unset Claude environment - ${claudeSettingsTarget}`, output }))
           .catch((error) => setCommandOutput({ title: "Unset Claude environment echo failed", output: error instanceof Error ? error.message : String(error) }))
         return
       }
@@ -373,29 +384,24 @@ export function CodexCodeApp(props: { port?: number }) {
           return
         }
         if (command.name === "/set-claude-env") {
-          if (shell.kind === "unsupported") {
-            setInputMessage(shell.reason)
-            setInputValue("")
-            setCommandIndex(0)
-            return
-          }
           void readClaudeEnvironmentConfig(authFile)
             .then((draft) => setClaudeEnvDraft(draft))
             .catch(() => setClaudeEnvDraft(defaultClaudeEnvironment()))
           setClaudeEnvIndex(0)
-          setMode("claude-env-editor")
+          setClaudeEnvScopeIndex(0)
+          setClaudeEnvAction("set")
+          setMode("claude-env-scope")
           setInputValue("")
           setCommandIndex(0)
           return
         }
         if (command.name === "/unset-claude-env") {
-          if (shell.kind === "unsupported") {
-            setInputMessage(shell.reason)
-            setInputValue("")
-            setCommandIndex(0)
-            return
-          }
-          setMode("claude-env-unset-confirm")
+          void readClaudeEnvironmentConfig(authFile)
+            .then((draft) => setClaudeEnvDraft(draft))
+            .catch(() => setClaudeEnvDraft(defaultClaudeEnvironment()))
+          setClaudeEnvScopeIndex(0)
+          setClaudeEnvAction("unset")
+          setMode("claude-env-scope")
           setInputValue("")
           setCommandIndex(0)
           return
@@ -455,16 +461,20 @@ export function CodexCodeApp(props: { port?: number }) {
       }
       return
     }
+    if (mode === "claude-env-scope") {
+      if (key.upArrow) setClaudeEnvScopeIndex((value) => (value - 1 + claudeEnvScopes.length) % claudeEnvScopes.length)
+      if (key.downArrow) setClaudeEnvScopeIndex((value) => (value + 1) % claudeEnvScopes.length)
+      return
+    }
     if (mode === "claude-env-confirm") {
       if (input === "y") {
-        applyClaudeEnvironment(claudeEnvDraft, baseUrl(hostname, port))
         setMode("home")
-        setInputMessage("Claude environment applied to current process")
+        setInputMessage("Claude settings updated")
         void writeClaudeEnvironmentConfig(authFile, claudeEnvDraft).catch((error) =>
           setInputMessage(`Claude environment saved failed: ${error instanceof Error ? error.message : String(error)}`),
         )
-        void runClaudeEnvironmentSet(claudeEnvDraft, baseUrl(hostname, port), shell, { authFile })
-          .then((output) => setCommandOutput({ title: "Set Claude environment - env | grep ANTHROPIC", output }))
+        void runClaudeEnvironmentSet(claudeEnvDraft, baseUrl(hostname, activePort), shell, { authFile, settingsFile: claudeSettingsFile })
+          .then((output) => setCommandOutput({ title: `Set Claude environment - ${claudeSettingsTarget}`, output }))
           .catch((error) => setCommandOutput({ title: "Set Claude environment failed", output: error instanceof Error ? error.message : String(error) }))
       }
       if (input === "n") {
@@ -475,11 +485,10 @@ export function CodexCodeApp(props: { port?: number }) {
     }
     if (mode === "claude-env-unset-confirm") {
       if (input === "y") {
-        unsetClaudeEnvironment()
         setMode("home")
-        setInputMessage("Claude environment unset")
-        void runClaudeEnvironmentUnset(shell, { authFile })
-          .then((output) => setCommandOutput({ title: "Unset Claude environment - env | grep ANTHROPIC", output }))
+        setInputMessage("Claude settings env entries removed")
+        void runClaudeEnvironmentUnset(claudeEnvDraft, shell, { authFile, settingsFile: claudeSettingsFile })
+          .then((output) => setCommandOutput({ title: `Unset Claude environment - ${claudeSettingsTarget}`, output }))
           .catch((error) => setCommandOutput({ title: "Unset Claude environment echo failed", output: error instanceof Error ? error.message : String(error) }))
       }
       if (input === "n") {
@@ -525,7 +534,7 @@ export function CodexCodeApp(props: { port?: number }) {
         <Text color="#d97757">────────────────────────────────────────</Text>
       </Box>
       <Box borderStyle="round" borderColor="#d97757" minHeight={18}>
-        <WelcomePanel hostname={hostname} port={port} />
+        <WelcomePanel hostname={hostname} port={activePort} />
         <Box width={1} borderStyle="single" borderColor="#7f4f45" />
         <Box flexGrow={1} flexDirection="column" paddingX={2} paddingY={1}>
           <AccountInfoPanel account={account} info={activeAccountInfo} />
@@ -546,10 +555,12 @@ export function CodexCodeApp(props: { port?: number }) {
           />
         </>
       )}
-      {(mode === "claude-env-editor" || mode === "claude-env-confirm") ? (
-        <ClaudeEnvironmentEditor draft={claudeEnvDraft} selected={claudeEnvIndex} baseUrl={baseUrl(hostname, port)} confirm={mode === "claude-env-confirm"} shell={shell.kind === "unsupported" ? "posix" : shell.kind} />
+      {mode === "claude-env-scope" ? (
+        <ClaudeEnvironmentScopeSelector selected={claudeEnvScopeIndex} action={claudeEnvAction} />
+      ) : (mode === "claude-env-editor" || mode === "claude-env-confirm") ? (
+        <ClaudeEnvironmentEditor draft={claudeEnvDraft} selected={claudeEnvIndex} baseUrl={baseUrl(hostname, activePort)} confirm={mode === "claude-env-confirm"} shell={shell.kind === "unsupported" ? "posix" : shell.kind} settingsTarget={claudeSettingsTarget} />
       ) : mode === "claude-env-unset-confirm" ? (
-        <ClaudeEnvironmentUnsetConfirm shell={shell.kind === "unsupported" ? "posix" : shell.kind} />
+        <ClaudeEnvironmentUnsetConfirm draft={claudeEnvDraft} shell={shell.kind === "unsupported" ? "posix" : shell.kind} settingsTarget={claudeSettingsTarget} />
       ) : mode === "connect-account" ? (
         <ConnectAccountWizard draft={connectDraft} step={connectStep} saving={connectSaving} />
       ) : (

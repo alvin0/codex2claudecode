@@ -72,6 +72,29 @@ describe("HTTP helpers", () => {
 })
 
 describe("runtime server", () => {
+  test("falls back to the next port when the preferred port is already in use", async () => {
+    globalThis.fetch = mockFetch()
+    const blocker = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      fetch() {
+        return new Response("blocked")
+      },
+    })
+    const requestedPort = blocker.port
+    try {
+      const server = await startRuntime({ authFile: await authFile(), hostname: "127.0.0.1", port: requestedPort, healthIntervalMs: 0, logBody: false })
+      try {
+        expect(server.port).toBe(requestedPort + 1)
+        expect((await originalFetch(`http://${server.hostname}:${server.port}/health`)).status).toBe(200)
+      } finally {
+        server.stop(true)
+      }
+    } finally {
+      blocker.stop(true)
+    }
+  })
+
   test("serves health, proxy endpoints, Claude endpoints, OpenAI-compatible endpoints, 404, 405, and OPTIONS", async () => {
     globalThis.fetch = mockFetch()
     const logs: any[] = []
