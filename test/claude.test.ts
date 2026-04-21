@@ -19,7 +19,7 @@ function responseFromEvents(events: unknown[]) {
 }
 
 describe("Claude request conversion", () => {
-  test("maps Claude messages, tools, images, and tool choices to Responses payloads", () => {
+  test("maps Claude messages, tools, images, documents, and tool choices to Responses payloads", () => {
     const body = claudeToResponsesBody({
       model: "gpt-5.4-mini",
       system: [{ type: "text", text: "sys" }, "raw", { type: "ignored" }],
@@ -35,6 +35,20 @@ describe("Claude request conversion", () => {
         { role: "user", content: [{ type: "tool_result", tool_use_id: "call_1", content: [{ type: "text", text: "done" }] }] },
         { role: "user", content: [{ type: "image", source: { type: "base64", media_type: "image/png", data: "abc" } }] },
         { role: "user", content: [{ type: "image", source: { type: "url", url: "https://example.com/a.png" } }] },
+        {
+          role: "user",
+          content: [
+            {
+              type: "document",
+              title: "CV_260079_NGO MINH PHUONG.pdf",
+              source: {
+                type: "base64",
+                media_type: "application/pdf",
+                data: "JVBERi0xLjcNCg==",
+              },
+            },
+          ],
+        },
       ],
       tools: [
         { type: "web_search_20250305", name: "web_search", max_uses: 8, allowed_domains: ["example.com"], user_location: { city: "Hanoi", ignored: "x" } },
@@ -53,6 +67,9 @@ describe("Claude request conversion", () => {
     expect(body.tool_choice).toEqual({ type: "web_search" })
     expect(body.include).toEqual(["web_search_call.action.sources"])
     expect(JSON.stringify(body.input)).toContain("data:image/png;base64,abc")
+    expect(JSON.stringify(body.input)).toContain("\"type\":\"input_file\"")
+    expect(JSON.stringify(body.input)).toContain("data:application/pdf;base64,JVBERi0xLjcNCg==")
+    expect(JSON.stringify(body.input)).toContain("CV_260079_NGO MINH PHUONG.pdf")
     expect(JSON.stringify(body.input)).toContain("function_call_output")
 
     expect(claudeToResponsesBody({ model: "m", system: { object: true }, messages: [{ role: "user", content: { odd: true } }], tool_choice: { type: "any" } }).tool_choice).toBe(

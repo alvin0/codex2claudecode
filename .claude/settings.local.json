@@ -1,7 +1,9 @@
 {
   "permissions": {
     "allow": [
-      "WebSearch"
+      "WebSearch",
+      "WebFetch(domain:platform.openai.com)",
+      "Bash(bun test *)"
     ]
   }
 }

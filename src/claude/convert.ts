@@ -194,6 +194,7 @@ function claudeContentToResponsesBlocks(role: "user" | "assistant", content: unk
       const item = part as {
         type?: unknown
         text?: unknown
+        title?: unknown
         source?: {
           type?: unknown
           media_type?: unknown
@@ -248,6 +249,17 @@ function claudeContentToResponsesBlocks(role: "user" | "assistant", content: unk
           value: {
             type: "input_image",
             image_url: item.source.url,
+          },
+        }
+      }
+
+      if (role === "user" && item.type === "document" && item.source?.type === "base64") {
+        return {
+          kind: "content" as const,
+          value: {
+            type: "input_file",
+            filename: typeof item.title === "string" ? item.title : "document.pdf",
+            file_data: `data:${item.source.media_type};base64,${item.source.data}`,
           },
         }
       }
