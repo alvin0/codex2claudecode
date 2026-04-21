@@ -6,6 +6,7 @@ export * from "./auth"
 export * from "./client"
 export * from "./reasoning"
 export * from "./runtime"
+export * from "./llm-connect/kiro"
 
 import { CodexStandaloneClient } from "./client"
 import { resolveAuthFile } from "./paths"

@@ -4,6 +4,7 @@ import path from "node:path"
 
 export const APP_DATA_DIR_NAME = ".codex2claudecode"
 export const AUTH_FILE_NAME = "auth-codex.json"
+export const KIRO_AUTH_FILE_NAME = "auth-kiro.json"
 
 export function appDataDir() {
   return path.join(homedir(), APP_DATA_DIR_NAME)
@@ -11,6 +12,10 @@ export function appDataDir() {
 
 export function defaultAuthFile() {
   return path.join(appDataDir(), AUTH_FILE_NAME)
+}
+
+export function defaultKiroAuthFile() {
+  return path.join(appDataDir(), KIRO_AUTH_FILE_NAME)
 }
 
 export async function ensureParentDir(file: string) {
@@ -25,4 +30,8 @@ export function expandHome(value: string) {
 
 export function resolveAuthFile(input?: string) {
   return input ? expandHome(input) : defaultAuthFile()
+}
+
+export function resolveKiroAuthFile(input?: string) {
+  return input ? expandHome(input) : defaultKiroAuthFile()
 }
