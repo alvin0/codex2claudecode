@@ -3,16 +3,18 @@ import { Box, Text } from "ink"
 
 import type { RequestLogEntry } from "../../types"
 
-const LOG_HEIGHT = 8
+const LOG_HEIGHT = 15
 const DETAIL_HEIGHT = 16
 
 export function RequestLogsPanel(props: {
   logs: RequestLogEntry[]
   selected: number
+  autoFollow?: boolean
   detailOpen?: boolean
   detailScroll?: number
   copyStatus?: { type: "success" | "error"; message: string }
   clearConfirm?: boolean
+  fileError?: string
 }) {
   const selected = Math.max(0, Math.min(props.selected, Math.max(0, props.logs.length - 1)))
   const start = Math.min(Math.max(0, selected - LOG_HEIGHT + 1), Math.max(0, props.logs.length - LOG_HEIGHT))
@@ -21,74 +23,129 @@ export function RequestLogsPanel(props: {
   const hasMoreBelow = start + LOG_HEIGHT < props.logs.length
   const detail = props.logs[selected]
 
+  const pendingCount = props.logs.filter((l) => l.state === "pending").length
+  const errorCount = props.logs.filter((l) => l.error !== "-" || (l.proxy?.error !== undefined && l.proxy.error !== "-")).length
+
   return (
     <Box flexDirection="column" marginTop={1}>
       <Text color="#aab3cf">────────────────────────────────────────────────────────────────────────────</Text>
       <Box marginTop={1}>
         <Text bold color="#c7d2fe">Request logs</Text>
-        <Text color="gray">  ↑/↓ select request · Enter details · l copy all logs · x clear logs · Esc close</Text>
+        <Text color="gray">  ↑/↓ select · Enter details · f follow · l copy · x clear · Esc close</Text>
+        {props.autoFollow && <Text color="#22c55e"> ● FOLLOW</Text>}
       </Box>
       {props.clearConfirm && <Text color="yellow">Clear all request logs? y confirm · n/Esc cancel</Text>}
+      {props.fileError && <Text color="red">⚠ {props.fileError}</Text>}
       {props.copyStatus && <Text color={props.copyStatus.type === "success" ? "green" : "red"}>{props.copyStatus.message}</Text>}
-      <Box>
-        <Box width={10}>
-          <Text color="gray">Id</Text>
+      <Box marginTop={1}>
+        <Box width={5}>
+          <Text color="#6b7280">#</Text>
         </Box>
         <Box width={10}>
-          <Text color="gray">Time</Text>
+          <Text color="#6b7280">Id</Text>
+        </Box>
+        <Box width={10}>
+          <Text color="#6b7280">Time</Text>
         </Box>
         <Box width={7}>
-          <Text color="gray">Method</Text>
+          <Text color="#6b7280">Method</Text>
         </Box>
-        <Box width={36}>
-          <Text color="gray">Path</Text>
-        </Box>
-        <Box width={8}>
-          <Text color="gray">Client</Text>
+        <Box width={30}>
+          <Text color="#6b7280">Path</Text>
         </Box>
         <Box width={8}>
-          <Text color="gray">Proxy</Text>
+          <Text color="#6b7280">Client</Text>
+        </Box>
+        <Box width={8}>
+          <Text color="#6b7280">Proxy</Text>
         </Box>
         <Box width={10}>
-          <Text color="gray">Duration</Text>
+          <Text color="#6b7280">Duration</Text>
         </Box>
-        <Text color="gray">Summary</Text>
+        <Text color="#6b7280">Summary</Text>
       </Box>
-      {hasMoreAbove && <Text color="gray">   ↑ more</Text>}
-      {rows.length ? rows.map((log, index) => <LogRow key={`${log.id}-${log.at}`} log={log} selected={start + index === selected} />) : <Text color="gray">No requests yet</Text>}
-      {hasMoreBelow && <Text color="gray">   ↓ more</Text>}
+      <Text color="#374151">{"─".repeat(90)}</Text>
+      {hasMoreAbove && <Text color="gray">   ↑ {start} more above</Text>}
+      {rows.length ? (
+        rows.map((log, index) => {
+          const globalIndex = start + index
+          return (
+            <LogRow
+              key={`${log.id}-${log.at}`}
+              log={log}
+              index={globalIndex + 1}
+              selected={globalIndex === selected}
+            />
+          )
+        })
+      ) : (
+        <Text color="gray">  No requests yet</Text>
+      )}
+      {hasMoreBelow && <Text color="gray">   ↓ {props.logs.length - start - LOG_HEIGHT} more below</Text>}
+      <Text color="#374151">{"─".repeat(90)}</Text>
+      <Box>
+        <Text color="#6b7280">Total: </Text>
+        <Text color="#aab3cf">{props.logs.length}</Text>
+        {pendingCount > 0 && (
+          <>
+            <Text color="#6b7280">  ⏳ Pending: </Text>
+            <Text color="yellow">{pendingCount}</Text>
+          </>
+        )}
+        {errorCount > 0 && (
+          <>
+            <Text color="#6b7280">  ✗ Errors: </Text>
+            <Text color="red">{errorCount}</Text>
+          </>
+        )}
+        {pendingCount === 0 && errorCount === 0 && props.logs.length > 0 && (
+          <>
+            <Text color="#6b7280">  </Text>
+            <Text color="green">✓ All OK</Text>
+          </>
+        )}
+      </Box>
       {props.detailOpen && detail && <LogDetailDialog log={detail} scroll={props.detailScroll ?? 0} />}
     </Box>
   )
 }
 
-function LogRow(props: { log: RequestLogEntry; selected: boolean }) {
+function LogRow(props: { log: RequestLogEntry; index: number; selected: boolean }) {
   const pending = props.log.state === "pending"
+  const isNew = pending
+
   return (
     <Box>
+      <Box width={5}>
+        <Text color={props.selected ? "#d97757" : "#4b5563"}>{String(props.index).padStart(3, " ")} </Text>
+      </Box>
       <Box width={2}>
-        <Text color={props.selected ? "#d97757" : "gray"}>{props.selected ? "›" : " "}</Text>
+        <Text color={props.selected ? "#d97757" : isNew ? "#facc15" : "gray"}>{props.selected ? "›" : isNew ? "⏳" : " "}</Text>
       </Box>
       <Box width={10}>
-        <Text color={props.selected ? "#d97757" : "gray"}>{props.log.id}</Text>
+        <Text color={props.selected ? "#d97757" : isNew ? "#facc15" : "gray"}>{props.log.id}</Text>
       </Box>
       <Box width={10}>
-        <Text color="#aab3cf">{new Date(props.log.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false })}</Text>
+        <Text color={isNew ? "#facc15" : "#aab3cf"}>
+          {new Date(props.log.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false })}
+        </Text>
       </Box>
       <Box width={7}>
-        <Text>{props.log.method}</Text>
+        <Text color={isNew ? "#facc15" : undefined}>{props.log.method}</Text>
       </Box>
-      <Box width={36}>
-        <Text color="#aab3cf">{truncate(props.log.path, 34)}</Text>
-      </Box>
-      <Box width={8}>
-        <Text color={pending ? "yellow" : statusColor(props.log.status)}>{pending ? "..." : props.log.status}</Text>
+      <Box width={30}>
+        <Text color={isNew ? "#facc15" : "#aab3cf"}>{truncate(props.log.path, 28)}</Text>
       </Box>
       <Box width={8}>
-        <Text color={props.log.proxy ? statusColor(props.log.proxy.status) : "gray"}>{props.log.proxy?.status ?? (pending ? "..." : "-")}</Text>
+        <Text color={pending ? "yellow" : statusColor(props.log.status)}>{pending ? "···" : props.log.status}</Text>
+      </Box>
+      <Box width={8}>
+        <Text color={props.log.proxy ? statusColor(props.log.proxy.status) : "gray"}>
+          {props.log.proxy?.status ?? (pending ? "···" : "–")}
+        </Text>
       </Box>
       <Box width={10}>
-        <Text color="gray">{pending ? "..." : `${props.log.durationMs}ms`}</Text>
+        <Text color={pending ? "yellow" : durationColor(props.log.durationMs)}>{pending ? "···" : formatDuration(props.log.durationMs)}</Text>
       </Box>
       <Text color={summaryColor(props.log)}>{truncate(summaryText(props.log), 48)}</Text>
     </Box>
@@ -131,8 +188,21 @@ function truncate(value: string, width: number) {
   return value.length > width ? `${value.slice(0, width - 1)}…` : value
 }
 
+/** Color-code duration: green < 1s, yellow 1-5s, red > 5s */
+function durationColor(ms: number): string {
+  if (ms < 1000) return "green"
+  if (ms < 5000) return "yellow"
+  return "red"
+}
+
+/** Format duration with appropriate unit */
+function formatDuration(ms: number): string {
+  if (ms < 1000) return `${ms}ms`
+  return `${(ms / 1000).toFixed(1)}s`
+}
+
 function summaryText(log: RequestLogEntry) {
-  if (log.state === "pending") return "in process"
+  if (log.state === "pending") return "⏳ in process"
   if (log.proxy && log.proxy.error !== "-") return `proxy: ${log.proxy.error}`
   if (log.error !== "-") return log.error
   if (log.proxy) return `${log.proxy.label} ${log.proxy.status}`

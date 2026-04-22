@@ -67,6 +67,8 @@ export function CodexCodeApp(props: { port?: number }) {
   const [logsDetailScroll, setLogsDetailScroll] = useState(0)
   const [logsCopyStatus, setLogsCopyStatus] = useState<{ type: "success" | "error"; message: string }>()
   const [logsClearConfirm, setLogsClearConfirm] = useState(false)
+  const [logsFileError, setLogsFileError] = useState<string>()
+  const [logsAutoFollow, setLogsAutoFollow] = useState(true)
   const [claudeEnvDraft, setClaudeEnvDraft] = useState<ClaudeEnvironmentDraft>(() => defaultClaudeEnvironment())
   const [claudeEnvIndex, setClaudeEnvIndex] = useState(0)
   const [claudeEnvScopeIndex, setClaudeEnvScopeIndex] = useState(0)
@@ -127,10 +129,25 @@ export function CodexCodeApp(props: { port?: number }) {
       logBody: process.env.LOG_BODY !== "0",
       quiet: true,
       onRequestLogStart: (entry) => {
-        setRequestLogs((logs) => upsertRequestLog(logs, entry))
+        setRequestLogs((logs) => {
+          const updated = upsertRequestLog(logs, entry)
+          // Auto-follow: always scroll to the newest entry
+          setLogsAutoFollow((follow) => {
+            if (follow) setLogsSelected(Math.max(0, updated.length - 1))
+            return follow
+          })
+          return updated
+        })
       },
       onRequestLog: (entry) => {
-        setRequestLogs((logs) => upsertRequestLog(logs, entry))
+        setRequestLogs((logs) => {
+          const updated = upsertRequestLog(logs, entry)
+          setLogsAutoFollow((follow) => {
+            if (follow) setLogsSelected(Math.max(0, updated.length - 1))
+            return follow
+          })
+          return updated
+        })
       },
     })
       .then((nextServer) => {
@@ -154,18 +171,38 @@ export function CodexCodeApp(props: { port?: number }) {
   useEffect(() => {
     if (mode !== "logs") return
     let active = true
-    void readRecentRequestLogs(authFile)
-      .then((logs) => {
+
+    async function loadLogs() {
+      try {
+        const logs = await readRecentRequestLogs(authFile)
         if (!active) return
+        setLogsFileError(undefined)
         setRequestLogs((currentLogs) => {
           const merged = mergeRequestLogs(logs, currentLogs)
-          setLogsSelected(Math.max(0, merged.length - 1))
+          setLogsAutoFollow((follow) => {
+            if (follow) {
+              setLogsSelected(Math.max(0, merged.length - 1))
+            } else {
+              setLogsSelected((prev) => Math.max(0, Math.min(prev, merged.length - 1)))
+            }
+            return follow
+          })
           return merged
         })
-      })
-      .catch(() => {})
+      } catch (error) {
+        if (!active) return
+        const message = error instanceof Error ? error.message : String(error)
+        setLogsFileError(`Failed to read log file: ${message}`)
+      }
+    }
+
+    void loadLogs()
+    // Poll every 2 s so new requests that arrive while the panel is open are
+    // reflected without requiring the user to close and reopen the panel.
+    const timer = setInterval(() => void loadLogs(), 2000)
     return () => {
       active = false
+      clearInterval(timer)
     }
   }, [authFile, mode, authRevision, selected])
 
@@ -219,6 +256,7 @@ export function CodexCodeApp(props: { port?: number }) {
               setLogsDetailScroll(0)
               setLogsCopyStatus(undefined)
               setLogsClearConfirm(false)
+              setLogsFileError(undefined)
               setInputMessage("Cleared request logs")
             })
             .catch((error) => {
@@ -270,6 +308,20 @@ export function CodexCodeApp(props: { port?: number }) {
         setLogsCopyStatus(undefined)
         setLogsClearConfirm(true)
         setInputMessage("Confirm clear request logs")
+        return
+      }
+      if (input.toLowerCase() === "f") {
+        setLogsAutoFollow((value) => {
+          const next = !value
+          if (next) {
+            // Jump to the latest entry when enabling follow
+            setLogsSelected(Math.max(0, requestLogs.length - 1))
+            setInputMessage("Auto-follow ON — tracking latest request")
+          } else {
+            setInputMessage("Auto-follow OFF — manual navigation")
+          }
+          return next
+        })
         return
       }
     }
@@ -434,6 +486,8 @@ export function CodexCodeApp(props: { port?: number }) {
           setLogsDetailScroll(0)
           setLogsCopyStatus(undefined)
           setLogsClearConfirm(false)
+          setLogsAutoFollow(true)
+          setLogsSelected(Math.max(0, requestLogs.length - 1))
           setMode("logs")
           setInputValue("")
           setCommandIndex(0)
@@ -515,6 +569,7 @@ export function CodexCodeApp(props: { port?: number }) {
         return
       }
       if (key.upArrow) {
+        setLogsAutoFollow(false)
         setLogsDetailOpen(false)
         setLogsDetailScroll(0)
         setLogsCopyStatus(undefined)
@@ -522,6 +577,7 @@ export function CodexCodeApp(props: { port?: number }) {
         setLogsSelected((value) => Math.max(0, value - 1))
       }
       if (key.downArrow) {
+        setLogsAutoFollow(false)
         setLogsDetailOpen(false)
         setLogsDetailScroll(0)
         setLogsCopyStatus(undefined)
@@ -618,10 +674,12 @@ export function CodexCodeApp(props: { port?: number }) {
           <RequestLogsPanel
             logs={requestLogs}
             selected={logsSelected}
+            autoFollow={logsAutoFollow}
             detailOpen={logsDetailOpen}
             detailScroll={logsDetailScroll}
             copyStatus={logsCopyStatus}
             clearConfirm={logsClearConfirm}
+            fileError={logsFileError}
           />
         </>
       )}
@@ -674,9 +732,12 @@ function baseUrl(hostname: string, port: number) {
 }
 
 function mergeRequestLogs(storedLogs: RequestLogEntry[], currentLogs: RequestLogEntry[]) {
-  let merged = storedLogs
+  // Start from stored logs (source of truth on disk), then overlay any
+  // in-memory entries that are not yet persisted (pending or complete but
+  // not yet flushed due to a race between write and the polling read).
+  let merged = [...storedLogs]
   for (const log of currentLogs) {
-    if (log.state !== "pending" || merged.some((storedLog) => storedLog.id === log.id)) continue
+    if (merged.some((storedLog) => storedLog.id === log.id)) continue
     merged = upsertRequestLog(merged, log)
   }
   return merged

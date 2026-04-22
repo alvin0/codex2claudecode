@@ -266,7 +266,8 @@ describe("runtime server", () => {
   test("continues serving when request log file cannot be created", async () => {
     globalThis.fetch = mockFetch()
     const auth = await authFile()
-    await writeFile(path.join(path.dirname(auth), ".request-logs"), "not a directory")
+    // Block log writes by placing a directory where the log file should be
+    await import("node:fs/promises").then(({ mkdir }) => mkdir(path.join(path.dirname(auth), "request-logs-recent.ndjson"), { recursive: true }))
     const logs: any[] = []
     const server = await startRuntime({ authFile: auth, port: 0, healthIntervalMs: 0, logBody: false, quiet: true, onRequestLog: (entry) => logs.push(entry) })
     const base = `http://${server.hostname}:${server.port}`

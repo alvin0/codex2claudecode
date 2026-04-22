@@ -1,9 +1,9 @@
 import { afterEach, expect, test } from "bun:test"
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
 
-import { appendRequestLog, clearRequestLogs, ensureRequestLogFile, MAX_REQUEST_LOG_ENTRIES, readRecentRequestLogs, requestLogFilePath, requestLogsDir } from "../src/request-logs"
+import { appendRequestLog, clearRequestLogs, ensureRequestLogFile, MAX_REQUEST_LOG_ENTRIES, readRecentRequestLogs, requestLogFilePath } from "../src/request-logs"
 import type { RequestLogEntry } from "../src/types"
 
 const tempDirs: string[] = []
@@ -35,14 +35,13 @@ function logEntry(overrides?: Partial<RequestLogEntry>): RequestLogEntry {
   }
 }
 
-test("appends request logs to recent.ndjson", async () => {
+test("appends request logs to request-logs-recent.ndjson", async () => {
   const file = await authFile()
   const entry = logEntry()
 
   await appendRequestLog(file, entry)
 
-  expect(requestLogsDir(file)).toBe(path.join(path.dirname(file), ".request-logs"))
-  expect(requestLogFilePath(file)).toBe(path.join(path.dirname(file), ".request-logs", "recent.ndjson"))
+  expect(requestLogFilePath(file)).toBe(path.join(path.dirname(file), "request-logs-recent.ndjson"))
   expect(JSON.parse((await readFile(requestLogFilePath(file), "utf8")).trim())).toMatchObject({
     id: "req-1",
     at: entry.at,
@@ -50,7 +49,7 @@ test("appends request logs to recent.ndjson", async () => {
   })
 })
 
-test("creates request log storage when parent directories are missing", async () => {
+test("creates request log file when parent directories are missing", async () => {
   const root = await mkdtemp(path.join(tmpdir(), "request-logs-missing-parent-test-"))
   tempDirs.push(root)
   const file = path.join(root, "missing", "auth-codex.json")
@@ -98,18 +97,6 @@ test("keeps only the newest 100 request logs", async () => {
   expect(logs).toHaveLength(MAX_REQUEST_LOG_ENTRIES)
   expect(logs[0]).toMatchObject({ id: "req-6" })
   expect(logs[MAX_REQUEST_LOG_ENTRIES - 1]).toMatchObject({ id: "req-105" })
-})
-
-test("removes legacy daily log files when writing recent logs", async () => {
-  const file = await authFile()
-  const dir = requestLogsDir(file)
-  await mkdir(dir, { recursive: true })
-  await writeFile(path.join(dir, "2026-04-22.ndjson"), "{}\n")
-
-  await appendRequestLog(file, logEntry())
-
-  await expect(readFile(path.join(dir, "2026-04-22.ndjson"), "utf8")).rejects.toThrow()
-  await expect(readFile(requestLogFilePath(file), "utf8")).resolves.toContain('"req-1"')
 })
 
 test("clears request log storage", async () => {

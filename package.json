@@ -1,6 +1,6 @@
 {
   "name": "codex2claudecode",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "author": "alvin0 <chaulamdinhai@gmail.com>",
   "license": "MIT",
   "engines": {
@@ -23,6 +23,7 @@
     "dist",
     "images",
     "src",
+    "models.json",
     "index.ts",
     "README.md",
     "LICENSE"

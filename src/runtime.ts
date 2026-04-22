@@ -1,6 +1,7 @@
 import { CodexStandaloneClient } from "./client"
 import { LOG_BODY_PREVIEW_LIMIT } from "./constants"
 import { handleClaudeCountTokens, handleClaudeMessages } from "./claude"
+import { handleListModels, handleGetModel } from "./models"
 import { claudeErrorResponse } from "./claude/errors"
 import { cors, responseHeaders } from "./http"
 import { resolveAuthFile } from "./paths"
@@ -84,9 +85,12 @@ export async function startRuntime(options?: RuntimeOptions) {
           const entry = await requestLog(response, durationMs, error, proxy, responseBody)
           try {
             await appendRequestLog(authFile, entry)
-          } catch (error) {
-            if (!quiet) warnRequestLogError(authFile, error)
-            // Request logging must not change runtime responses.
+          } catch (logError) {
+            // Always warn about log write failures regardless of quiet mode so
+            // the caller's onRequestLog callback can surface the error in the UI.
+            warnRequestLogError(authFile, logError)
+            // Request logging must not change runtime responses or prevent
+            // the in-memory callback from firing.
           }
           onRequestLog?.(entry)
         }
@@ -94,13 +98,13 @@ export async function startRuntime(options?: RuntimeOptions) {
         onRequestLogStart?.(pendingRequestLog())
 
         async function finish(response: Response, proxy?: RequestProxyLog) {
-          if (!logBody || !response.body) {
+          if (!logBody || request.method === "HEAD" || response.body === null || response.body === undefined) {
             const durationMs = Date.now() - started
             if (!quiet) logResponseEnd(requestId, request, url, response, durationMs)
             await emitRequestLog(response, durationMs, undefined, proxy)
             return response
           }
-          return responseWithLoggedBody(response, async (responseBody, responseError) => {
+          return responseWithLoggedBody(response as Response & { body: ReadableStream<Uint8Array> }, async (responseBody, responseError) => {
             const durationMs = Date.now() - started
             if (!quiet) logResponseEnd(requestId, request, url, response, durationMs)
             await emitRequestLog(response, durationMs, responseError, proxy, responseBody)
@@ -135,7 +139,7 @@ export async function startRuntime(options?: RuntimeOptions) {
 
         if (request.method === "OPTIONS") return finish(cors(new Response(null, { status: 204 })))
 
-        if (request.method === "GET" && url.pathname === "/") {
+        if ((request.method === "GET" || request.method === "HEAD") && url.pathname === "/") {
           return finish(
             cors(
               Response.json({
@@ -151,6 +155,7 @@ export async function startRuntime(options?: RuntimeOptions) {
                 endpoints: {
                   messages: "/v1/messages",
                   count_tokens: "/v1/messages/count_tokens",
+                  models: "/v1/models",
                   responses: "/v1/responses",
                   chat_completions: "/v1/chat/completions",
                   health: "/health",
@@ -225,7 +230,7 @@ export async function startRuntime(options?: RuntimeOptions) {
           }
         }
 
-        if (request.method === "GET" && url.pathname === "/health") {
+        if ((request.method === "GET" || request.method === "HEAD") && url.pathname === "/health") {
           return finish(
             cors(
               Response.json(
@@ -259,6 +264,18 @@ export async function startRuntime(options?: RuntimeOptions) {
             cors(proxy.response),
             proxy.entry,
           )
+        }
+
+        // ---- Models API ----
+        if (request.method === "GET" && url.pathname === "/v1/models") {
+          return finish(cors(await handleListModels(url)))
+        }
+
+        if (request.method === "GET" && url.pathname.startsWith("/v1/models/")) {
+          const modelId = decodeURIComponent(url.pathname.slice("/v1/models/".length))
+          if (modelId) {
+            return finish(cors(handleGetModel(modelId)))
+          }
         }
 
         if (request.method === "POST" && url.pathname === "/v1/messages/count_tokens") {
@@ -368,6 +385,7 @@ export async function startRuntime(options?: RuntimeOptions) {
     console.log(`Root:             http://${server.hostname}:${server.port}/`)
     console.log(`Claude messages:  http://${server.hostname}:${server.port}/v1/messages`)
     console.log(`Claude tokens:    http://${server.hostname}:${server.port}/v1/messages/count_tokens`)
+    console.log(`Models:           http://${server.hostname}:${server.port}/v1/models`)
     console.log(`Responses:        http://${server.hostname}:${server.port}/v1/responses`)
     console.log(`Chat completions: http://${server.hostname}:${server.port}/v1/chat/completions`)
     console.log(`Usage:            http://${server.hostname}:${server.port}/usage`)
@@ -496,7 +514,7 @@ function previewText(text: string) {
 }
 
 function responseWithLoggedBody(
-  response: Response,
+  response: Response & { body: ReadableStream<Uint8Array> },
   onComplete: (responseBody?: string, responseError?: string) => Promise<void>,
 ) {
   const reader = response.body.getReader()
