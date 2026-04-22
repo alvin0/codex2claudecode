@@ -33,7 +33,8 @@
     "check": "bun build index.ts --target=bun --outfile=/tmp/codex2claudecode.js",
     "test": "bun test test/*.test.ts --test-name-pattern='^(?!.*live Codex smoke test)'",
     "coverage": "bun test test/*.test.ts --test-name-pattern='^(?!.*live Codex smoke test)' --coverage --coverage-reporter=text",
-    "test:live": "CODEX_AUTH_FILE=auth-codex.json bun test test/live.test.ts"
+    "test:live": "CODEX_AUTH_FILE=auth-codex.json bun test test/live.test.ts",
+    "test:kiro-live": "bun test/kiro-live.ts"
   },
   "dependencies": {
     "ink": "^7.0.1",

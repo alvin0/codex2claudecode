@@ -1,83 +1,162 @@
+import { cors, responseHeaders } from "../src/http"
+import { collectKiroResponse, handleKiroAnthropicMessages, handleKiroChatCompletions, KiroStandaloneClient } from "../src/llm-connect/kiro"
 import { defaultKiroAuthFile } from "../src/paths"
-import { KiroStandaloneClient } from "../src/llm-connect/kiro"
+
+type GenerateBody = {
+  modelId?: string
+  content?: string
+  conversationId?: string
+  history?: unknown[]
+  stream?: boolean
+}
+
+type BunServe = (options: {
+  hostname: string
+  port: number
+  fetch(request: Request): Response | Promise<Response>
+}) => { hostname: string; port: number }
+
+type BunRuntime = {
+  env?: Record<string, string | undefined>
+  serve: BunServe
+}
+
+function bunRuntime(): BunRuntime {
+  const runtime = (globalThis as { Bun?: Partial<BunRuntime> }).Bun
+  if (!runtime?.serve) throw new Error("This script must run with Bun")
+  return runtime as BunRuntime
+}
+
+function env(name: string) {
+  return bunRuntime().env?.[name]
+}
 
 async function main() {
-  const credsFile = process.env.KIRO_CREDS_FILE ?? defaultKiroAuthFile()
+  const host = env("KIRO_LIVE_HOST") ?? env("HOST") ?? "127.0.0.1"
+  const port = Number(env("KIRO_LIVE_PORT") ?? env("PORT") ?? 4041)
+  const credsFile = env("KIRO_CREDS_FILE") ?? defaultKiroAuthFile()
   const client = await KiroStandaloneClient.create({ credsFile })
 
-  console.log("Kiro creds file:", credsFile)
-  console.log("Kiro auth type:", client.tokens.authType)
-
-  const modelId = process.env.KIRO_SMOKE_MODEL
-  if (!modelId) {
-    console.log("Listing available models...")
-    const models = await client.listAvailableModels()
-    console.log(JSON.stringify(models, null, 2))
-    console.log("Set KIRO_SMOKE_MODEL to also test generateAssistantResponse.")
-    return
-  }
-
-  const prompt = process.env.KIRO_SMOKE_PROMPT ?? "Reply with exactly: ok"
-  console.log(`Calling generateAssistantResponse with model ${modelId}...`)
-  const response = await client.generateAssistantResponse({
-    modelId,
-    content: prompt,
-    conversationId: crypto.randomUUID(),
+  const server = bunRuntime().serve({
+    hostname: host,
+    port,
+    fetch(request: Request) {
+      return handleRequest(request, client, credsFile)
+    },
   })
 
-  console.log("Status:", response.status)
-  const parsed = await readKiroStream(response)
-  console.log("Content:", parsed.content)
-  if (parsed.contextUsagePercentage !== undefined) {
-    console.log("Context usage %:", parsed.contextUsagePercentage)
+  console.log(`Kiro live API listening at http://${server.hostname}:${server.port}`)
+  console.log(`Kiro creds file: ${credsFile}`)
+  console.log(`Kiro auth type: ${client.tokens.authType}`)
+  console.log("GET  /health")
+  console.log("GET  /v1/kiro/models")
+  console.log("POST /v1/kiro/generateAssistantResponse")
+  console.log("POST /v1/kiro/generateAssistantResponse/collect")
+  console.log("POST /v1/messages")
+  console.log("POST /v1/chat/completions")
+}
+
+async function handleRequest(request: Request, client: KiroStandaloneClient, credsFile: string) {
+  const url = new URL(request.url)
+
+  if (request.method === "OPTIONS") {
+    return cors(new Response(null, { status: 204 }))
   }
-  if (parsed.usage !== undefined) {
-    console.log("Usage:", parsed.usage)
+
+  try {
+    if (request.method === "GET" && url.pathname === "/health") {
+      return json({ ok: true, credsFile, authType: client.tokens.authType })
+    }
+
+    if (request.method === "GET" && url.pathname === "/v1/kiro/models") {
+      const models = await client.listAvailableModels()
+      return json(models)
+    }
+
+    if (request.method === "POST" && url.pathname === "/v1/messages") {
+      return cors(await handleKiroAnthropicMessages(client, request))
+    }
+
+    if (request.method === "POST" && url.pathname === "/v1/chat/completions") {
+      return cors(await handleKiroChatCompletions(client, request))
+    }
+
+    if (request.method === "POST" && url.pathname === "/v1/kiro/generateAssistantResponse") {
+      const body = await readGenerateBody(request)
+      const upstream = await client.generateAssistantResponse({
+        modelId: body.modelId,
+        content: body.content,
+        conversationId: body.conversationId ?? crypto.randomUUID(),
+        history: body.history,
+        stream: body.stream,
+      })
+      return cors(
+        new Response(upstream.body, {
+          status: upstream.status,
+          statusText: upstream.statusText,
+          headers: responseHeaders(upstream.headers),
+        }),
+      )
+    }
+
+    if (request.method === "POST" && url.pathname === "/v1/kiro/generateAssistantResponse/collect") {
+      const body = await readGenerateBody(request)
+      const upstream = await client.generateAssistantResponse({
+        modelId: body.modelId,
+        content: body.content,
+        conversationId: body.conversationId ?? crypto.randomUUID(),
+        history: body.history,
+        stream: body.stream,
+      })
+      const collected = await collectKiroResponse(upstream)
+      return json({ status: upstream.status, ...collected })
+    }
+
+    if (
+      url.pathname === "/health" ||
+      url.pathname === "/v1/kiro/models" ||
+      url.pathname === "/v1/messages" ||
+      url.pathname === "/v1/chat/completions" ||
+      url.pathname.startsWith("/v1/kiro/generateAssistantResponse")
+    ) {
+      return errorJson(405, `${request.method} is not allowed for ${url.pathname}`)
+    }
+
+    return errorJson(404, `Route not found: ${url.pathname}`)
+  } catch (error) {
+    return errorJson(500, error instanceof Error ? error.message : String(error))
   }
 }
 
-async function readKiroStream(response: Response) {
-  if (!response.body) throw new Error("Kiro response did not include a body")
-
-  const reader = response.body.getReader()
-  const decoder = new TextDecoder()
-  let buffer = ""
-  let content = ""
-  let usage: unknown
-  let contextUsagePercentage: number | undefined
-
-  while (true) {
-    const chunk = await reader.read()
-    if (chunk.done) break
-    buffer += decoder.decode(chunk.value, { stream: true })
-
-    const matches = buffer.match(/\{"(?:content|usage|contextUsagePercentage)"[\s\S]*?\}/g) ?? []
-    if (!matches.length) continue
-
-    let consumedUntil = 0
-    for (const match of matches) {
-      const index = buffer.indexOf(match, consumedUntil)
-      if (index < 0) continue
-      consumedUntil = index + match.length
-
-      try {
-        const data = JSON.parse(match) as { content?: string; usage?: unknown; contextUsagePercentage?: number }
-        if (typeof data.content === "string") content += data.content
-        if (data.usage !== undefined) usage = data.usage
-        if (typeof data.contextUsagePercentage === "number") contextUsagePercentage = data.contextUsagePercentage
-      } catch {
-        consumedUntil = index
-        break
-      }
-    }
-
-    if (consumedUntil > 0) buffer = buffer.slice(consumedUntil)
+async function readGenerateBody(request: Request) {
+  const body = (await request.json()) as GenerateBody
+  if (!body.modelId) throw new Error("modelId is required")
+  if (!body.content) throw new Error("content is required")
+  return body as {
+    modelId: string
+    content: string
+    conversationId?: string
+    history?: unknown[]
+    stream?: boolean
   }
+}
 
-  return { content, usage, contextUsagePercentage }
+function json(data: unknown, init: ResponseInit = {}) {
+  const headers = new Headers(init.headers)
+  headers.set("content-type", "application/json")
+  return cors(
+    new Response(JSON.stringify(data, null, 2), {
+      ...init,
+      headers,
+    }),
+  )
+}
+
+function errorJson(status: number, message: string) {
+  return json({ error: { message } }, { status })
 }
 
 main().catch((error) => {
   console.error(error)
-  process.exit(1)
+  throw error
 })

@@ -62,6 +62,7 @@ export class KiroStandaloneClient {
   async generateAssistantResponse(options: KiroGenerateAssistantResponseOptions) {
     const payload = buildKiroGenerateAssistantResponsePayload({
       content: options.content,
+      currentMessage: options.currentMessage,
       modelId: options.modelId,
       history: options.history,
       conversationId: options.conversationId,

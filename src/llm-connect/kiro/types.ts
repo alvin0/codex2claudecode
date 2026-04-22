@@ -68,10 +68,61 @@ export interface KiroRequestHeaderOptions {
   codewhispererOptout?: boolean
 }
 
-export interface KiroMessageInput {
+export interface KiroToolSpecification {
+  toolSpecification: {
+    name: string
+    description: string
+    inputSchema: {
+      json: Record<string, unknown>
+    }
+  }
+}
+
+export interface KiroToolResult {
+  content: Array<{ text: string }>
+  status: "success" | "error"
+  toolUseId: string
+}
+
+export interface KiroToolUse {
+  name: string
+  input: Record<string, unknown>
+  toolUseId: string
+}
+
+export interface KiroImage {
+  format: string
+  source: {
+    bytes: string
+  }
+}
+
+export interface KiroUserInputMessage {
   content: unknown
   modelId: string
-  history?: unknown[]
+  origin: "AI_EDITOR"
+  images?: KiroImage[]
+  userInputMessageContext?: {
+    tools?: KiroToolSpecification[]
+    toolResults?: KiroToolResult[]
+  }
+}
+
+export interface KiroAssistantResponseMessage {
+  content: string
+  toolUses?: KiroToolUse[]
+}
+
+export interface KiroConversationHistoryEntry {
+  userInputMessage?: KiroUserInputMessage
+  assistantResponseMessage?: KiroAssistantResponseMessage
+}
+
+export interface KiroMessageInput {
+  content?: unknown
+  currentMessage?: KiroUserInputMessage
+  modelId: string
+  history?: KiroConversationHistoryEntry[] | unknown[]
   conversationId?: string
 }
 
@@ -80,13 +131,9 @@ export interface KiroGenerateAssistantResponsePayload {
     chatTriggerType: "MANUAL"
     conversationId: string
     currentMessage: {
-      userInputMessage: {
-        content: unknown
-        modelId: string
-        origin: "AI_EDITOR"
-      }
+      userInputMessage: KiroUserInputMessage
     }
-    history?: unknown[]
+    history?: KiroConversationHistoryEntry[] | unknown[]
   }
   profileArn?: string
 }

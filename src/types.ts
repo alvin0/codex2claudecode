@@ -83,6 +83,41 @@ export interface ResponsesRequest extends JsonObject {
   stream?: boolean
 }
 
+export interface OpenAIChatContentTextBlock {
+  type: "text"
+  text: string
+}
+
+export interface OpenAIChatImageUrlBlock {
+  type: "image_url"
+  image_url: {
+    url: string
+    detail?: string
+  }
+}
+
+export interface OpenAIChatToolCall {
+  id: string
+  type: "function"
+  function: {
+    name: string
+    arguments: string
+  }
+}
+
+export interface OpenAIChatToolDefinition {
+  type: "function" | "web_search"
+  function?: {
+    name: string
+    description?: string
+    parameters?: JsonObject
+    strict?: boolean
+  }
+  allowed_domains?: string[]
+  blocked_domains?: string[]
+  user_location?: JsonObject
+}
+
 export interface ChatCompletionRequest extends JsonObject {
   model: string
   messages: Array<{
@@ -90,8 +125,30 @@ export interface ChatCompletionRequest extends JsonObject {
     content: unknown
     name?: string
     tool_call_id?: string
+    tool_calls?: OpenAIChatToolCall[]
   }>
   stream?: boolean
+  tools?: OpenAIChatToolDefinition[]
+  tool_choice?: "auto" | "none" | "required" | { type: "function" | "web_search"; function?: { name: string }; name?: string }
+  reasoning_effort?: "none" | "low" | "medium" | "high" | "xhigh"
+}
+
+export interface ClaudeToolDefinition {
+  name: string
+  type?: string
+  description?: string
+  input_schema?: JsonObject
+  max_uses?: number
+  allowed_domains?: string[]
+  blocked_domains?: string[]
+  user_location?: JsonObject
+  citations?: JsonObject
+  max_content_tokens?: number
+}
+
+export interface ClaudeThinkingConfig {
+  type?: "enabled"
+  budget_tokens?: number
 }
 
 export interface ClaudeMessagesRequest extends JsonObject {
@@ -106,19 +163,9 @@ export interface ClaudeMessagesRequest extends JsonObject {
   temperature?: number
   top_p?: number
   stop_sequences?: string[]
-  tools?: Array<{
-    name: string
-    type?: string
-    description?: string
-    input_schema?: JsonObject
-    max_uses?: number
-    allowed_domains?: string[]
-    blocked_domains?: string[]
-    user_location?: JsonObject
-    citations?: JsonObject
-    max_content_tokens?: number
-  }>
+  tools?: ClaudeToolDefinition[]
   tool_choice?: { type: "auto" | "any" | "tool"; name?: string }
+  thinking?: ClaudeThinkingConfig
 }
 
 export interface SseEvent {
