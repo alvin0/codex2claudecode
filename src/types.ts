@@ -173,6 +173,7 @@ export interface ClaudeMessagesRequest extends JsonObject {
   mcp_servers?: ClaudeMcpServer[]
   tools?: ClaudeTool[]
   tool_choice?: { type: "auto" | "any" | "tool" | "none"; name?: string; disable_parallel_tool_use?: boolean }
+  thinking?: { type: "enabled" | "disabled" | "adaptive"; budget_tokens?: number } | JsonObject
 }
 
 export interface SseEvent {

@@ -116,7 +116,7 @@ describe("runtime server", () => {
       expect((await originalFetch(`${base}/health`)).status).toBe(200)
       expect((await originalFetch(`${base}/usage`)).status).toBe(200)
       expect((await originalFetch(`${base}/environments`)).status).toBe(200)
-      expect((await originalFetch(`${base}/v1/messages/count_tokens`, { method: "POST", body: JSON.stringify({ messages: [{ role: "user", content: "hi" }] }) })).status).toBe(200)
+      expect((await originalFetch(`${base}/v1/messages/count_tokens`, { method: "POST", body: JSON.stringify({ model: "m", messages: [{ role: "user", content: "hi" }] }) })).status).toBe(200)
       expect((await originalFetch(`${base}/v1/messages`, { method: "POST", body: JSON.stringify({ model: "m", messages: [{ role: "user", content: "hi" }] }) })).status).toBe(200)
       expect((await originalFetch(`${base}/v1/responses`, { method: "POST", body: JSON.stringify({ model: "m", input: "hi" }) })).status).toBe(200)
       expect((await originalFetch(`${base}/v1/chat/completions`, { method: "POST", body: JSON.stringify({ model: "m", messages: [{ role: "user", content: "hi" }] }) })).status).toBe(200)

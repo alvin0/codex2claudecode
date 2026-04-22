@@ -82,6 +82,8 @@ export function countClaudeInputTokens(body: ClaudeMessagesRequest) {
     serializeSupplementalInput("tools", body.tools),
     serializeSupplementalInput("mcp_servers", body.mcp_servers),
     serializeSupplementalInput("output_format", body.output_config?.format),
+    serializeSupplementalInput("thinking", body.thinking),
+    serializeSupplementalInput("tool_choice", body.tool_choice),
   ]
     .filter((item) => item !== undefined)
     .join("\n\n")

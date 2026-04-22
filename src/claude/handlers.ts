@@ -68,7 +68,20 @@ export async function handleClaudeMessages(
     requestBody,
   })
 
-  if (body.stream) return claudeStreamResponse(response, body)
+  if (body.stream) return claudeStreamResponse(response, body, {
+    onStreamError: (error) => {
+      if (!options?.onProxy) return
+      options.onProxy({
+        label: "Codex responses (stream error)",
+        method: "POST",
+        target: "/v1/responses",
+        status: 200,
+        durationMs: Date.now() - started,
+        error,
+        requestBody,
+      })
+    },
+  })
   return Response.json(await collectClaudeMessage(response, body))
 }
 
@@ -80,6 +93,7 @@ export async function handleClaudeCountTokens(request: Request) {
     return claudeErrorResponse(`Invalid JSON: ${error instanceof Error ? error.message : String(error)}`, 400)
   }
 
+  if (!body.model || typeof body.model !== "string") return claudeErrorResponse("Claude count_tokens request requires model", 400)
   if (!Array.isArray(body.messages)) return claudeErrorResponse("Claude count_tokens request requires messages", 400)
 
   return Response.json({

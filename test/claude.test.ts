@@ -642,7 +642,14 @@ describe("SSE and Claude response mapping", () => {
       )
 
       expect(events[0].data.type).toBe("message_start")
-      expect(events.some((event) => event.event === "ping" && event.data.type === "ping")).toBe(true)
+      // While upstream is thinking, heartbeat sends thinking_delta events
+      // instead of plain pings to keep Claude Code aware the stream is alive
+      expect(
+        events.some(
+          (event) =>
+            event.data.type === "content_block_delta" && event.data.delta?.type === "thinking_delta",
+        ),
+      ).toBe(true)
       expect(clearedHeartbeat).toBe(true)
     } finally {
       globalThis.setInterval = originalSetInterval
@@ -729,8 +736,8 @@ describe("SSE and Claude response mapping", () => {
       { model: "m", messages: [], stream: true },
     )
     const errorEvents = await readSse(brokenStream)
-    expect(errorEvents.map((event) => event.data.type)).toEqual(["message_start", "error"])
-    expect(errorEvents[1]).toEqual({ event: "error", data: { type: "error", error: { type: "api_error", message: "stream broke" } } })
+    expect(errorEvents.map((event) => event.data.type)).toEqual(["message_start", "content_block_start", "content_block_delta", "content_block_stop", "error"])
+    expect(errorEvents[errorEvents.length - 1]).toEqual({ event: "error", data: { type: "error", error: { type: "api_error", message: "stream broke" } } })
 
     expect((await handleClaudeMessages(okClient as any, new Request("http://x", { method: "POST", body: "{" }), "id")).status).toBe(400)
     expect((await handleClaudeMessages(okClient as any, new Request("http://x", { method: "POST", body: JSON.stringify({ model: "m" }) }), "id")).status).toBe(400)

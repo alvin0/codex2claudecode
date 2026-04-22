@@ -134,6 +134,97 @@ export async function startRuntime(options?: RuntimeOptions) {
         }
 
         if (request.method === "OPTIONS") return finish(cors(new Response(null, { status: 204 })))
+
+        if (request.method === "GET" && url.pathname === "/") {
+          return finish(
+            cors(
+              Response.json({
+                message: "Codex2ClaudeCode",
+                status: "running",
+                config: {
+                  hostname,
+                  port: server.port,
+                  health_interval_ms: healthIntervalMs,
+                  health_timeout_ms: healthTimeoutMs,
+                  log_body: logBody,
+                },
+                endpoints: {
+                  messages: "/v1/messages",
+                  count_tokens: "/v1/messages/count_tokens",
+                  responses: "/v1/responses",
+                  chat_completions: "/v1/chat/completions",
+                  health: "/health",
+                  usage: "/usage",
+                  environments: "/environments",
+                  test_connection: "/test-connection",
+                },
+              }),
+            ),
+          )
+        }
+
+        if (request.method === "GET" && url.pathname === "/test-connection") {
+          try {
+            const testStarted = Date.now()
+            const testHealth = await client.checkHealth(healthTimeoutMs)
+            const testDurationMs = Date.now() - testStarted
+            if (testHealth.ok) {
+              return finish(
+                cors(
+                  Response.json({
+                    status: "success",
+                    message: "Successfully connected to Codex upstream",
+                    timestamp: new Date().toISOString(),
+                    latency_ms: testDurationMs,
+                    upstream: {
+                      status: testHealth.status,
+                      latency_ms: testHealth.latencyMs,
+                    },
+                  }),
+                ),
+              )
+            }
+            return finish(
+              cors(
+                Response.json(
+                  {
+                    status: "failed",
+                    error_type: "Connection Error",
+                    message: testHealth.error ?? "Unable to reach Codex upstream",
+                    timestamp: new Date().toISOString(),
+                    latency_ms: testDurationMs,
+                    suggestions: [
+                      "Check your auth credentials are valid",
+                      "Verify your auth file is correctly configured",
+                      "Check if the upstream service is available",
+                    ],
+                  },
+                  { status: 503 },
+                ),
+              ),
+            )
+          } catch (error) {
+            return finish(
+              cors(
+                Response.json(
+                  {
+                    status: "failed",
+                    error_type: "API Error",
+                    message: error instanceof Error ? error.message : String(error),
+                    timestamp: new Date().toISOString(),
+                    suggestions: [
+                      "Check your auth credentials are valid",
+                      "Verify your auth file is correctly configured",
+                      "Check if the upstream service is available",
+                    ],
+                  },
+                  { status: 503 },
+                ),
+              ),
+            )
+          }
+        }
+
         if (request.method === "GET" && url.pathname === "/health") {
           return finish(
             cors(
@@ -274,6 +365,7 @@ export async function startRuntime(options?: RuntimeOptions) {
 
   if (!quiet) {
     console.log(`Codex runtime is listening on http://${server.hostname}:${server.port}`)
+    console.log(`Root:             http://${server.hostname}:${server.port}/`)
     console.log(`Claude messages:  http://${server.hostname}:${server.port}/v1/messages`)
     console.log(`Claude tokens:    http://${server.hostname}:${server.port}/v1/messages/count_tokens`)
     console.log(`Responses:        http://${server.hostname}:${server.port}/v1/responses`)
@@ -281,6 +373,7 @@ export async function startRuntime(options?: RuntimeOptions) {
     console.log(`Usage:            http://${server.hostname}:${server.port}/usage`)
     console.log(`Environments:     http://${server.hostname}:${server.port}/environments`)
     console.log(`Health:           http://${server.hostname}:${server.port}/health`)
+    console.log(`Test connection:  http://${server.hostname}:${server.port}/test-connection`)
     console.log(`Health interval:  ${healthIntervalMs}ms`)
     console.log(`Log body:         ${logBody ? "enabled" : "disabled"}${logBody ? " (set LOG_BODY=0 to disable)" : ""}`)
     console.log(`Auth file:        ${authFile}`)

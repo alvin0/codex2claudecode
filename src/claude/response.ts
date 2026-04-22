@@ -1,7 +1,7 @@
 import type { ClaudeMessagesRequest, JsonObject } from "../types"
 
 import { countClaudeServerToolCalls, codexOutputItemsToClaudeContent, codexServerToolCallToClaudeBlocks, isServerToolOutputItem } from "./server-tools"
-import { consumeCodexSse, parseJsonObject, parseSseJson } from "./sse"
+import { consumeCodexSse, StreamIdleTimeoutError, parseJsonObject, parseSseJson } from "./sse"
 import { claudeStreamErrorEvent } from "./errors"
 
 export async function collectClaudeMessage(response: Response, request: ClaudeMessagesRequest) {
@@ -89,6 +89,14 @@ export async function collectClaudeMessage(response: Response, request: ClaudeMe
       if (typeof item.usage?.output_tokens === "number") state.outputTokens = item.usage.output_tokens
       if (item.incomplete_details?.reason === "max_output_tokens") state.stopReason = "max_tokens"
     }
+
+    if (data.type === "response.incomplete") {
+      state.stopReason = "max_tokens"
+    }
+
+    if (data.type === "response.failed") {
+      state.stopReason = "end_turn"
+    }
   })
 
   return {
@@ -125,7 +133,65 @@ export async function collectClaudeMessage(response: Response, request: ClaudeMe
   }
 }
 
-export function claudeStreamResponse(response: Response, request: ClaudeMessagesRequest) {
+/**
+ * Upstream Responses API event types that indicate the model is actively
+ * processing but has not yet produced text output.  When the thinking block
+ * is open we forward a human-readable label for each of these so Claude Code
+ * sees continuous SSE activity instead of silence.
+ *
+ * Events with a non-empty label get that label sent as thinking_delta.
+ * Events with an empty label are either forwarded verbatim (if in
+ * UPSTREAM_THINKING_TEXT_EVENTS) or silently consumed.
+ */
+const UPSTREAM_THINKING_EVENTS: Record<string, string> = {
+  "response.queued": "Queued…",
+  "response.created": "Initializing…",
+  "response.in_progress": "Processing…",
+  "response.output_item.added": "Preparing output…",
+  "response.content_part.added": "Preparing content…",
+  "response.reasoning_summary_part.added": "Reasoning…",
+  "response.reasoning_summary_text.delta": "",
+  "response.reasoning_summary_text.done": "",
+  "response.reasoning_summary_part.done": "",
+  "response.reasoning_text.delta": "",
+  "response.reasoning_text.done": "",
+  "response.file_search_call.in_progress": "Searching files…",
+  "response.file_search_call.searching": "Searching files…",
+  "response.file_search_call.completed": "",
+  "response.web_search_call.in_progress": "Searching web…",
+  "response.web_search_call.searching": "Searching web…",
+  "response.web_search_call.completed": "",
+  "response.code_interpreter_call.in_progress": "Running code…",
+  "response.code_interpreter_call.interpreting": "Running code…",
+  "response.code_interpreter_call_code.delta": "",
+  "response.code_interpreter_call_code.done": "",
+  "response.code_interpreter_call.completed": "",
+  "response.mcp_call.in_progress": "Calling MCP tool…",
+  "response.mcp_call.completed": "",
+  "response.mcp_call.failed": "",
+  "response.mcp_list_tools.in_progress": "Listing MCP tools…",
+  "response.mcp_list_tools.completed": "",
+  "response.mcp_list_tools.failed": "",
+  "response.mcp_call_arguments.delta": "",
+  "response.mcp_call_arguments.done": "",
+  "response.function_call_arguments.delta": "",
+  "response.function_call_arguments.done": "",
+  "response.image_generation_call.in_progress": "Generating image…",
+  "response.image_generation_call.generating": "Generating image…",
+  "response.image_generation_call.completed": "",
+}
+
+/** Event types whose `delta`, `text`, or `code` field should be forwarded verbatim into the thinking block. */
+const UPSTREAM_THINKING_TEXT_EVENTS = new Set([
+  "response.reasoning_summary_text.delta",
+  "response.reasoning_summary_text.done",
+  "response.reasoning_text.delta",
+  "response.reasoning_text.done",
+  "response.code_interpreter_call_code.delta",
+  "response.code_interpreter_call_code.done",
+])
+
+export function claudeStreamResponse(response: Response, request: ClaudeMessagesRequest, options?: { onStreamError?: (error: string) => void }) {
   const encoder = new TextEncoder()
   const messageId = `msg_${crypto.randomUUID().replace(/-/g, "")}`
   const heartbeatMs = 5000
@@ -140,9 +206,19 @@ export function claudeStreamResponse(response: Response, request: ClaudeMessages
   let stopReason = "end_turn"
   let emittedText = ""
   let emittedAnyContent = false
+  let receivedTerminalEvent = false
   let heartbeat: ReturnType<typeof setInterval> | undefined
   let closed = false
   const upstreamAbort = new AbortController()
+
+  // Thinking block state: emits a synthetic thinking content block while
+  // upstream is processing (no text deltas yet) so Claude Code sees
+  // continuous SSE activity instead of silence.  Upstream lifecycle events
+  // (response.created, response.in_progress, reasoning summaries, etc.)
+  // are forwarded as thinking_delta content.
+  let thinkingBlockOpen = false
+  let thinkingStarted = false
+  const thinkingSignature = `sig_${crypto.randomUUID().replace(/-/g, "").slice(0, 32)}`
 
   function clearHeartbeat() {
     if (!heartbeat) return
@@ -196,6 +272,65 @@ export function claudeStreamResponse(response: Response, request: ClaudeMessages
             },
           })
         }
+
+        // ── Thinking block helpers ──────────────────────────────────
+
+        function openThinkingBlock() {
+          if (thinkingStarted) return
+          thinkingStarted = true
+          thinkingBlockOpen = true
+          send("content_block_start", {
+            type: "content_block_start",
+            index: contentIndex,
+            content_block: { type: "thinking", thinking: "", signature: thinkingSignature },
+          })
+        }
+
+        function sendThinkingDelta(text: string) {
+          if (!thinkingBlockOpen) return
+          send("content_block_delta", {
+            type: "content_block_delta",
+            index: contentIndex,
+            delta: { type: "thinking_delta", thinking: text },
+          })
+        }
+
+        function closeThinkingBlock() {
+          if (!thinkingBlockOpen) return
+          thinkingBlockOpen = false
+          send("content_block_delta", {
+            type: "content_block_delta",
+            index: contentIndex,
+            delta: { type: "signature_delta", signature: thinkingSignature },
+          })
+          send("content_block_stop", { type: "content_block_stop", index: contentIndex })
+          contentIndex += 1
+        }
+
+        /**
+         * Forward an upstream event into the thinking block.  If the event
+         * carries text content (reasoning summary, code interpreter code)
+         * we send the actual text; otherwise we send a short status label.
+         */
+        function forwardToThinking(eventType: string, data: JsonObject) {
+          if (!thinkingBlockOpen) return
+
+          // Events with verbatim text content
+          if (UPSTREAM_THINKING_TEXT_EVENTS.has(eventType)) {
+            const text = typeof data.delta === "string" ? data.delta
+              : typeof data.text === "string" ? data.text
+              : typeof data.code === "string" ? data.code
+              : ""
+            if (text) sendThinkingDelta(text)
+            return
+          }
+
+          // Status label events — only send if label is non-empty
+          const label = UPSTREAM_THINKING_EVENTS[eventType]
+          if (label) sendThinkingDelta(label)
+        }
+
+        // ── Text / content helpers ──────────────────────────────────
 
         function markTextEmitted(text: string) {
           emittedText += text
@@ -269,7 +404,7 @@ export function claudeStreamResponse(response: Response, request: ClaudeMessages
         }
 
         function sendServerToolUseBlock(block: JsonObject) {
-          if (contentIndex === 0) sendEmptyTextBlock()
+          if (!emittedAnyContent) sendEmptyTextBlock()
           const isMcp = block.type === "mcp_tool_use"
           send("content_block_start", {
             type: "content_block_start",
@@ -303,19 +438,39 @@ export function claudeStreamResponse(response: Response, request: ClaudeMessages
           })
         }
 
+        // ── Main stream loop ────────────────────────────────────────
+
         try {
           sendMessageStart()
-          heartbeat = setInterval(() => send("ping", { type: "ping" }), heartbeatMs)
+          openThinkingBlock()
+          heartbeat = setInterval(() => {
+            if (thinkingBlockOpen) {
+              sendThinkingDelta("")
+            } else {
+              send("ping", { type: "ping" })
+            }
+          }, heartbeatMs)
           try {
             await consumeCodexSse(response.body, (event) => {
               const data = parseSseJson(event)
               if (!data) return
+              const eventType = typeof data.type === "string" ? data.type : ""
+
+              // ── Forward lifecycle / reasoning events into thinking ──
+              if (thinkingBlockOpen && eventType in UPSTREAM_THINKING_EVENTS) {
+                forwardToThinking(eventType, data)
+                // Verbatim text events are fully consumed here.
+                if (UPSTREAM_THINKING_TEXT_EVENTS.has(eventType)) return
+                // All other intercepted events are informational — consume them.
+                return
+              }
 
               if (data.type === "response.output_text.delta" && typeof data.delta === "string") {
                 if (pendingServerCalls.length) {
                   deferredText += data.delta
                   return
                 }
+                closeThinkingBlock()
                 if (!contentStarted) {
                   contentStarted = true
                   send("content_block_start", {
@@ -338,11 +493,13 @@ export function claudeStreamResponse(response: Response, request: ClaudeMessages
                   deferredText += remainingText(data.text)
                   return
                 }
+                closeThinkingBlock()
                 sendTextFallback(data.text)
                 return
               }
 
               if (data.type === "response.output_item.done") {
+                closeThinkingBlock()
                 const item = data.item as
                   | {
                       type?: unknown
@@ -409,6 +566,8 @@ export function claudeStreamResponse(response: Response, request: ClaudeMessages
               }
 
               if (data.type === "response.completed") {
+                closeThinkingBlock()
+                receivedTerminalEvent = true
                 const item = jsonObjectOrEmpty(data.response) as {
                   output?: unknown
                   usage?: { input_tokens?: unknown; output_tokens?: unknown }
@@ -436,18 +595,64 @@ export function claudeStreamResponse(response: Response, request: ClaudeMessages
                 if (!emittedAnyContent) sendContentBlocks(codexOutputItemsToClaudeContent(item.output))
                 if (item.incomplete_details?.reason === "max_output_tokens") stopReason = "max_tokens"
               }
+
+              // Upstream ended early — surface the reason to the client.
+              if (data.type === "response.incomplete") {
+                closeThinkingBlock()
+                receivedTerminalEvent = true
+                const item = jsonObjectOrEmpty(data.response) as {
+                  incomplete_details?: { reason?: unknown } | null
+                  usage?: { output_tokens?: unknown }
+                }
+                if (typeof item.usage?.output_tokens === "number") outputTokens = item.usage.output_tokens
+                stopReason = "max_tokens"
+              }
+
+              // Upstream generation failed — send the error to the client.
+              if (data.type === "response.failed") {
+                closeThinkingBlock()
+                receivedTerminalEvent = true
+                const item = jsonObjectOrEmpty(data.response) as {
+                  error?: { message?: unknown }
+                  usage?: { output_tokens?: unknown }
+                }
+                if (typeof item.usage?.output_tokens === "number") outputTokens = item.usage.output_tokens
+                const errorMsg = typeof item.error?.message === "string" ? item.error.message : "Upstream generation failed"
+                console.error(`[stream] upstream failed: ${errorMsg}`)
+                options?.onStreamError?.(errorMsg)
+                stopOpenTextBlock()
+                sendRaw(claudeStreamErrorEvent(errorMsg))
+                closeController()
+                abortUpstream(errorMsg)
+                return
+              }
             }, { signal: upstreamAbort.signal })
           } finally {
             clearHeartbeat()
           }
         } catch (error) {
+          closeThinkingBlock()
           stopOpenTextBlock()
-          sendRaw(claudeStreamErrorEvent(error instanceof Error ? error.message : String(error)))
+          const isIdleTimeout = error instanceof StreamIdleTimeoutError
+          const message = isIdleTimeout
+            ? `Stream timeout: upstream stopped sending data. ${error.message}`
+            : error instanceof Error ? error.message : String(error)
+          if (isIdleTimeout) console.warn(`[stream] ${message}`)
+          else console.error(`[stream] error: ${message}`)
+          options?.onStreamError?.(message)
+          sendRaw(claudeStreamErrorEvent(message))
           closeController()
           return
         }
 
+        closeThinkingBlock()
         stopOpenTextBlock()
+        if (!receivedTerminalEvent && stopReason === "end_turn") {
+          stopReason = "max_tokens"
+          const msg = "Stream ended without completion event (possible truncation)"
+          console.warn(`[stream] ${msg}`)
+          options?.onStreamError?.(msg)
+        }
         send("message_delta", {
           type: "message_delta",
           delta: { stop_reason: stopReason, stop_sequence: null },
