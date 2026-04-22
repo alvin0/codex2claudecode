@@ -4,7 +4,7 @@ import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 
 const root = dirname(fileURLToPath(import.meta.url))
-const entry = join(root, "..", "index.ts")
+const entry = join(root, "..", "dist", "index.js")
 const args = [entry, ...process.argv.slice(2)]
 const result = spawnSync("bun", args, { stdio: "inherit", env: process.env })
 

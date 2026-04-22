@@ -1,29 +1,76 @@
+import { STREAM_IDLE_TIMEOUT_MS } from "../constants"
 import type { JsonObject, SseEvent } from "../types"
 
-export async function consumeCodexSse(stream: ReadableStream<Uint8Array> | null, onEvent: (event: SseEvent) => void) {
-  if (!stream) return
+export class StreamIdleTimeoutError extends Error {
+  constructor(idleMs: number) {
+    super(`Upstream stream idle for ${Math.round(idleMs / 1000)}s, aborting`)
+    this.name = "StreamIdleTimeoutError"
+  }
+}
 
+export async function consumeCodexSse(
+  stream: ReadableStream<Uint8Array> | null,
+  onEvent: (event: SseEvent) => void,
+  options?: { signal?: AbortSignal; idleTimeoutMs?: number },
+) {
+  if (!stream || options?.signal?.aborted) return
+
+  const idleTimeoutMs = options?.idleTimeoutMs ?? STREAM_IDLE_TIMEOUT_MS
   const decoder = new TextDecoder()
   const reader = stream.getReader()
-  let buffer = ""
+  let idleTimer: ReturnType<typeof setTimeout> | undefined
+  let timedOut = false
 
-  while (true) {
-    const chunk = await reader.read()
-    if (chunk.done) break
-    buffer += decoder.decode(chunk.value, { stream: true })
+  const cancel = () => {
+    void reader.cancel(options?.signal?.reason).catch(() => undefined)
+  }
 
-    while (buffer.includes("\n\n")) {
-      const index = buffer.indexOf("\n\n")
-      const raw = buffer.slice(0, index)
-      buffer = buffer.slice(index + 2)
-      const event = parseSseEvent(raw)
-      if (event) onEvent(event)
+  function clearIdleTimer() {
+    if (idleTimer !== undefined) {
+      clearTimeout(idleTimer)
+      idleTimer = undefined
     }
   }
 
-  buffer += decoder.decode()
-  const event = parseSseEvent(buffer)
-  if (event) onEvent(event)
+  function resetIdleTimer() {
+    clearIdleTimer()
+    if (idleTimeoutMs <= 0) return
+    idleTimer = setTimeout(() => {
+      timedOut = true
+      void reader.cancel(new StreamIdleTimeoutError(idleTimeoutMs)).catch(() => undefined)
+    }, idleTimeoutMs)
+  }
+
+  let buffer = ""
+
+  options?.signal?.addEventListener("abort", cancel, { once: true })
+  try {
+    resetIdleTimer()
+    while (true) {
+      if (options?.signal?.aborted) return
+      const chunk = await reader.read()
+      if (chunk.done) break
+      resetIdleTimer()
+      buffer += decoder.decode(chunk.value, { stream: true })
+
+      while (buffer.includes("\n\n")) {
+        const index = buffer.indexOf("\n\n")
+        const raw = buffer.slice(0, index)
+        buffer = buffer.slice(index + 2)
+        const event = parseSseEvent(raw)
+        if (event) onEvent(event)
+      }
+    }
+
+    if (timedOut) throw new StreamIdleTimeoutError(idleTimeoutMs)
+    if (options?.signal?.aborted) return
+    buffer += decoder.decode()
+    const event = parseSseEvent(buffer)
+    if (event) onEvent(event)
+  } finally {
+    clearIdleTimer()
+    options?.signal?.removeEventListener("abort", cancel)
+  }
 }
 
 function parseSseEvent(raw: string): SseEvent | undefined {

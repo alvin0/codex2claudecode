@@ -2,6 +2,7 @@ import { writeFile } from "node:fs/promises"
 
 import { writeAccountInfoFile } from "./account-info"
 import { extractAccountId, readAuthFileData, selectAuthEntry } from "./auth"
+import { syncCodexCliAuthTokens } from "./codex-auth"
 import { DEFAULT_CLIENT_ID, DEFAULT_CODEX_ENDPOINT, DEFAULT_ISSUER, REFRESH_SAFETY_MARGIN_MS, WHAM_ENVIRONMENTS_ENDPOINT, WHAM_USAGE_ENDPOINT } from "./constants"
 import { ensureParentDir, resolveAuthFile } from "./paths"
 import { normalizeReasoningBody } from "./reasoning"
@@ -21,6 +22,7 @@ export class CodexStandaloneClient {
   private readonly userAgent: string
   private readonly fetchFn: typeof fetch
   private readonly authFile?: string
+  private readonly codexAuthFile?: string
   private authEntryIndex?: number
   private authFileIsArray?: boolean
 
@@ -36,6 +38,7 @@ export class CodexStandaloneClient {
     this.userAgent = options.userAgent ?? "codex-standalone-client"
     this.fetchFn = options.fetch ?? fetch
     this.authFile = options.authFile
+    this.codexAuthFile = options.codexAuthFile
   }
 
   static async fromAuthFile(
@@ -71,6 +74,12 @@ export class CodexStandaloneClient {
     const tokens = await this.refreshAccessToken()
     this.applyTokenResponse(tokens)
     await this.saveAuthFile()
+    await syncCodexCliAuthTokens({
+      accountId: this.accountId,
+      accessToken: this.accessToken,
+      refreshToken: this.refreshToken,
+      path: this.codexAuthFile,
+    }).catch(() => false)
     return this.tokens
   }
 
@@ -211,7 +220,7 @@ export class CodexStandaloneClient {
 
   private applyTokenResponse(tokens: TokenResponse) {
     this.accessToken = tokens.access_token
-    this.refreshToken = tokens.refresh_token
+    this.refreshToken = tokens.refresh_token ?? this.refreshToken
     this.expiresAt = Date.now() + (tokens.expires_in ?? 3600) * 1000
     this.accountId = extractAccountId(tokens) ?? this.accountId
   }

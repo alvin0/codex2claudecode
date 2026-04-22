@@ -24,7 +24,8 @@ export async function ensureParentDir(file: string) {
 
 export function expandHome(value: string) {
   if (value === "~") return homedir()
-  if (value.startsWith("~/")) return path.join(homedir(), value.slice(2))
+  // Support both Unix-style "~/" and Windows-style "~\" separators
+  if (value.startsWith("~/") || value.startsWith("~\\")) return path.join(homedir(), value.slice(2))
   return value
 }
 

@@ -20,6 +20,14 @@ async function authFile(contents = { type: "oauth", access: "access", refresh: "
   return file
 }
 
+async function codexCliAuthFile(contents: unknown) {
+  const dir = await mkdtemp(path.join(tmpdir(), "codex-cli-auth-test-"))
+  tempDirs.push(dir)
+  const file = path.join(dir, "auth.json")
+  await writeFile(file, JSON.stringify(contents))
+  return file
+}
+
 describe("CodexStandaloneClient", () => {
   test("loads auth files and exposes tokens", async () => {
     const client = await CodexStandaloneClient.fromAuthFile(await authFile())
@@ -133,6 +141,95 @@ describe("CodexStandaloneClient", () => {
     })
 
     await expect(client.refresh()).resolves.toMatchObject({ accessToken: "new", refreshToken: "new-refresh" })
+  })
+
+  test("refresh keeps the previous refresh token when upstream omits rotation", async () => {
+    const client = new CodexStandaloneClient({
+      accessToken: "old",
+      refreshToken: "refresh",
+      issuer: "https://issuer.test",
+      fetch: ((url) => {
+        expect(String(url)).toBe("https://issuer.test/oauth/token")
+        return Promise.resolve(Response.json({ access_token: "new", expires_in: 1 }))
+      }) as typeof fetch,
+    })
+
+    await expect(client.refresh()).resolves.toMatchObject({ accessToken: "new", refreshToken: "refresh" })
+  })
+
+  test("refresh syncs a matching Codex CLI auth file", async () => {
+    const file = await authFile({ type: "oauth", access: "old", refresh: "refresh", expires: Date.now() - 1, accountId: "acct" })
+    const codexFile = await codexCliAuthFile({
+      auth_mode: "chatgpt",
+      tokens: {
+        account_id: "acct",
+        access_token: "cli-old",
+        refresh_token: "cli-refresh",
+      },
+    })
+    const client = await CodexStandaloneClient.fromAuthFile(file, {
+      issuer: "https://issuer.test",
+      codexAuthFile: codexFile,
+      fetch: ((url) => {
+        if (String(url).endsWith("/oauth/token")) return Promise.resolve(Response.json({ access_token: "new", refresh_token: "new-refresh", expires_in: 60 }))
+        return Promise.resolve(Response.json({ ok: true }))
+      }) as typeof fetch,
+    })
+
+    await client.refresh()
+    expect(JSON.parse(await readFile(codexFile, "utf8"))).toMatchObject({
+      tokens: { account_id: "acct", access_token: "new", refresh_token: "new-refresh" },
+    })
+  })
+
+  test("refresh leaves a mismatched Codex CLI auth file unchanged", async () => {
+    const file = await authFile({ type: "oauth", access: "old", refresh: "refresh", expires: Date.now() - 1, accountId: "acct" })
+    const codexFile = await codexCliAuthFile({
+      auth_mode: "chatgpt",
+      tokens: {
+        account_id: "other",
+        access_token: "cli-old",
+        refresh_token: "cli-refresh",
+      },
+    })
+    const client = await CodexStandaloneClient.fromAuthFile(file, {
+      issuer: "https://issuer.test",
+      codexAuthFile: codexFile,
+      fetch: ((url) => {
+        if (String(url).endsWith("/oauth/token")) return Promise.resolve(Response.json({ access_token: "new", refresh_token: "new-refresh", expires_in: 60 }))
+        return Promise.resolve(Response.json({ ok: true }))
+      }) as typeof fetch,
+    })
+
+    await client.refresh()
+    expect(JSON.parse(await readFile(codexFile, "utf8"))).toMatchObject({
+      tokens: { account_id: "other", access_token: "cli-old", refresh_token: "cli-refresh" },
+    })
+  })
+
+  test("refresh syncs fallback refresh token into a matching Codex CLI auth file", async () => {
+    const file = await authFile({ type: "oauth", access: "old", refresh: "refresh", expires: Date.now() - 1, accountId: "acct" })
+    const codexFile = await codexCliAuthFile({
+      auth_mode: "chatgpt",
+      tokens: {
+        account_id: "acct",
+        access_token: "cli-old",
+        refresh_token: "cli-refresh",
+      },
+    })
+    const client = await CodexStandaloneClient.fromAuthFile(file, {
+      issuer: "https://issuer.test",
+      codexAuthFile: codexFile,
+      fetch: ((url) => {
+        if (String(url).endsWith("/oauth/token")) return Promise.resolve(Response.json({ access_token: "new", expires_in: 60 }))
+        return Promise.resolve(Response.json({ ok: true }))
+      }) as typeof fetch,
+    })
+
+    await client.refresh()
+    expect(JSON.parse(await readFile(codexFile, "utf8"))).toMatchObject({
+      tokens: { account_id: "acct", access_token: "new", refresh_token: "refresh" },
+    })
   })
 
   test("throws helpful errors for failed JSON/stream requests and missing stream bodies", async () => {

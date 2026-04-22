@@ -7,32 +7,36 @@ import { CodexStandaloneClient } from "../client"
 import { connectAccount, connectAccountFromCodexAuth, type ConnectAccountDraft } from "../connect-account"
 import { packageInfo } from "../package-info"
 import { resolveAuthFile } from "../paths"
+import { clearRequestLogs, MAX_REQUEST_LOG_ENTRIES, readRecentRequestLogs } from "../request-logs"
 import { startRuntime } from "../runtime"
 import type { AuthFileData, RequestLogEntry } from "../types"
 import { authDataToAccounts, selectedAccountIndex } from "./accounts"
 import {
-  applyClaudeEnvironment,
+  claudeSettingsPathForScope,
+  claudeSettingsScopeLabel,
   defaultClaudeEnvironment,
   detectShell,
   CLAUDE_MODEL_ENV_KEYS,
   readClaudeEnvironmentConfig,
   runClaudeEnvironmentSet,
   runClaudeEnvironmentUnset,
-  unsetClaudeEnvironment,
   writeClaudeEnvironmentConfig,
+  type ClaudeSettingsScope,
   type ClaudeEnvironmentDraft,
 } from "./claude-env"
 import { filterCommands } from "./commands"
+import { writeClipboard } from "./clipboard"
 import { AccountInfoPanel } from "./components/account-info-panel"
 import { AccountSelector } from "./components/account-selector"
 import { ClaudeEnvironmentEditor } from "./components/claude-environment-editor"
+import { ClaudeEnvironmentScopeSelector } from "./components/claude-environment-scope-selector"
 import { ClaudeEnvironmentUnsetConfirm } from "./components/claude-environment-unset-confirm"
 import { CommandInput } from "./components/command-input"
 import { CommandOutput } from "./components/command-output"
 import { ConnectAccountWizard } from "./components/connect-account-wizard"
 import { ConnectSourceSelector } from "./components/connect-source-selector"
 import { LimitsPanel } from "./components/limits-panel"
-import { RequestLogsPanel } from "./components/request-logs-panel"
+import { formatAllRequestLogs, formatRequestLogDetail, RequestLogsPanel } from "./components/request-logs-panel"
 import { WelcomePanel } from "./components/welcome-panel"
 import { usageToView, type LimitGroupView } from "./limits"
 import type { RuntimeState } from "./types"
@@ -54,13 +58,21 @@ export function CodexCodeApp(props: { port?: number }) {
   const [inputMessage, setInputMessage] = useState("Type / for commands")
   const [commandIndex, setCommandIndex] = useState(0)
   const [mode, setMode] = useState<
-    "home" | "account-selector" | "logs" | "claude-env-editor" | "claude-env-confirm" | "claude-env-unset-confirm" | "connect-source" | "connect-account"
+    "home" | "account-selector" | "logs" | "claude-env-scope" | "claude-env-editor" | "claude-env-confirm" | "claude-env-unset-confirm" | "connect-source" | "connect-account"
   >("home")
   const [selectorIndex, setSelectorIndex] = useState(0)
   const [requestLogs, setRequestLogs] = useState<RequestLogEntry[]>([])
   const [logsSelected, setLogsSelected] = useState(0)
+  const [logsDetailOpen, setLogsDetailOpen] = useState(false)
+  const [logsDetailScroll, setLogsDetailScroll] = useState(0)
+  const [logsCopyStatus, setLogsCopyStatus] = useState<{ type: "success" | "error"; message: string }>()
+  const [logsClearConfirm, setLogsClearConfirm] = useState(false)
+  const [logsFileError, setLogsFileError] = useState<string>()
+  const [logsAutoFollow, setLogsAutoFollow] = useState(true)
   const [claudeEnvDraft, setClaudeEnvDraft] = useState<ClaudeEnvironmentDraft>(() => defaultClaudeEnvironment())
   const [claudeEnvIndex, setClaudeEnvIndex] = useState(0)
+  const [claudeEnvScopeIndex, setClaudeEnvScopeIndex] = useState(0)
+  const [claudeEnvAction, setClaudeEnvAction] = useState<"set" | "unset">("set")
   const [commandOutput, setCommandOutput] = useState<{ title: string; output: string }>()
   const shell = useMemo(() => detectShell(), [])
   const [connectDraft, setConnectDraft] = useState<ConnectAccountDraft>({ accountId: "", accessToken: "", refreshToken: "" })
@@ -69,9 +81,20 @@ export function CodexCodeApp(props: { port?: number }) {
   const [connectSaving, setConnectSaving] = useState(false)
   const [authRevision, setAuthRevision] = useState(0)
   const pkg = useMemo(() => packageInfo(), [])
+  const activePort = runtime.status === "running" ? runtime.server.port : port
 
   const accounts = useMemo(() => (authData ? authDataToAccounts(authData) : []), [authData])
   const account = accounts[selected]
+  const claudeEnvScopes: ClaudeSettingsScope[] = ["user", "project", "local"]
+  const claudeEnvScope = claudeEnvScopes[claudeEnvScopeIndex] ?? "user"
+  const claudeSettingsFile = claudeSettingsPathForScope(claudeEnvScope)
+  const claudeSettingsTarget = claudeSettingsScopeLabel(claudeEnvScope)
+
+  useEffect(() => {
+    if (!logsCopyStatus) return
+    const timer = setTimeout(() => setLogsCopyStatus(undefined), 2000)
+    return () => clearTimeout(timer)
+  }, [logsCopyStatus])
 
   useEffect(() => {
     let active = true
@@ -96,6 +119,7 @@ export function CodexCodeApp(props: { port?: number }) {
     if (!account || loadError) return
     let active = true
     let server: ReturnType<typeof Bun.serve> | undefined
+    setRequestLogs([])
     setRuntime({ status: "starting" })
     startRuntime({
       authFile,
@@ -104,8 +128,26 @@ export function CodexCodeApp(props: { port?: number }) {
       port,
       logBody: process.env.LOG_BODY !== "0",
       quiet: true,
+      onRequestLogStart: (entry) => {
+        setRequestLogs((logs) => {
+          const updated = upsertRequestLog(logs, entry)
+          // Auto-follow: always scroll to the newest entry
+          setLogsAutoFollow((follow) => {
+            if (follow) setLogsSelected(Math.max(0, updated.length - 1))
+            return follow
+          })
+          return updated
+        })
+      },
       onRequestLog: (entry) => {
-        setRequestLogs((logs) => [...logs.slice(-199), entry])
+        setRequestLogs((logs) => {
+          const updated = upsertRequestLog(logs, entry)
+          setLogsAutoFollow((follow) => {
+            if (follow) setLogsSelected(Math.max(0, updated.length - 1))
+            return follow
+          })
+          return updated
+        })
       },
     })
       .then((nextServer) => {
@@ -125,6 +167,44 @@ export function CodexCodeApp(props: { port?: number }) {
       server?.stop(true)
     }
   }, [account?.key, authFile, authRevision, hostname, loadError, port])
+
+  useEffect(() => {
+    if (mode !== "logs") return
+    let active = true
+
+    async function loadLogs() {
+      try {
+        const logs = await readRecentRequestLogs(authFile)
+        if (!active) return
+        setLogsFileError(undefined)
+        setRequestLogs((currentLogs) => {
+          const merged = mergeRequestLogs(logs, currentLogs)
+          setLogsAutoFollow((follow) => {
+            if (follow) {
+              setLogsSelected(Math.max(0, merged.length - 1))
+            } else {
+              setLogsSelected((prev) => Math.max(0, Math.min(prev, merged.length - 1)))
+            }
+            return follow
+          })
+          return merged
+        })
+      } catch (error) {
+        if (!active) return
+        const message = error instanceof Error ? error.message : String(error)
+        setLogsFileError(`Failed to read log file: ${message}`)
+      }
+    }
+
+    void loadLogs()
+    // Poll every 2 s so new requests that arrive while the panel is open are
+    // reflected without requiring the user to close and reopen the panel.
+    const timer = setInterval(() => void loadLogs(), 2000)
+    return () => {
+      active = false
+      clearInterval(timer)
+    }
+  }, [authFile, mode, authRevision, selected])
 
   useEffect(() => {
     if (!account || loadError) return
@@ -165,6 +245,86 @@ export function CodexCodeApp(props: { port?: number }) {
       app.exit()
       return
     }
+    if (mode === "logs") {
+      if (logsClearConfirm) {
+        if (input.toLowerCase() === "y") {
+          void clearRequestLogs(authFile)
+            .then(() => {
+              setRequestLogs([])
+              setLogsSelected(0)
+              setLogsDetailOpen(false)
+              setLogsDetailScroll(0)
+              setLogsCopyStatus(undefined)
+              setLogsClearConfirm(false)
+              setLogsFileError(undefined)
+              setInputMessage("Cleared request logs")
+            })
+            .catch((error) => {
+              const message = `Clear request logs failed: ${error instanceof Error ? error.message : String(error)}`
+              setLogsCopyStatus({ type: "error", message })
+              setLogsClearConfirm(false)
+              setInputMessage(message)
+            })
+          return
+        }
+        if (key.escape || input.toLowerCase() === "n") {
+          setLogsClearConfirm(false)
+          setInputMessage("Clear request logs cancelled")
+          return
+        }
+        return
+      }
+      if (logsDetailOpen && input.toLowerCase() === "c") {
+        const log = requestLogs[logsSelected]
+        if (!log) return
+        void writeClipboard(formatRequestLogDetail(log))
+          .then(() => {
+            setLogsCopyStatus({ type: "success", message: `Copied request ${log.id} to clipboard` })
+            setInputMessage(`Copied request ${log.id} to clipboard`)
+          })
+          .catch((error) => {
+            const message = `Clipboard copy failed: ${error instanceof Error ? error.message : String(error)}`
+            setLogsCopyStatus({ type: "error", message })
+            setInputMessage(message)
+          })
+        return
+      }
+      if (input.toLowerCase() === "l") {
+        void writeClipboard(formatAllRequestLogs(requestLogs))
+          .then(() => {
+            setLogsCopyStatus({ type: "success", message: `Copied ${requestLogs.length} log(s) to clipboard` })
+            setInputMessage(`Copied ${requestLogs.length} log(s) to clipboard`)
+          })
+          .catch((error) => {
+            const message = `Clipboard copy failed: ${error instanceof Error ? error.message : String(error)}`
+            setLogsCopyStatus({ type: "error", message })
+            setInputMessage(message)
+        })
+        return
+      }
+      if (input.toLowerCase() === "x") {
+        setLogsDetailOpen(false)
+        setLogsDetailScroll(0)
+        setLogsCopyStatus(undefined)
+        setLogsClearConfirm(true)
+        setInputMessage("Confirm clear request logs")
+        return
+      }
+      if (input.toLowerCase() === "f") {
+        setLogsAutoFollow((value) => {
+          const next = !value
+          if (next) {
+            // Jump to the latest entry when enabling follow
+            setLogsSelected(Math.max(0, requestLogs.length - 1))
+            setInputMessage("Auto-follow ON — tracking latest request")
+          } else {
+            setInputMessage("Auto-follow OFF — manual navigation")
+          }
+          return next
+        })
+        return
+      }
+    }
     if (mode === "home" && input === "q" && !inputValue) {
       if (runtime.status === "running") runtime.server.stop(true)
       app.exit()
@@ -184,7 +344,7 @@ export function CodexCodeApp(props: { port?: number }) {
         setInputMessage("Type / for commands")
         return
       }
-      if (mode === "claude-env-editor" || mode === "claude-env-confirm" || mode === "claude-env-unset-confirm") {
+      if (mode === "claude-env-scope" || mode === "claude-env-editor" || mode === "claude-env-confirm" || mode === "claude-env-unset-confirm") {
         setMode("home")
         setInputValue("")
         setCommandIndex(0)
@@ -192,9 +352,23 @@ export function CodexCodeApp(props: { port?: number }) {
         return
       }
       if (mode === "logs") {
+        if (logsClearConfirm) {
+          setLogsClearConfirm(false)
+          setInputMessage("Clear request logs cancelled")
+          return
+        }
+        if (logsDetailOpen) {
+          setLogsDetailOpen(false)
+          setLogsDetailScroll(0)
+          setLogsCopyStatus(undefined)
+          setInputMessage("Closed request detail")
+          return
+        }
         setMode("home")
         setInputValue("")
         setCommandIndex(0)
+        setLogsCopyStatus(undefined)
+        setLogsClearConfirm(false)
         setInputMessage("Closed request logs")
         return
       }
@@ -247,24 +421,26 @@ export function CodexCodeApp(props: { port?: number }) {
           .finally(() => setConnectSaving(false))
         return
       }
+      if (mode === "claude-env-scope") {
+        setMode(claudeEnvAction === "set" ? "claude-env-editor" : "claude-env-unset-confirm")
+        return
+      }
       if (mode === "claude-env-confirm") {
-        applyClaudeEnvironment(claudeEnvDraft, baseUrl(hostname, port))
         setMode("home")
-        setInputMessage("Claude environment applied to current process")
+        setInputMessage("Claude settings updated")
         void writeClaudeEnvironmentConfig(authFile, claudeEnvDraft).catch((error) =>
           setInputMessage(`Claude environment saved failed: ${error instanceof Error ? error.message : String(error)}`),
         )
-        void runClaudeEnvironmentSet(claudeEnvDraft, baseUrl(hostname, port), shell, { authFile })
-          .then((output) => setCommandOutput({ title: "Set Claude environment - env | grep ANTHROPIC", output }))
+        void runClaudeEnvironmentSet(claudeEnvDraft, baseUrl(hostname, activePort), shell, { authFile, settingsFile: claudeSettingsFile })
+          .then((output) => setCommandOutput({ title: `Set Claude environment - ${claudeSettingsTarget}`, output }))
           .catch((error) => setCommandOutput({ title: "Set Claude environment failed", output: error instanceof Error ? error.message : String(error) }))
         return
       }
       if (mode === "claude-env-unset-confirm") {
-        unsetClaudeEnvironment()
         setMode("home")
-        setInputMessage("Claude environment unset")
-        void runClaudeEnvironmentUnset(shell, { authFile })
-          .then((output) => setCommandOutput({ title: "Unset Claude environment - env | grep ANTHROPIC", output }))
+        setInputMessage("Claude settings env entries removed")
+        void runClaudeEnvironmentUnset(claudeEnvDraft, shell, { authFile, settingsFile: claudeSettingsFile })
+          .then((output) => setCommandOutput({ title: `Unset Claude environment - ${claudeSettingsTarget}`, output }))
           .catch((error) => setCommandOutput({ title: "Unset Claude environment echo failed", output: error instanceof Error ? error.message : String(error) }))
         return
       }
@@ -283,6 +459,17 @@ export function CodexCodeApp(props: { port?: number }) {
       }
       const commands = filterCommands(inputValue)
       const command = commands[commandIndex] ?? commands[0]
+      if (mode === "logs") {
+        if (requestLogs.length) {
+          setLogsDetailOpen((value) => {
+            const next = !value
+            setLogsDetailScroll(0)
+            setInputMessage(next ? `Showing request ${requestLogs[logsSelected]?.id ?? ""}` : "Closed request detail")
+            return next
+          })
+        }
+        return
+      }
       if (inputValue === "q" || command?.name === "/quit") {
         if (runtime.status === "running") runtime.server.stop(true)
         app.exit()
@@ -295,6 +482,11 @@ export function CodexCodeApp(props: { port?: number }) {
           return
         }
         if (command.name === "/logs") {
+          setLogsDetailOpen(false)
+          setLogsDetailScroll(0)
+          setLogsCopyStatus(undefined)
+          setLogsClearConfirm(false)
+          setLogsAutoFollow(true)
           setLogsSelected(Math.max(0, requestLogs.length - 1))
           setMode("logs")
           setInputValue("")
@@ -311,29 +503,24 @@ export function CodexCodeApp(props: { port?: number }) {
           return
         }
         if (command.name === "/set-claude-env") {
-          if (shell.kind === "unsupported") {
-            setInputMessage(shell.reason)
-            setInputValue("")
-            setCommandIndex(0)
-            return
-          }
           void readClaudeEnvironmentConfig(authFile)
             .then((draft) => setClaudeEnvDraft(draft))
             .catch(() => setClaudeEnvDraft(defaultClaudeEnvironment()))
           setClaudeEnvIndex(0)
-          setMode("claude-env-editor")
+          setClaudeEnvScopeIndex(0)
+          setClaudeEnvAction("set")
+          setMode("claude-env-scope")
           setInputValue("")
           setCommandIndex(0)
           return
         }
         if (command.name === "/unset-claude-env") {
-          if (shell.kind === "unsupported") {
-            setInputMessage(shell.reason)
-            setInputValue("")
-            setCommandIndex(0)
-            return
-          }
-          setMode("claude-env-unset-confirm")
+          void readClaudeEnvironmentConfig(authFile)
+            .then((draft) => setClaudeEnvDraft(draft))
+            .catch(() => setClaudeEnvDraft(defaultClaudeEnvironment()))
+          setClaudeEnvScopeIndex(0)
+          setClaudeEnvAction("unset")
+          setMode("claude-env-scope")
           setInputValue("")
           setCommandIndex(0)
           return
@@ -368,20 +555,51 @@ export function CodexCodeApp(props: { port?: number }) {
       return
     }
     if (mode === "logs") {
-      if (key.upArrow) setLogsSelected((value) => Math.max(0, value - 1))
-      if (key.downArrow) setLogsSelected((value) => Math.min(Math.max(0, requestLogs.length - 1), value + 1))
+      if (logsDetailOpen) {
+        if (key.upArrow) {
+          setLogsCopyStatus(undefined)
+          setLogsClearConfirm(false)
+          setLogsDetailScroll((value) => Math.max(0, value - 1))
+        }
+        if (key.downArrow) {
+          setLogsCopyStatus(undefined)
+          setLogsClearConfirm(false)
+          setLogsDetailScroll((value) => value + 1)
+        }
+        return
+      }
+      if (key.upArrow) {
+        setLogsAutoFollow(false)
+        setLogsDetailOpen(false)
+        setLogsDetailScroll(0)
+        setLogsCopyStatus(undefined)
+        setLogsClearConfirm(false)
+        setLogsSelected((value) => Math.max(0, value - 1))
+      }
+      if (key.downArrow) {
+        setLogsAutoFollow(false)
+        setLogsDetailOpen(false)
+        setLogsDetailScroll(0)
+        setLogsCopyStatus(undefined)
+        setLogsClearConfirm(false)
+        setLogsSelected((value) => Math.min(Math.max(0, requestLogs.length - 1), value + 1))
+      }
+      return
+    }
+    if (mode === "claude-env-scope") {
+      if (key.upArrow) setClaudeEnvScopeIndex((value) => (value - 1 + claudeEnvScopes.length) % claudeEnvScopes.length)
+      if (key.downArrow) setClaudeEnvScopeIndex((value) => (value + 1) % claudeEnvScopes.length)
       return
     }
     if (mode === "claude-env-confirm") {
       if (input === "y") {
-        applyClaudeEnvironment(claudeEnvDraft, baseUrl(hostname, port))
         setMode("home")
-        setInputMessage("Claude environment applied to current process")
+        setInputMessage("Claude settings updated")
         void writeClaudeEnvironmentConfig(authFile, claudeEnvDraft).catch((error) =>
           setInputMessage(`Claude environment saved failed: ${error instanceof Error ? error.message : String(error)}`),
         )
-        void runClaudeEnvironmentSet(claudeEnvDraft, baseUrl(hostname, port), shell, { authFile })
-          .then((output) => setCommandOutput({ title: "Set Claude environment - env | grep ANTHROPIC", output }))
+        void runClaudeEnvironmentSet(claudeEnvDraft, baseUrl(hostname, activePort), shell, { authFile, settingsFile: claudeSettingsFile })
+          .then((output) => setCommandOutput({ title: `Set Claude environment - ${claudeSettingsTarget}`, output }))
           .catch((error) => setCommandOutput({ title: "Set Claude environment failed", output: error instanceof Error ? error.message : String(error) }))
       }
       if (input === "n") {
@@ -392,11 +610,10 @@ export function CodexCodeApp(props: { port?: number }) {
     }
     if (mode === "claude-env-unset-confirm") {
       if (input === "y") {
-        unsetClaudeEnvironment()
         setMode("home")
-        setInputMessage("Claude environment unset")
-        void runClaudeEnvironmentUnset(shell, { authFile })
-          .then((output) => setCommandOutput({ title: "Unset Claude environment - env | grep ANTHROPIC", output }))
+        setInputMessage("Claude settings env entries removed")
+        void runClaudeEnvironmentUnset(claudeEnvDraft, shell, { authFile, settingsFile: claudeSettingsFile })
+          .then((output) => setCommandOutput({ title: `Unset Claude environment - ${claudeSettingsTarget}`, output }))
           .catch((error) => setCommandOutput({ title: "Unset Claude environment echo failed", output: error instanceof Error ? error.message : String(error) }))
       }
       if (input === "n") {
@@ -442,7 +659,7 @@ export function CodexCodeApp(props: { port?: number }) {
         <Text color="#d97757">────────────────────────────────────────</Text>
       </Box>
       <Box borderStyle="round" borderColor="#d97757" minHeight={18}>
-        <WelcomePanel hostname={hostname} port={port} />
+        <WelcomePanel hostname={hostname} port={activePort} />
         <Box width={1} borderStyle="single" borderColor="#7f4f45" />
         <Box flexGrow={1} flexDirection="column" paddingX={2} paddingY={1}>
           <AccountInfoPanel account={account} info={activeAccountInfo} />
@@ -454,13 +671,24 @@ export function CodexCodeApp(props: { port?: number }) {
       {mode === "logs" && (
         <>
           <CommandInput value={inputValue} message={inputMessage} selected={commandIndex} />
-          <RequestLogsPanel logs={requestLogs} selected={logsSelected} />
+          <RequestLogsPanel
+            logs={requestLogs}
+            selected={logsSelected}
+            autoFollow={logsAutoFollow}
+            detailOpen={logsDetailOpen}
+            detailScroll={logsDetailScroll}
+            copyStatus={logsCopyStatus}
+            clearConfirm={logsClearConfirm}
+            fileError={logsFileError}
+          />
         </>
       )}
-      {(mode === "claude-env-editor" || mode === "claude-env-confirm") ? (
-        <ClaudeEnvironmentEditor draft={claudeEnvDraft} selected={claudeEnvIndex} baseUrl={baseUrl(hostname, port)} confirm={mode === "claude-env-confirm"} shell={shell.kind === "unsupported" ? "posix" : shell.kind} />
+      {mode === "claude-env-scope" ? (
+        <ClaudeEnvironmentScopeSelector selected={claudeEnvScopeIndex} action={claudeEnvAction} />
+      ) : (mode === "claude-env-editor" || mode === "claude-env-confirm") ? (
+        <ClaudeEnvironmentEditor draft={claudeEnvDraft} selected={claudeEnvIndex} baseUrl={baseUrl(hostname, activePort)} confirm={mode === "claude-env-confirm"} shell={shell.kind === "unsupported" ? "posix" : shell.kind} settingsTarget={claudeSettingsTarget} />
       ) : mode === "claude-env-unset-confirm" ? (
-        <ClaudeEnvironmentUnsetConfirm shell={shell.kind === "unsupported" ? "posix" : shell.kind} />
+        <ClaudeEnvironmentUnsetConfirm draft={claudeEnvDraft} shell={shell.kind === "unsupported" ? "posix" : shell.kind} settingsTarget={claudeSettingsTarget} />
       ) : mode === "connect-account" ? (
         <ConnectAccountWizard draft={connectDraft} step={connectStep} saving={connectSaving} />
       ) : (
@@ -501,4 +729,23 @@ function updateClaudeEnvDraft(draft: ClaudeEnvironmentDraft, index: number, upda
 
 function baseUrl(hostname: string, port: number) {
   return `http://${hostname}:${port}`
+}
+
+function mergeRequestLogs(storedLogs: RequestLogEntry[], currentLogs: RequestLogEntry[]) {
+  // Start from stored logs (source of truth on disk), then overlay any
+  // in-memory entries that are not yet persisted (pending or complete but
+  // not yet flushed due to a race between write and the polling read).
+  let merged = [...storedLogs]
+  for (const log of currentLogs) {
+    if (merged.some((storedLog) => storedLog.id === log.id)) continue
+    merged = upsertRequestLog(merged, log)
+  }
+  return merged
+}
+
+function upsertRequestLog(logs: RequestLogEntry[], entry: RequestLogEntry) {
+  const next = logs.filter((log) => log.id !== entry.id)
+  next.push(entry)
+  next.sort((left, right) => left.at.localeCompare(right.at))
+  return next.slice(-MAX_REQUEST_LOG_ENTRIES)
 }

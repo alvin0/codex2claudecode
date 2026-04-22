@@ -1,10 +1,11 @@
 import { readAuthFileData } from "./auth"
 import { writeAccountInfoFile } from "./account-info"
 import { extractAccountId } from "./auth"
+import { DEFAULT_CODEX_CLI_AUTH_FILE, readCodexCliAuthFile, syncCodexCliAuthTokens } from "./codex-auth"
 import type { AuthFileContent, AuthFileData } from "./types"
-import { readFile, writeFile } from "node:fs/promises"
+import { writeFile } from "node:fs/promises"
 import { DEFAULT_CLIENT_ID, DEFAULT_ISSUER } from "./constants"
-import { ensureParentDir, expandHome } from "./paths"
+import { ensureParentDir } from "./paths"
 
 export interface ConnectAccountDraft {
   accountId: string
@@ -16,25 +17,20 @@ export interface ConnectAccountOptions {
   issuer?: string
   clientId?: string
   fetch?: typeof fetch
-}
-
-interface CodexCliAuthFile {
-  auth_mode?: string
-  tokens?: {
-    access_token?: string
-    refresh_token?: string
-    account_id?: string
-  }
+  codexAuthFile?: string
 }
 
 export async function connectAccount(authFile: string, draft: ConnectAccountDraft, options?: ConnectAccountOptions) {
-  return saveConnectedAuth(authFile, await connectedAuthEntry(draft, options))
+  return saveConnectedAuth(authFile, await connectedAuthEntry(draft, options), options)
 }
 
-export async function connectAccountFromCodexAuth(authFile: string, source = "~/.codex/auth.json", options?: ConnectAccountOptions) {
-  const auth = JSON.parse(await readFile(expandHome(source), "utf8")) as CodexCliAuthFile
+export async function connectAccountFromCodexAuth(authFile: string, source = DEFAULT_CODEX_CLI_AUTH_FILE, options?: ConnectAccountOptions) {
+  const auth = await readCodexCliAuthFile(source)
   if (auth.auth_mode && auth.auth_mode !== "chatgpt") throw new Error(`Unsupported auth_mode: ${auth.auth_mode}`)
-  return saveConnectedAuth(authFile, connectedAuthEntryFromTokens(auth.tokens?.account_id ?? "", auth.tokens?.access_token ?? "", auth.tokens?.refresh_token ?? ""))
+  return saveConnectedAuth(authFile, connectedAuthEntryFromTokens(auth.tokens?.account_id ?? "", auth.tokens?.access_token ?? "", auth.tokens?.refresh_token ?? ""), {
+    ...options,
+    codexAuthFile: source,
+  })
 }
 
 async function connectedAuthEntry(draft: ConnectAccountDraft, options?: ConnectAccountOptions): Promise<AuthFileContent> {
@@ -47,13 +43,13 @@ async function connectedAuthEntry(draft: ConnectAccountDraft, options?: ConnectA
   return {
     type: "oauth",
     access: cleanToken(tokens.access_token),
-    refresh: cleanToken(tokens.refresh_token),
+    refresh: tokens.refresh_token ? cleanToken(tokens.refresh_token) : refreshToken,
     expires: Date.now() + (tokens.expires_in ?? 3600) * 1000,
     accountId,
   }
 }
 
-async function saveConnectedAuth(authFile: string, auth: AuthFileContent) {
+async function saveConnectedAuth(authFile: string, auth: AuthFileContent, options?: ConnectAccountOptions) {
   const file = await readAuthFileData(authFile).catch(() => ({ path: authFile, data: [] as AuthFileContent[] }))
   const entries = Array.isArray(file.data) ? file.data : [file.data]
   const index = entries.findIndex((entry) => entry.accountId === auth.accountId)
@@ -61,6 +57,12 @@ async function saveConnectedAuth(authFile: string, auth: AuthFileContent) {
   await ensureParentDir(authFile)
   await writeFile(authFile, `${JSON.stringify(nextEntries satisfies AuthFileData, null, 2)}\n`)
   await writeAccountInfoFile(authFile, nextEntries, auth.accountId)
+  await syncCodexCliAuthTokens({
+    accountId: auth.accountId,
+    accessToken: auth.access,
+    refreshToken: auth.refresh,
+    path: options?.codexAuthFile,
+  }).catch(() => false)
   return {
     accountId: auth.accountId,
     data: nextEntries,
@@ -93,7 +95,7 @@ async function refreshAccessToken(refreshToken: string, options?: ConnectAccount
       client_id: options?.clientId ?? DEFAULT_CLIENT_ID,
     }).toString(),
   })
-  if (response.ok) return (await response.json()) as { access_token: string; refresh_token: string; expires_in?: number; id_token?: string }
+  if (response.ok) return (await response.json()) as { access_token: string; refresh_token?: string; expires_in?: number; id_token?: string }
   throw new Error(`Token refresh failed: ${response.status} ${await response.text()}`)
 }
 

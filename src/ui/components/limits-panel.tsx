@@ -1,13 +1,19 @@
-import React from "react"
+import React, { useEffect, useState } from "react"
 import { Box, Text } from "ink"
 
 import type { LimitGroupView } from "../limits"
 
 export function LimitsPanel(props: { limitGroups: LimitGroupView[]; loading?: boolean; error?: string }) {
+  const spinner = useSpinner(props.loading)
+
   return (
     <Box flexDirection="column" marginTop={2}>
-      <Text bold color="#a58a86">Limits</Text>
-      {props.loading && <Text color="gray">Fetching limits...</Text>}
+      <Box>
+        <Text bold color="#a58a86">Limits</Text>
+        <Box marginLeft={1}>
+          <Text color="#aab3cf">{spinner}</Text>
+        </Box>
+      </Box>
       {props.error && <Text color="red">{props.error}</Text>}
       {!props.loading && !props.error && !props.limitGroups.length && <Text color="gray">No limits available</Text>}
       {props.limitGroups.map((group, groupIndex) => (
@@ -28,9 +34,6 @@ function LimitRow(props: { label: string; used: number; left: string; reset: str
       <Box width={24}>
         <Text color="gray">{props.label}</Text>
       </Box>
-      <Text>[</Text>
-      <Text color="#f4f1eb">{progressBar(props.used)}</Text>
-      <Text>] </Text>
       <Box width={11}>
         <Text bold>{props.left}</Text>
       </Box>
@@ -39,8 +42,20 @@ function LimitRow(props: { label: string; used: number; left: string; reset: str
   )
 }
 
-function progressBar(used: number) {
-  const width = 18
-  const filled = Math.max(0, Math.min(width, Math.round((used / 100) * width)))
-  return `${"█".repeat(filled)}${"░".repeat(width - filled)}`
+function useSpinner(active?: boolean) {
+  const frames = ["|", "/", "-", "\\"]
+  const [index, setIndex] = useState(0)
+
+  useEffect(() => {
+    if (!active) {
+      setIndex(0)
+      return
+    }
+    const timer = setInterval(() => {
+      setIndex((value) => (value + 1) % frames.length)
+    }, 120)
+    return () => clearInterval(timer)
+  }, [active])
+
+  return active ? frames[index] : " "
 }

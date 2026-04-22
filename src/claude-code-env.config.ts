@@ -1,0 +1,22 @@
+import { MODEL_CLIENT_DEFAULTS } from "./models"
+
+export const CLAUDE_CODE_ENV_CONFIG = {
+  lockedEnv: {
+    ANTHROPIC_AUTH_TOKEN: "codex2claudecode",
+    ANTHROPIC_API_KEY: "codex2claudecode",
+  },
+  editableEnvDefaults: {
+    ANTHROPIC_MODEL: MODEL_CLIENT_DEFAULTS.ANTHROPIC_MODEL,
+    ANTHROPIC_DEFAULT_OPUS_MODEL: MODEL_CLIENT_DEFAULTS.ANTHROPIC_DEFAULT_OPUS_MODEL,
+    ANTHROPIC_DEFAULT_SONNET_MODEL: MODEL_CLIENT_DEFAULTS.ANTHROPIC_DEFAULT_SONNET_MODEL,
+    ANTHROPIC_DEFAULT_HAIKU_MODEL: MODEL_CLIENT_DEFAULTS.ANTHROPIC_DEFAULT_HAIKU_MODEL,
+  },
+  defaultExtraEnv: {
+    CLAUDE_CODE_DISABLE_1M_CONTEXT: "1",
+    NODE_TLS_REJECT_UNAUTHORIZED: "0",
+  },
+  defaultUnsetEnv: [] as string[],
+} as const
+
+export type ClaudeCodeEditableEnvKey = keyof typeof CLAUDE_CODE_ENV_CONFIG.editableEnvDefaults
+export type ClaudeCodeLockedEnvKey = keyof typeof CLAUDE_CODE_ENV_CONFIG.lockedEnv

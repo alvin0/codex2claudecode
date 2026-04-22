@@ -54,8 +54,23 @@ test("connects a new account and writes account info", async () => {
 
 test("updates an existing connected account and validates required fields", async () => {
   const file = await authFile([{ type: "oauth", access: "old", refresh: "old", accountId: "acct" }])
-  await connectAccount(file, { accountId: "acct", accessToken: "ignored", refreshToken: "refresh" }, { fetch: (() => Promise.resolve(Response.json({ access_token: "new", refresh_token: "new-refresh" }))) as typeof fetch })
+  const sourceDir = await mkdtemp(path.join(tmpdir(), "codex-cli-auth-test-"))
+  tempDirs.push(sourceDir)
+  const codexFile = path.join(sourceDir, "auth.json")
+  await writeFile(codexFile, JSON.stringify({ auth_mode: "chatgpt", tokens: { account_id: "acct", access_token: "cli-old", refresh_token: "cli-refresh" } }))
+
+  await connectAccount(file, { accountId: "acct", accessToken: "ignored", refreshToken: "refresh" }, { codexAuthFile: codexFile, fetch: (() => Promise.resolve(Response.json({ access_token: "new", refresh_token: "new-refresh" }))) as typeof fetch })
   expect(JSON.parse(await readFile(file, "utf8"))).toMatchObject([{ access: "new", refresh: "new-refresh", accountId: "acct" }])
+  expect(JSON.parse(await readFile(codexFile, "utf8"))).toMatchObject({ tokens: { account_id: "acct", access_token: "new", refresh_token: "new-refresh" } })
+
+  await connectAccount(file, { accountId: "acct", accessToken: "ignored", refreshToken: "fallback-refresh" }, { codexAuthFile: codexFile, fetch: (() => Promise.resolve(Response.json({ access_token: "newer" }))) as typeof fetch })
+  expect(JSON.parse(await readFile(file, "utf8"))).toMatchObject([{ access: "newer", refresh: "fallback-refresh", accountId: "acct" }])
+  expect(JSON.parse(await readFile(codexFile, "utf8"))).toMatchObject({ tokens: { account_id: "acct", access_token: "newer", refresh_token: "fallback-refresh" } })
+
+  await writeFile(codexFile, JSON.stringify({ auth_mode: "chatgpt", tokens: { account_id: "other", access_token: "cli-old", refresh_token: "cli-refresh" } }))
+  await connectAccount(file, { accountId: "acct", accessToken: "ignored", refreshToken: "refresh-2" }, { codexAuthFile: codexFile, fetch: (() => Promise.resolve(Response.json({ access_token: "newest", refresh_token: "newest-refresh" }))) as typeof fetch })
+  expect(JSON.parse(await readFile(codexFile, "utf8"))).toMatchObject({ tokens: { account_id: "other", access_token: "cli-old", refresh_token: "cli-refresh" } })
+
   await expect(connectAccount(file, { accountId: "", accessToken: "bad", refreshToken: "refresh" }, { fetch: (() => Promise.resolve(Response.json({ access_token: "bad", refresh_token: "refresh" }))) as typeof fetch })).rejects.toThrow("accountId is required")
   await expect(connectAccount(file, { accountId: "acct", accessToken: "", refreshToken: "refresh" }, { fetch: (() => Promise.resolve(new Response("denied", { status: 400 }))) as typeof fetch })).rejects.toThrow("Token refresh failed")
   await expect(connectAccount(file, { accountId: "acct", accessToken: "access", refreshToken: "" })).rejects.toThrow("refreshToken is required")

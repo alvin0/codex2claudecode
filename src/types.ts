@@ -13,12 +13,13 @@ export interface CodexClientOptions {
   fetch?: typeof fetch
   authFile?: string
   authAccount?: string
+  codexAuthFile?: string
 }
 
 export interface TokenResponse {
   id_token?: string
   access_token: string
-  refresh_token: string
+  refresh_token?: string
   expires_in?: number
 }
 
@@ -56,17 +57,34 @@ export interface RuntimeOptions {
   healthTimeoutMs?: number
   logBody?: boolean
   quiet?: boolean
+  onRequestLogStart?: (entry: RequestLogEntry) => void
   onRequestLog?: (entry: RequestLogEntry) => void
+}
+
+export interface RequestProxyLog {
+  label: string
+  method: string
+  target: string
+  status: number
+  durationMs: number
+  error: string
+  requestBody?: string
+  responseBody?: string
 }
 
 export interface RequestLogEntry {
   id: string
+  state?: "pending" | "complete"
   at: string
   method: string
   path: string
   status: number
   durationMs: number
   error: string
+  requestHeaders: Record<string, string>
+  requestBody?: string
+  responseBody?: string
+  proxy?: RequestProxyLog
 }
 
 export interface HealthStatus {
@@ -151,6 +169,42 @@ export interface ClaudeThinkingConfig {
   budget_tokens?: number
 }
 
+export interface ClaudeMcpServer extends JsonObject {
+  name: string
+  url: string
+  type?: "url" | string
+  authorization_token?: string
+  tool_configuration?: JsonObject
+  connector_id?: string
+  headers?: JsonObject
+}
+
+export interface ClaudeFunctionTool extends JsonObject {
+  name: string
+  type?: string
+  strict?: boolean
+  description?: string
+  input_schema?: JsonObject
+  max_uses?: number
+  allowed_domains?: string[]
+  blocked_domains?: string[]
+  user_location?: JsonObject
+  citations?: JsonObject
+  max_content_tokens?: number
+}
+
+export interface ClaudeMcpToolset extends JsonObject {
+  name?: string
+  type: "mcp_toolset"
+  mcp_server_name: string
+  allowed_tools?: string[]
+  tool_names?: string[]
+  require_approval?: "always" | "never" | JsonObject | string
+  disable_parallel_tool_use?: boolean
+}
+
+export type ClaudeTool = ClaudeFunctionTool | ClaudeMcpToolset
+
 export interface ClaudeMessagesRequest extends JsonObject {
   model: string
   max_tokens?: number
@@ -162,10 +216,21 @@ export interface ClaudeMessagesRequest extends JsonObject {
   stream?: boolean
   temperature?: number
   top_p?: number
+  output_config?: {
+    effort?: "none" | "low" | "medium" | "high" | "xhigh" | string
+    format?: {
+      type?: "json_schema" | string
+      name?: string
+      schema?: JsonObject
+      strict?: boolean
+    }
+  }
   stop_sequences?: string[]
-  tools?: ClaudeToolDefinition[]
-  tool_choice?: { type: "auto" | "any" | "tool"; name?: string }
-  thinking?: ClaudeThinkingConfig
+  metadata?: JsonObject
+  mcp_servers?: ClaudeMcpServer[]
+  tools?: ClaudeTool[]
+  tool_choice?: { type: "auto" | "any" | "tool" | "none"; name?: string; disable_parallel_tool_use?: boolean }
+  thinking?: { type: "enabled" | "disabled" | "adaptive"; budget_tokens?: number } | JsonObject
 }
 
 export interface SseEvent {
