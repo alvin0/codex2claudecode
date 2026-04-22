@@ -1,7 +1,8 @@
 import type { ClaudeMessagesRequest, JsonObject } from "../types"
 
+import { countClaudeServerToolCalls, codexOutputItemsToClaudeContent, codexServerToolCallToClaudeBlocks, isServerToolOutputItem } from "./server-tools"
 import { consumeCodexSse, parseJsonObject, parseSseJson } from "./sse"
-import { claudeWebResultHasContent, codexMessageContentToClaudeBlocks, codexOutputItemsToClaudeContent, codexWebCallToClaudeBlocks, countCodexWebCalls } from "./web"
+import { claudeStreamErrorEvent } from "./errors"
 
 export async function collectClaudeMessage(response: Response, request: ClaudeMessagesRequest) {
   const state = {
@@ -51,15 +52,13 @@ export async function collectClaudeMessage(response: Response, request: ClaudeMe
             content?: unknown
           }
         | undefined
-      if (item?.type === "web_search_call") {
-        const blocks = codexWebCallToClaudeBlocks(item)
-        state.content.push(...blocks.content)
-        if (blocks.name === "web_fetch") state.webFetchRequests += 1
-        else state.webSearchRequests += 1
+      if (isServerToolOutputItem(item)) {
+        const blocks = codexServerToolCallToClaudeBlocks(item)
+        if (blocks.length) state.content.push(...blocks)
         return
       }
       if (item?.type === "message" && Array.isArray(item.content)) {
-        state.messageContent = item.content.flatMap((content) => codexMessageContentToClaudeBlocks(content))
+        state.messageContent = codexOutputItemsToClaudeContent([{ type: "message", content: item.content }])
         return
       }
       if (item?.type === "function_call" && typeof item.call_id === "string") {
@@ -74,17 +73,17 @@ export async function collectClaudeMessage(response: Response, request: ClaudeMe
     }
 
     if (data.type === "response.completed") {
-      const item = data.response as {
+      const item = jsonObjectOrEmpty(data.response) as {
         output?: unknown
         usage?: { input_tokens?: unknown; output_tokens?: unknown }
         incomplete_details?: { reason?: unknown } | null
       }
       const content = codexOutputItemsToClaudeContent(item.output)
-      const webCalls = countCodexWebCalls(item.output)
+      const serverToolCalls = countClaudeServerToolCalls(item.output)
       if (content.length) state.content = content
-      if (webCalls.webSearchRequests || webCalls.webFetchRequests) {
-        state.webSearchRequests = webCalls.webSearchRequests
-        state.webFetchRequests = webCalls.webFetchRequests
+      if (serverToolCalls.webSearchRequests || serverToolCalls.webFetchRequests) {
+        state.webSearchRequests = serverToolCalls.webSearchRequests
+        state.webFetchRequests = serverToolCalls.webFetchRequests
       }
       if (typeof item.usage?.input_tokens === "number") state.inputTokens = item.usage.input_tokens
       if (typeof item.usage?.output_tokens === "number") state.outputTokens = item.usage.output_tokens
@@ -129,22 +128,90 @@ export async function collectClaudeMessage(response: Response, request: ClaudeMe
 export function claudeStreamResponse(response: Response, request: ClaudeMessagesRequest) {
   const encoder = new TextEncoder()
   const messageId = `msg_${crypto.randomUUID().replace(/-/g, "")}`
+  const heartbeatMs = 5000
   let started = false
   let contentStarted = false
   let contentIndex = 0
-  let inputTokens = 0
   let outputTokens = 0
   let webSearchRequests = 0
   let webFetchRequests = 0
-  const pendingWebCalls: Array<{ id?: unknown; action?: unknown }> = []
+  const pendingServerCalls: unknown[] = []
   let deferredText = ""
   let stopReason = "end_turn"
+  let emittedText = ""
+  let emittedAnyContent = false
+  let heartbeat: ReturnType<typeof setInterval> | undefined
+  let closed = false
+  const upstreamAbort = new AbortController()
+
+  function clearHeartbeat() {
+    if (!heartbeat) return
+    clearInterval(heartbeat)
+    heartbeat = undefined
+  }
+
+  function abortUpstream(reason: unknown) {
+    if (upstreamAbort.signal.aborted) return
+    upstreamAbort.abort(reason)
+  }
 
   return new Response(
     new ReadableStream({
       async start(controller) {
+        function sendRaw(raw: string) {
+          if (closed) return
+          try {
+            controller.enqueue(encoder.encode(raw))
+          } catch (error) {
+            closed = true
+            clearHeartbeat()
+            abortUpstream(error)
+          }
+        }
+
         function send(event: string, data: JsonObject) {
-          controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`))
+          sendRaw(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
+        }
+
+        function closeController() {
+          if (closed) return
+          closed = true
+          controller.close()
+        }
+
+        function sendMessageStart() {
+          if (started) return
+          started = true
+          send("message_start", {
+            type: "message_start",
+            message: {
+              id: messageId,
+              type: "message",
+              role: "assistant",
+              model: request.model,
+              content: [],
+              stop_reason: null,
+              stop_sequence: null,
+              usage: { input_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, output_tokens: 0 },
+            },
+          })
+        }
+
+        function markTextEmitted(text: string) {
+          emittedText += text
+          emittedAnyContent = true
+        }
+
+        function remainingText(text: string) {
+          if (!emittedText) return text
+          return text.startsWith(emittedText) ? text.slice(emittedText.length) : ""
+        }
+
+        function stopOpenTextBlock() {
+          if (!contentStarted) return
+          send("content_block_stop", { type: "content_block_stop", index: contentIndex })
+          contentIndex += 1
+          contentStarted = false
         }
 
         function sendEmptyTextBlock() {
@@ -155,6 +222,7 @@ export function claudeStreamResponse(response: Response, request: ClaudeMessages
           })
           send("content_block_stop", { type: "content_block_stop", index: contentIndex })
           contentIndex += 1
+          emittedAnyContent = true
         }
 
         function sendTextBlock(text: string) {
@@ -171,6 +239,22 @@ export function claudeStreamResponse(response: Response, request: ClaudeMessages
           })
           send("content_block_stop", { type: "content_block_stop", index: contentIndex })
           contentIndex += 1
+          markTextEmitted(text)
+        }
+
+        function sendTextFallback(text: string) {
+          const next = remainingText(text)
+          if (!next) return
+          if (!contentStarted) {
+            sendTextBlock(next)
+            return
+          }
+          send("content_block_delta", {
+            type: "content_block_delta",
+            index: contentIndex,
+            delta: { type: "text_delta", text: next },
+          })
+          markTextEmitted(next)
         }
 
         function sendWebResultBlock(block: JsonObject) {
@@ -181,17 +265,20 @@ export function claudeStreamResponse(response: Response, request: ClaudeMessages
           })
           send("content_block_stop", { type: "content_block_stop", index: contentIndex })
           contentIndex += 1
+          emittedAnyContent = true
         }
 
         function sendServerToolUseBlock(block: JsonObject) {
           if (contentIndex === 0) sendEmptyTextBlock()
+          const isMcp = block.type === "mcp_tool_use"
           send("content_block_start", {
             type: "content_block_start",
             index: contentIndex,
             content_block: {
-              type: "server_tool_use",
+              type: isMcp ? "mcp_tool_use" : "server_tool_use",
               id: block.id,
               name: block.name,
+              ...(isMcp && { server_name: block.server_name }),
             },
           })
           send("content_block_delta", {
@@ -201,154 +288,166 @@ export function claudeStreamResponse(response: Response, request: ClaudeMessages
           })
           send("content_block_stop", { type: "content_block_stop", index: contentIndex })
           contentIndex += 1
+          emittedAnyContent = true
         }
 
-        await consumeCodexSse(response.body, (event) => {
-          const data = parseSseJson(event)
-          if (!data) return
-
-          if (!started) {
-            started = true
-            send("message_start", {
-              type: "message_start",
-              message: {
-                id: messageId,
-                type: "message",
-                role: "assistant",
-                model: request.model,
-                content: [],
-                stop_reason: null,
-                stop_sequence: null,
-                usage: { input_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, output_tokens: 0 },
-              },
-            })
-          }
-
-          if (data.type === "response.output_text.delta" && typeof data.delta === "string") {
-            if (pendingWebCalls.length) {
-              deferredText += data.delta
+        function sendContentBlocks(blocks: JsonObject[]) {
+          blocks.forEach((block) => {
+            if (block.type === "text" && typeof block.text === "string") {
+              sendTextFallback(block.text)
               return
             }
-            if (!contentStarted) {
-              contentStarted = true
-              send("content_block_start", {
-                type: "content_block_start",
-                index: contentIndex,
-                content_block: { type: "text", text: "" },
-              })
-            }
-            send("content_block_delta", {
-              type: "content_block_delta",
-              index: contentIndex,
-              delta: { type: "text_delta", text: data.delta },
-            })
-            return
-          }
-
-          if (data.type === "response.output_item.done") {
-            const item = data.item as
-              | { type?: unknown; id?: unknown; call_id?: unknown; name?: unknown; arguments?: unknown; action?: unknown }
-              | undefined
-            if (item?.type === "web_search_call") {
-              const blocks = codexWebCallToClaudeBlocks(item)
-              if (blocks.name === "web_fetch") webFetchRequests += 1
-              else webSearchRequests += 1
-
-              if (claudeWebResultHasContent(blocks.content[1])) {
-                if (contentStarted) {
-                  send("content_block_stop", { type: "content_block_stop", index: contentIndex })
-                  contentIndex += 1
-                  contentStarted = false
-                }
-                sendServerToolUseBlock(blocks.content[0])
-                sendWebResultBlock(blocks.content[1])
-                return
-              }
-              pendingWebCalls.push(item)
-              return
-            }
-            if (item?.type !== "function_call" || typeof item.call_id !== "string") return
-
-            if (contentStarted) {
-              send("content_block_stop", { type: "content_block_stop", index: contentIndex })
-              contentIndex += 1
-              contentStarted = false
-            }
-
-            send("content_block_start", {
-              type: "content_block_start",
-              index: contentIndex,
-              content_block: {
-                type: "tool_use",
-                id: item.call_id,
-                name: typeof item.name === "string" ? item.name : "unknown",
-                input: {},
-              },
-            })
-            send("content_block_delta", {
-              type: "content_block_delta",
-              index: contentIndex,
-              delta: {
-                type: "input_json_delta",
-                partial_json: typeof item.arguments === "string" ? item.arguments : "{}",
-              },
-            })
-            send("content_block_stop", { type: "content_block_stop", index: contentIndex })
-            contentIndex += 1
-            stopReason = "tool_use"
-            return
-          }
-
-          if (data.type === "response.completed") {
-            const item = data.response as {
-              output?: unknown
-              usage?: { input_tokens?: unknown; output_tokens?: unknown }
-              incomplete_details?: { reason?: unknown } | null
-            }
-            if (typeof item.usage?.input_tokens === "number") inputTokens = item.usage.input_tokens
-            if (typeof item.usage?.output_tokens === "number") outputTokens = item.usage.output_tokens
-            if (!webSearchRequests && !webFetchRequests) {
-              const webCalls = countCodexWebCalls(item.output)
-              webSearchRequests = webCalls.webSearchRequests
-              webFetchRequests = webCalls.webFetchRequests
-            }
-            if (pendingWebCalls.length) {
-              const content = codexOutputItemsToClaudeContent(item.output)
-              content.forEach((block, index) => {
-                if (block.type !== "server_tool_use") return
-                const result = content[index + 1]
-                if (!result || !claudeWebResultHasContent(result)) return
-                sendServerToolUseBlock(block)
-                sendWebResultBlock(result)
-              })
-              const text = content
-                .flatMap((block) => (block.type === "text" && typeof block.text === "string" ? [block.text] : []))
-                .join("")
-              sendTextBlock(text || deferredText)
-              pendingWebCalls.length = 0
-              deferredText = ""
-            }
-            if (item.incomplete_details?.reason === "max_output_tokens") stopReason = "max_tokens"
-          }
-        })
-
-        if (!started) {
-          send("message_start", {
-            type: "message_start",
-            message: {
-              id: messageId,
-              type: "message",
-              role: "assistant",
-              model: request.model,
-              content: [],
-              stop_reason: null,
-              stop_sequence: null,
-              usage: { input_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, output_tokens: 0 },
-            },
+            stopOpenTextBlock()
+            if (block.type === "server_tool_use" || block.type === "mcp_tool_use") sendServerToolUseBlock(block)
+            else sendWebResultBlock(block)
           })
         }
 
-        if (contentStarted) send("content_block_stop", { type: "content_block_stop", index: contentIndex })
+        try {
+          sendMessageStart()
+          heartbeat = setInterval(() => send("ping", { type: "ping" }), heartbeatMs)
+          try {
+            await consumeCodexSse(response.body, (event) => {
+              const data = parseSseJson(event)
+              if (!data) return
+
+              if (data.type === "response.output_text.delta" && typeof data.delta === "string") {
+                if (pendingServerCalls.length) {
+                  deferredText += data.delta
+                  return
+                }
+                if (!contentStarted) {
+                  contentStarted = true
+                  send("content_block_start", {
+                    type: "content_block_start",
+                    index: contentIndex,
+                    content_block: { type: "text", text: "" },
+                  })
+                }
+                send("content_block_delta", {
+                  type: "content_block_delta",
+                  index: contentIndex,
+                  delta: { type: "text_delta", text: data.delta },
+                })
+                markTextEmitted(data.delta)
+                return
+              }
+
+              if (data.type === "response.output_text.done" && typeof data.text === "string") {
+                if (pendingServerCalls.length) {
+                  deferredText += remainingText(data.text)
+                  return
+                }
+                sendTextFallback(data.text)
+                return
+              }
+
+              if (data.type === "response.output_item.done") {
+                const item = data.item as
+                  | {
+                      type?: unknown
+                      id?: unknown
+                      call_id?: unknown
+                      name?: unknown
+                      arguments?: unknown
+                      action?: unknown
+                      content?: unknown
+                      output?: unknown
+                    }
+                  | undefined
+                if (isServerToolOutputItem(item)) {
+                  const blocks = codexServerToolCallToClaudeBlocks(item)
+                  const resultBlocks = blocks.filter((block) => block.type !== "server_tool_use" && block.type !== "mcp_tool_use")
+                  if (item?.type === "web_search_call") {
+                    const counts = countClaudeServerToolCalls([item])
+                    webSearchRequests += counts.webSearchRequests
+                    webFetchRequests += counts.webFetchRequests
+                  }
+
+                  if (resultBlocks.length) {
+                    stopOpenTextBlock()
+                    blocks.forEach((block) => {
+                      if (block.type === "server_tool_use" || block.type === "mcp_tool_use") sendServerToolUseBlock(block)
+                      else sendWebResultBlock(block)
+                    })
+                    return
+                  }
+                  pendingServerCalls.push(item)
+                  return
+                }
+                if (item?.type === "message" && Array.isArray(item.content)) {
+                  sendContentBlocks(codexOutputItemsToClaudeContent([{ type: "message", content: item.content }]))
+                  return
+                }
+                if (item?.type !== "function_call" || typeof item.call_id !== "string") return
+
+                stopOpenTextBlock()
+
+                send("content_block_start", {
+                  type: "content_block_start",
+                  index: contentIndex,
+                  content_block: {
+                    type: "tool_use",
+                    id: item.call_id,
+                    name: typeof item.name === "string" ? item.name : "unknown",
+                    input: {},
+                  },
+                })
+                send("content_block_delta", {
+                  type: "content_block_delta",
+                  index: contentIndex,
+                  delta: {
+                    type: "input_json_delta",
+                    partial_json: typeof item.arguments === "string" ? item.arguments : "{}",
+                  },
+                })
+                send("content_block_stop", { type: "content_block_stop", index: contentIndex })
+                contentIndex += 1
+                emittedAnyContent = true
+                stopReason = "tool_use"
+                return
+              }
+
+              if (data.type === "response.completed") {
+                const item = jsonObjectOrEmpty(data.response) as {
+                  output?: unknown
+                  usage?: { input_tokens?: unknown; output_tokens?: unknown }
+                  incomplete_details?: { reason?: unknown } | null
+                }
+                if (typeof item.usage?.output_tokens === "number") outputTokens = item.usage.output_tokens
+                if (!webSearchRequests && !webFetchRequests) {
+                  const counts = countClaudeServerToolCalls(item.output)
+                  webSearchRequests = counts.webSearchRequests
+                  webFetchRequests = counts.webFetchRequests
+                }
+                if (pendingServerCalls.length) {
+                  const content = codexOutputItemsToClaudeContent(item.output)
+                  content.forEach((block) => {
+                    if (block.type === "server_tool_use" || block.type === "mcp_tool_use") sendServerToolUseBlock(block)
+                    else if (block.type !== "text") sendWebResultBlock(block)
+                  })
+                  const text = content
+                    .flatMap((block) => (block.type === "text" && typeof block.text === "string" ? [block.text] : []))
+                    .join("")
+                  sendTextBlock(text || deferredText)
+                  pendingServerCalls.length = 0
+                  deferredText = ""
+                }
+                if (!emittedAnyContent) sendContentBlocks(codexOutputItemsToClaudeContent(item.output))
+                if (item.incomplete_details?.reason === "max_output_tokens") stopReason = "max_tokens"
+              }
+            }, { signal: upstreamAbort.signal })
+          } finally {
+            clearHeartbeat()
+          }
+        } catch (error) {
+          stopOpenTextBlock()
+          sendRaw(claudeStreamErrorEvent(error instanceof Error ? error.message : String(error)))
+          closeController()
+          return
+        }
+
+        stopOpenTextBlock()
         send("message_delta", {
           type: "message_delta",
           delta: { stop_reason: stopReason, stop_sequence: null },
@@ -365,7 +464,12 @@ export function claudeStreamResponse(response: Response, request: ClaudeMessages
           },
         })
         send("message_stop", { type: "message_stop" })
-        controller.close()
+        closeController()
+      },
+      cancel() {
+        closed = true
+        clearHeartbeat()
+        abortUpstream("client disconnected")
       },
     }),
     {
@@ -375,4 +479,8 @@ export function claudeStreamResponse(response: Response, request: ClaudeMessages
       },
     },
   )
+}
+
+function jsonObjectOrEmpty(value: unknown) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : {}
 }

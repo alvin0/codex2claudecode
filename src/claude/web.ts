@@ -1,4 +1,6 @@
-import type { JsonObject } from "../types"
+import type { ClaudeTool, JsonObject } from "../types"
+
+import type { ClaudeServerToolAdapter } from "./server-tool-adapter"
 
 export function codexWebCallToClaudeBlocks(
   item: { id?: unknown; action?: unknown },
@@ -114,13 +116,13 @@ export function codexMessageContentToClaudeBlocks(content: unknown): JsonObject[
   if (!content || typeof content !== "object") return []
   const item = content as { type?: unknown; text?: unknown; annotations?: unknown }
   if (item.type !== "output_text" || typeof item.text !== "string") return []
+  const text = item.text
+  const citations = Array.isArray(item.annotations) ? item.annotations.flatMap((annotation) => codexAnnotationToClaudeCitation(annotation, text)) : undefined
   return [
     {
       type: "text",
-      text: item.text,
-      ...(Array.isArray(item.annotations) && {
-        citations: item.annotations.flatMap((annotation) => codexAnnotationToClaudeCitation(annotation, item.text)),
-      }),
+      text,
+      ...(citations?.length ? { citations } : {}),
     },
   ]
 }
@@ -130,7 +132,7 @@ export function codexOutputItemsToClaudeContent(output: unknown) {
   const citationSources = codexCitationSourcesFromOutput(output)
   return output.flatMap((item) => {
     if (!item || typeof item !== "object") return []
-    const outputItem = item as { type?: unknown; content?: unknown }
+    const outputItem = item as { type?: unknown; id?: unknown; action?: unknown; content?: unknown }
     if (outputItem.type === "web_search_call") {
       const blocks = codexWebCallToClaudeBlocks(outputItem, citationSources)
       return claudeWebResultHasContent(blocks.content[1]) ? blocks.content : []
@@ -156,6 +158,71 @@ export function countCodexWebCalls(output: unknown) {
     },
     { webSearchRequests: 0, webFetchRequests: 0 },
   )
+}
+
+export const webServerToolAdapter: ClaudeServerToolAdapter = {
+  name: "web",
+  matchesTool(tool) {
+    return isClaudeWebTool(tool)
+  },
+  resolveTool(tool) {
+    const toolName = tool.name
+    if (typeof toolName !== "string") throw new Error("Web tools require name")
+    const mapped = claudeWebToolToResponsesTool(tool)
+    return {
+      tool: mapped,
+      include: mapped.type === "web_search" ? ["web_search_call.action.sources"] : undefined,
+      toolChoiceName: toolName,
+      toolChoice: { type: "web_search" },
+      hasWebTool: mapped.type === "web_search",
+    }
+  },
+  matchesOutputItem(item) {
+    return Boolean(item && typeof item === "object" && (item as { type?: unknown }).type === "web_search_call")
+  },
+  outputItemToBlocks(item) {
+    if (!item || typeof item !== "object") return []
+    const blocks = codexWebCallToClaudeBlocks(item as { id?: unknown; action?: unknown })
+    return claudeWebResultHasContent(blocks.content[1]) ? blocks.content : []
+  },
+  outputToContent(output) {
+    const content = codexOutputItemsToClaudeContent(output)
+    return {
+      content,
+      blocks: content.filter((block) => block.type !== "text"),
+      textBlocks: content.filter((block) => block.type === "text"),
+    }
+  },
+  countCalls(output) {
+    return countCodexWebCalls(output)
+  },
+}
+
+function isClaudeWebTool(tool: ClaudeTool) {
+  return tool?.type !== "mcp_toolset" && [tool.name, tool.type].some((value) => typeof value === "string" && /^web_(search|fetch)(?:_\d+)?$/i.test(value))
+}
+
+function claudeWebToolToResponsesTool(tool: ClaudeTool) {
+  return {
+    type: "web_search",
+    ...(Array.isArray(tool.allowed_domains) && tool.allowed_domains.length > 0
+      ? { filters: { allowed_domains: tool.allowed_domains } }
+      : {}),
+    ...(tool.user_location && typeof tool.user_location === "object"
+      ? { user_location: claudeUserLocationToResponsesUserLocation(tool.user_location as JsonObject) }
+      : {}),
+  }
+}
+
+function claudeUserLocationToResponsesUserLocation(userLocation: JsonObject) {
+  return {
+    type: "approximate",
+    approximate: Object.fromEntries(
+      ["city", "region", "country", "timezone"].flatMap((key) =>
+        typeof userLocation[key] === "string" ? [[key, userLocation[key]] as const] : [],
+      ),
+    ),
+  }
 }
 
 function codexCitationSourcesFromOutput(output: unknown[]) {

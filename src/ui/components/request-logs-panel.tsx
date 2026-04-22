@@ -12,6 +12,7 @@ export function RequestLogsPanel(props: {
   detailOpen?: boolean
   detailScroll?: number
   copyStatus?: { type: "success" | "error"; message: string }
+  clearConfirm?: boolean
 }) {
   const selected = Math.max(0, Math.min(props.selected, Math.max(0, props.logs.length - 1)))
   const start = Math.min(Math.max(0, selected - LOG_HEIGHT + 1), Math.max(0, props.logs.length - LOG_HEIGHT))
@@ -25,8 +26,9 @@ export function RequestLogsPanel(props: {
       <Text color="#aab3cf">────────────────────────────────────────────────────────────────────────────</Text>
       <Box marginTop={1}>
         <Text bold color="#c7d2fe">Request logs</Text>
-        <Text color="gray">  ↑/↓ select request · Enter details · l copy all logs · Esc close</Text>
+        <Text color="gray">  ↑/↓ select request · Enter details · l copy all logs · x clear logs · Esc close</Text>
       </Box>
+      {props.clearConfirm && <Text color="yellow">Clear all request logs? y confirm · n/Esc cancel</Text>}
       {props.copyStatus && <Text color={props.copyStatus.type === "success" ? "green" : "red"}>{props.copyStatus.message}</Text>}
       <Box>
         <Box width={10}>
@@ -61,6 +63,7 @@ export function RequestLogsPanel(props: {
 }
 
 function LogRow(props: { log: RequestLogEntry; selected: boolean }) {
+  const pending = props.log.state === "pending"
   return (
     <Box>
       <Box width={2}>
@@ -79,13 +82,13 @@ function LogRow(props: { log: RequestLogEntry; selected: boolean }) {
         <Text color="#aab3cf">{truncate(props.log.path, 34)}</Text>
       </Box>
       <Box width={8}>
-        <Text color={statusColor(props.log.status)}>{props.log.status}</Text>
+        <Text color={pending ? "yellow" : statusColor(props.log.status)}>{pending ? "..." : props.log.status}</Text>
       </Box>
       <Box width={8}>
-        <Text color={props.log.proxy ? statusColor(props.log.proxy.status) : "gray"}>{props.log.proxy?.status ?? "-"}</Text>
+        <Text color={props.log.proxy ? statusColor(props.log.proxy.status) : "gray"}>{props.log.proxy?.status ?? (pending ? "..." : "-")}</Text>
       </Box>
       <Box width={10}>
-        <Text color="gray">{props.log.durationMs}ms</Text>
+        <Text color="gray">{pending ? "..." : `${props.log.durationMs}ms`}</Text>
       </Box>
       <Text color={summaryColor(props.log)}>{truncate(summaryText(props.log), 48)}</Text>
     </Box>
@@ -109,6 +112,8 @@ function LogDetailDialog(props: { log: RequestLogEntry; scroll: number }) {
         <Text color="gray"> copy request</Text>
         <Text color="#d97757">  [l]</Text>
         <Text color="gray"> copy all logs</Text>
+        <Text color="#d97757">  [x]</Text>
+        <Text color="gray"> clear logs</Text>
       </Box>
       <Text color="gray">
         Lines {scroll + 1}-{Math.min(lines.length, scroll + DETAIL_HEIGHT)} / {lines.length}
@@ -127,6 +132,7 @@ function truncate(value: string, width: number) {
 }
 
 function summaryText(log: RequestLogEntry) {
+  if (log.state === "pending") return "in process"
   if (log.proxy && log.proxy.error !== "-") return `proxy: ${log.proxy.error}`
   if (log.error !== "-") return log.error
   if (log.proxy) return `${log.proxy.label} ${log.proxy.status}`
@@ -134,6 +140,7 @@ function summaryText(log: RequestLogEntry) {
 }
 
 function summaryColor(log: RequestLogEntry) {
+  if (log.state === "pending") return "yellow"
   if (log.proxy?.error !== "-" || log.error !== "-") return "red"
   if (log.proxy && log.proxy.status >= 400) return statusColor(log.proxy.status)
   return "gray"
@@ -150,24 +157,30 @@ function formatKeyValue(value: Record<string, string>) {
 }
 
 function buildDetailLines(log: RequestLogEntry) {
+  const pending = log.state === "pending"
   return [
     { text: `[${log.id}] ${formatTimestamp(log.at)} · ${log.method} ${log.path}`, color: "gray" },
-    { text: `Client status: ${log.status} · ${log.durationMs}ms`, color: statusColor(log.status) },
+    { text: pending ? "Client status: in process" : `Client status: ${log.status} · ${log.durationMs}ms`, color: pending ? "yellow" : statusColor(log.status) },
     { text: `Client error: ${log.error}`, color: log.error === "-" ? "gray" : "red" },
     { text: "", color: "gray" },
     { text: "Request headers", color: "#c7d2fe" },
     ...blockLines(formatKeyValue(log.requestHeaders), "#aab3cf"),
     { text: "", color: "gray" },
-    { text: "Request body", color: "#c7d2fe" },
+    { text: "Request body preview", color: "#c7d2fe" },
     ...blockLines(formatStructuredText(log.requestBody), log.requestBody ? "#aab3cf" : "gray"),
     { text: "", color: "gray" },
+    { text: "Response body preview", color: "#c7d2fe" },
+    ...blockLines(formatStructuredText(log.responseBody), log.responseBody ? "#aab3cf" : "gray"),
+    { text: "", color: "gray" },
     { text: "Proxy", color: "#c7d2fe" },
-    ...(log.proxy
+    ...(pending && !log.proxy
+      ? [{ text: "Proxy request has not completed yet", color: "yellow" }]
+      : log.proxy
       ? [
           { text: `${log.proxy.label} · ${log.proxy.method} ${log.proxy.target}`, color: "gray" },
           { text: `Proxy status: ${log.proxy.status} · ${log.proxy.durationMs}ms`, color: statusColor(log.proxy.status) },
           { text: `Proxy error: ${log.proxy.error}`, color: log.proxy.error === "-" ? "gray" : "red" },
-          { text: "Proxy body", color: "gray" },
+          { text: "Proxy body preview", color: "gray" },
           ...blockLines(formatStructuredText(log.proxy.requestBody), log.proxy.requestBody ? "#aab3cf" : "gray"),
         ]
       : [{ text: "No upstream proxy for this request", color: "gray" }]),
@@ -204,6 +217,7 @@ function formatStructuredText(value?: string) {
 }
 
 function statusColor(status: number) {
+  if (status <= 0) return "gray"
   if (status >= 500) return "red"
   if (status >= 400) return "yellow"
   return "green"

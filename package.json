@@ -1,6 +1,6 @@
 {
   "name": "codex2claudecode",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "author": "alvin0 <chaulamdinhai@gmail.com>",
   "license": "MIT",
   "engines": {
@@ -39,6 +39,7 @@
     "test:live": "CODEX_AUTH_FILE=auth-codex.json bun test test/live.test.ts"
   },
   "dependencies": {
+    "gpt-tokenizer": "^3.4.0",
     "ink": "^7.0.1",
     "react": "^19.2.5",
     "react-devtools-core": "^7.0.1"

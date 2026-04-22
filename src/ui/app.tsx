@@ -7,6 +7,7 @@ import { CodexStandaloneClient } from "../client"
 import { connectAccount, connectAccountFromCodexAuth, type ConnectAccountDraft } from "../connect-account"
 import { packageInfo } from "../package-info"
 import { resolveAuthFile } from "../paths"
+import { clearRequestLogs, MAX_REQUEST_LOG_ENTRIES, readRecentRequestLogs } from "../request-logs"
 import { startRuntime } from "../runtime"
 import type { AuthFileData, RequestLogEntry } from "../types"
 import { authDataToAccounts, selectedAccountIndex } from "./accounts"
@@ -65,6 +66,7 @@ export function CodexCodeApp(props: { port?: number }) {
   const [logsDetailOpen, setLogsDetailOpen] = useState(false)
   const [logsDetailScroll, setLogsDetailScroll] = useState(0)
   const [logsCopyStatus, setLogsCopyStatus] = useState<{ type: "success" | "error"; message: string }>()
+  const [logsClearConfirm, setLogsClearConfirm] = useState(false)
   const [claudeEnvDraft, setClaudeEnvDraft] = useState<ClaudeEnvironmentDraft>(() => defaultClaudeEnvironment())
   const [claudeEnvIndex, setClaudeEnvIndex] = useState(0)
   const [claudeEnvScopeIndex, setClaudeEnvScopeIndex] = useState(0)
@@ -115,6 +117,7 @@ export function CodexCodeApp(props: { port?: number }) {
     if (!account || loadError) return
     let active = true
     let server: ReturnType<typeof Bun.serve> | undefined
+    setRequestLogs([])
     setRuntime({ status: "starting" })
     startRuntime({
       authFile,
@@ -123,8 +126,11 @@ export function CodexCodeApp(props: { port?: number }) {
       port,
       logBody: process.env.LOG_BODY !== "0",
       quiet: true,
+      onRequestLogStart: (entry) => {
+        setRequestLogs((logs) => upsertRequestLog(logs, entry))
+      },
       onRequestLog: (entry) => {
-        setRequestLogs((logs) => [...logs.slice(-199), entry])
+        setRequestLogs((logs) => upsertRequestLog(logs, entry))
       },
     })
       .then((nextServer) => {
@@ -144,6 +150,24 @@ export function CodexCodeApp(props: { port?: number }) {
       server?.stop(true)
     }
   }, [account?.key, authFile, authRevision, hostname, loadError, port])
+
+  useEffect(() => {
+    if (mode !== "logs") return
+    let active = true
+    void readRecentRequestLogs(authFile)
+      .then((logs) => {
+        if (!active) return
+        setRequestLogs((currentLogs) => {
+          const merged = mergeRequestLogs(logs, currentLogs)
+          setLogsSelected(Math.max(0, merged.length - 1))
+          return merged
+        })
+      })
+      .catch(() => {})
+    return () => {
+      active = false
+    }
+  }, [authFile, mode, authRevision, selected])
 
   useEffect(() => {
     if (!account || loadError) return
@@ -185,6 +209,33 @@ export function CodexCodeApp(props: { port?: number }) {
       return
     }
     if (mode === "logs") {
+      if (logsClearConfirm) {
+        if (input.toLowerCase() === "y") {
+          void clearRequestLogs(authFile)
+            .then(() => {
+              setRequestLogs([])
+              setLogsSelected(0)
+              setLogsDetailOpen(false)
+              setLogsDetailScroll(0)
+              setLogsCopyStatus(undefined)
+              setLogsClearConfirm(false)
+              setInputMessage("Cleared request logs")
+            })
+            .catch((error) => {
+              const message = `Clear request logs failed: ${error instanceof Error ? error.message : String(error)}`
+              setLogsCopyStatus({ type: "error", message })
+              setLogsClearConfirm(false)
+              setInputMessage(message)
+            })
+          return
+        }
+        if (key.escape || input.toLowerCase() === "n") {
+          setLogsClearConfirm(false)
+          setInputMessage("Clear request logs cancelled")
+          return
+        }
+        return
+      }
       if (logsDetailOpen && input.toLowerCase() === "c") {
         const log = requestLogs[logsSelected]
         if (!log) return
@@ -210,7 +261,15 @@ export function CodexCodeApp(props: { port?: number }) {
             const message = `Clipboard copy failed: ${error instanceof Error ? error.message : String(error)}`
             setLogsCopyStatus({ type: "error", message })
             setInputMessage(message)
-          })
+        })
+        return
+      }
+      if (input.toLowerCase() === "x") {
+        setLogsDetailOpen(false)
+        setLogsDetailScroll(0)
+        setLogsCopyStatus(undefined)
+        setLogsClearConfirm(true)
+        setInputMessage("Confirm clear request logs")
         return
       }
     }
@@ -241,6 +300,11 @@ export function CodexCodeApp(props: { port?: number }) {
         return
       }
       if (mode === "logs") {
+        if (logsClearConfirm) {
+          setLogsClearConfirm(false)
+          setInputMessage("Clear request logs cancelled")
+          return
+        }
         if (logsDetailOpen) {
           setLogsDetailOpen(false)
           setLogsDetailScroll(0)
@@ -252,6 +316,7 @@ export function CodexCodeApp(props: { port?: number }) {
         setInputValue("")
         setCommandIndex(0)
         setLogsCopyStatus(undefined)
+        setLogsClearConfirm(false)
         setInputMessage("Closed request logs")
         return
       }
@@ -365,10 +430,10 @@ export function CodexCodeApp(props: { port?: number }) {
           return
         }
         if (command.name === "/logs") {
-          setLogsSelected(Math.max(0, requestLogs.length - 1))
           setLogsDetailOpen(false)
           setLogsDetailScroll(0)
           setLogsCopyStatus(undefined)
+          setLogsClearConfirm(false)
           setMode("logs")
           setInputValue("")
           setCommandIndex(0)
@@ -439,10 +504,12 @@ export function CodexCodeApp(props: { port?: number }) {
       if (logsDetailOpen) {
         if (key.upArrow) {
           setLogsCopyStatus(undefined)
+          setLogsClearConfirm(false)
           setLogsDetailScroll((value) => Math.max(0, value - 1))
         }
         if (key.downArrow) {
           setLogsCopyStatus(undefined)
+          setLogsClearConfirm(false)
           setLogsDetailScroll((value) => value + 1)
         }
         return
@@ -451,12 +518,14 @@ export function CodexCodeApp(props: { port?: number }) {
         setLogsDetailOpen(false)
         setLogsDetailScroll(0)
         setLogsCopyStatus(undefined)
+        setLogsClearConfirm(false)
         setLogsSelected((value) => Math.max(0, value - 1))
       }
       if (key.downArrow) {
         setLogsDetailOpen(false)
         setLogsDetailScroll(0)
         setLogsCopyStatus(undefined)
+        setLogsClearConfirm(false)
         setLogsSelected((value) => Math.min(Math.max(0, requestLogs.length - 1), value + 1))
       }
       return
@@ -552,6 +621,7 @@ export function CodexCodeApp(props: { port?: number }) {
             detailOpen={logsDetailOpen}
             detailScroll={logsDetailScroll}
             copyStatus={logsCopyStatus}
+            clearConfirm={logsClearConfirm}
           />
         </>
       )}
@@ -601,4 +671,20 @@ function updateClaudeEnvDraft(draft: ClaudeEnvironmentDraft, index: number, upda
 
 function baseUrl(hostname: string, port: number) {
   return `http://${hostname}:${port}`
+}
+
+function mergeRequestLogs(storedLogs: RequestLogEntry[], currentLogs: RequestLogEntry[]) {
+  let merged = storedLogs
+  for (const log of currentLogs) {
+    if (log.state !== "pending" || merged.some((storedLog) => storedLog.id === log.id)) continue
+    merged = upsertRequestLog(merged, log)
+  }
+  return merged
+}
+
+function upsertRequestLog(logs: RequestLogEntry[], entry: RequestLogEntry) {
+  const next = logs.filter((log) => log.id !== entry.id)
+  next.push(entry)
+  next.sort((left, right) => left.at.localeCompare(right.at))
+  return next.slice(-MAX_REQUEST_LOG_ENTRIES)
 }

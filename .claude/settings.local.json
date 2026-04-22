@@ -3,7 +3,12 @@
     "allow": [
       "WebSearch",
       "WebFetch(domain:platform.openai.com)",
-      "Bash(bun test *)"
+      "Bash(bun test *)",
+      "Skill(claude-api)",
+      "Skill(claude-api:*)",
+      "mcp__chrome-devtools__list_pages",
+      "mcp__chrome-devtools__list_console_messages",
+      "mcp__chrome-devtools__new_page"
     ]
   }
 }

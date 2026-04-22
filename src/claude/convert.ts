@@ -1,8 +1,11 @@
+import { countTokens, encodeChat } from "gpt-tokenizer"
+
 import type { ClaudeMessagesRequest, JsonObject } from "../types"
 
+import { claudeToolChoiceToResponsesToolChoice, resolveClaudeTools } from "./server-tools"
+
 export function claudeToResponsesBody(body: ClaudeMessagesRequest): JsonObject {
-  const tools = body.tools?.length ? claudeToolsToResponsesTools(body.tools) : undefined
-  const hasWebTool = tools?.some((tool) => tool.type === "web_search")
+  const resolvedTools = resolveClaudeTools(body)
   const textFormat = claudeOutputFormatToResponsesTextFormat(body.output_config?.format)
 
   return {
@@ -10,7 +13,7 @@ export function claudeToResponsesBody(body: ClaudeMessagesRequest): JsonObject {
     ...(body.output_config?.effort && { reasoning_effort: body.output_config.effort }),
     instructions: [
       claudeSystemToText(body.system) || "You are a helpful assistant.",
-      hasWebTool
+      resolvedTools.hasWebTool
         ? "When web search is available and the user asks for current or recent information, use web search internally and answer directly with the found information. Do not respond that you are going to search."
         : undefined,
     ]
@@ -20,9 +23,9 @@ export function claudeToResponsesBody(body: ClaudeMessagesRequest): JsonObject {
     store: false,
     stream: true,
     ...(textFormat && { text: { format: textFormat } }),
-    ...(tools && { tools }),
-    ...(hasWebTool && { include: ["web_search_call.action.sources"] }),
-    ...(body.tool_choice && { tool_choice: claudeToolChoiceToResponsesToolChoice(body.tool_choice) }),
+    ...(resolvedTools.tools && { tools: resolvedTools.tools }),
+    ...(resolvedTools.include && { include: resolvedTools.include }),
+    ...(body.tool_choice && { tool_choice: claudeToolChoiceToResponsesToolChoice(body.tool_choice, resolvedTools) }),
   }
 }
 
@@ -42,25 +45,13 @@ function claudeMessageToResponsesInput(message: ClaudeMessagesRequest["messages"
   ]
 }
 
-function claudeToolToResponsesTool(tool: NonNullable<ClaudeMessagesRequest["tools"]>[number]) {
-  if (isClaudeWebTool(tool)) {
-    return {
-      type: "web_search",
-      ...(tool.allowed_domains?.length && { filters: { allowed_domains: tool.allowed_domains } }),
-      ...(tool.user_location && { user_location: claudeUserLocationToResponsesUserLocation(tool.user_location) }),
-    }
-  }
-
-  return {
-    type: "function",
-    name: tool.name,
-    description: tool.description,
-    parameters: tool.input_schema ?? { type: "object", properties: {} },
-    strict: tool.strict ?? false,
-  }
-}
-
-function claudeOutputFormatToResponsesTextFormat(format: ClaudeMessagesRequest["output_config"] extends { format?: infer T } ? T : never) {
+function claudeOutputFormatToResponsesTextFormat(
+  format: ClaudeMessagesRequest["output_config"] extends infer T
+    ? T extends { format?: unknown }
+      ? T["format"]
+      : never
+    : never,
+) {
   if (!format || format.type !== "json_schema" || !format.schema) return
   return {
     type: "json_schema",
@@ -83,62 +74,22 @@ function sanitizeSchemaName(value: string) {
   return sanitized || "structured_output"
 }
 
-function isClaudeWebTool(tool: Pick<NonNullable<ClaudeMessagesRequest["tools"]>[number], "name" | "type">) {
-  return [tool.name, tool.type].some((value) => typeof value === "string" && /^web_(search|fetch)(?:_\d+)?$/.test(value))
-}
 
-function claudeUserLocationToResponsesUserLocation(userLocation: JsonObject) {
-  return {
-    type: "approximate",
-    approximate: Object.fromEntries(
-      ["city", "region", "country", "timezone"].flatMap((key) =>
-        typeof userLocation[key] === "string" ? [[key, userLocation[key]] as const] : [],
-      ),
-    ),
-  }
-}
-
-function claudeToolsToResponsesTools(tools: NonNullable<ClaudeMessagesRequest["tools"]>) {
-  return tools
-    .map((tool) => claudeToolToResponsesTool(tool))
-    .filter(
-      (tool, index, mapped) =>
-        tool.type !== "web_search" || mapped.findIndex((item) => item.type === "web_search") === index,
-    )
-}
-
-function claudeToolChoiceToResponsesToolChoice(toolChoice: NonNullable<ClaudeMessagesRequest["tool_choice"]>) {
-  if (toolChoice.type === "any") return "required"
-  if (toolChoice.type === "tool" && typeof toolChoice.name === "string" && /^web_(search|fetch)(?:_\d+)?$/.test(toolChoice.name)) {
-    return { type: "web_search" }
-  }
-  if (toolChoice.type === "tool" && toolChoice.name) return { type: "function", name: toolChoice.name }
-  return "auto"
-}
-
-export function estimateClaudeInputTokens(body: ClaudeMessagesRequest) {
-  const text = [
-    claudeSystemToText(body.system),
-    ...body.messages.flatMap((message) => extractTextFromClaudeContent(message.content)),
-    ...(body.tools ?? []).flatMap((tool) => [tool.name, tool.description, JSON.stringify(tool.input_schema ?? {})]),
+export function countClaudeInputTokens(body: ClaudeMessagesRequest) {
+  const chat = claudeToTokenizerChat(body)
+  const tokenizerModel = resolveTokenizerModel(body.model)
+  const extraText = [
+    serializeSupplementalInput("tools", body.tools),
+    serializeSupplementalInput("mcp_servers", body.mcp_servers),
+    serializeSupplementalInput("output_format", body.output_config?.format),
   ]
-    .filter((item) => typeof item === "string")
-    .join("\n")
+    .filter((item) => item !== undefined)
+    .join("\n\n")
 
-  return Math.max(1, Math.ceil(text.length / 4))
-}
+  const chatTokens = countClaudeChatTokens(chat, tokenizerModel)
+  const extraTokens = extraText ? countTokens(extraText) : 0
 
-function extractTextFromClaudeContent(content: unknown): string[] {
-  if (typeof content === "string") return [content]
-  if (!Array.isArray(content)) return [String(content)]
-  return content.flatMap((part) => {
-    if (typeof part === "string") return [part]
-    if (!part || typeof part !== "object") return []
-    const item = part as { type?: unknown; text?: unknown; content?: unknown }
-    if (item.type === "text" && typeof item.text === "string") return [item.text]
-    if (item.type === "tool_result") return extractTextFromClaudeContent(item.content)
-    return []
-  })
+  return Math.max(1, chatTokens + extraTokens)
 }
 
 function claudeSystemToText(system: unknown) {
@@ -165,6 +116,168 @@ function filterClaudeSystemText(text: string) {
   if (normalized.startsWith("x-anthropic-billing-header:")) return
   if (normalized === "You are Claude Code, Anthropic's official CLI for Claude.") return
   return text
+}
+
+function claudeToTokenizerChat(body: ClaudeMessagesRequest) {
+  const messages: Array<{ role: "system" | "user" | "assistant"; content: string }> = []
+  const system = claudeSystemToText(body.system)
+  if (system) messages.push({ role: "system", content: system })
+
+  for (const message of body.messages) {
+    const content = claudeContentToTokenizerText(message.role, message.content)
+    if (!content) continue
+
+    const previous = messages.at(-1)
+    if (previous?.role === message.role) {
+      previous.content = `${previous.content}\n\n${content}`
+      continue
+    }
+
+    messages.push({ role: message.role, content })
+  }
+
+  return messages
+}
+
+function countClaudeChatTokens(
+  chat: Array<{ role: "system" | "user" | "assistant"; content: string }>,
+  model?: Parameters<typeof encodeChat>[1],
+) {
+  if (chat.length === 0) return 0
+
+  if (model) {
+    try {
+      return encodeChat(chat, model).length
+    } catch {
+      // Fall back to plain-text tokenization for unknown chat formats.
+    }
+  }
+
+  return countTokens(chat.map((message) => `${message.role}: ${message.content}`).join("\n\n"))
+}
+
+function resolveTokenizerModel(model: unknown): Parameters<typeof encodeChat>[1] {
+  if (typeof model !== "string") return
+  const normalized = model.replace(/_(none|low|medium|high|xhigh)$/, "")
+
+  if (/^gpt-5(?:\.[^-_]+)?-codex$/.test(normalized)) return "gpt-5-codex"
+  if (/^gpt-5(?:\.[^-_]+)?-mini$/.test(normalized)) return "gpt-5-mini"
+  if (/^gpt-5(?:\.[^-_]+)?-nano$/.test(normalized)) return "gpt-5-nano"
+  if (/^gpt-5(?:\.[^_]+)?$/.test(normalized)) return "gpt-5"
+  if (/^gpt-4\.1(?:-mini|-nano)?$/.test(normalized)) return normalized as Parameters<typeof encodeChat>[1]
+  if (/^gpt-4o(?:-mini)?$/.test(normalized)) return normalized as Parameters<typeof encodeChat>[1]
+  if (/^o1(?:-mini|-preview|-pro)?$/.test(normalized)) return normalized as Parameters<typeof encodeChat>[1]
+  if (/^o3(?:-mini|-pro)?$/.test(normalized)) return normalized as Parameters<typeof encodeChat>[1]
+  if (normalized === "o4-mini") return normalized
+}
+
+function claudeContentToTokenizerText(role: "user" | "assistant", content: unknown): string {
+  if (typeof content === "string") return content
+  if (!Array.isArray(content)) return stringifyUnknown(content)
+
+  return content
+    .flatMap((part) => claudeContentPartToTokenizerText(role, part))
+    .filter((part) => part.length > 0)
+    .join("\n")
+}
+
+function claudeContentPartToTokenizerText(role: "user" | "assistant", part: unknown): string[] {
+  if (typeof part === "string") return [part]
+  if (!part || typeof part !== "object") return []
+
+  const item = part as {
+    type?: unknown
+    text?: unknown
+    name?: unknown
+    id?: unknown
+    input?: unknown
+    tool_use_id?: unknown
+    server_name?: unknown
+    title?: unknown
+    content?: unknown
+    source?: {
+      type?: unknown
+      media_type?: unknown
+      data?: unknown
+      url?: unknown
+      file_id?: unknown
+      content?: unknown
+    }
+  }
+
+  if (item.type === "text" && typeof item.text === "string") return [item.text]
+
+  if (item.type === "tool_use" || item.type === "mcp_tool_use") {
+    return [
+      [
+        item.type === "mcp_tool_use" ? "mcp_tool_use" : "tool_use",
+        typeof item.name === "string" ? item.name : "unknown",
+        typeof item.server_name === "string" ? `server=${item.server_name}` : undefined,
+        typeof item.id === "string" ? `id=${item.id}` : undefined,
+        stringifyUnknown(item.input),
+      ]
+        .filter((value) => value !== undefined && value.length > 0)
+        .join(" "),
+    ]
+  }
+
+  if (item.type === "tool_result" || item.type === "mcp_tool_result") {
+    const toolResult = toolResultToText(item as { content?: unknown; is_error?: unknown })
+    return [
+      [
+        item.type === "mcp_tool_result" ? "mcp_tool_result" : "tool_result",
+        typeof item.tool_use_id === "string" ? `tool_use_id=${item.tool_use_id}` : undefined,
+        toolResult,
+      ]
+        .filter((value) => value !== undefined && value.length > 0)
+        .join("\n"),
+    ]
+  }
+
+  if (role === "user" && item.type === "image") {
+    if (item.source?.type === "url" && typeof item.source.url === "string") return [`image url=${item.source.url}`]
+    return [`image media_type=${stringifyUnknown(item.source?.media_type)}`]
+  }
+
+  if (role === "user" && item.type === "document") {
+    const title = typeof item.title === "string" ? item.title : "document"
+    if (item.source?.type === "url" && typeof item.source.url === "string") return [`document title=${title} url=${item.source.url}`]
+    if (item.source?.type === "file" && typeof item.source.file_id === "string") return [`document title=${title} file_id=${item.source.file_id}`]
+    if (item.source?.type === "text") return [`document title=${title}`, stringifyUnknown((item.source as { data?: unknown }).data)]
+    if (item.source?.type === "content") return [`document title=${title}`, ...extractDocumentSourceText(item.source.content)]
+    return [`document title=${title} media_type=${stringifyUnknown(item.source?.media_type)}`]
+  }
+
+  return [stringifyUnknown(part)]
+}
+
+function extractDocumentSourceText(content: unknown): string[] {
+  if (typeof content === "string") return [content]
+  if (!Array.isArray(content)) return [stringifyUnknown(content)]
+
+  return content.flatMap((part) => {
+    if (typeof part === "string") return [part]
+    if (!part || typeof part !== "object") return []
+    const item = part as { type?: unknown; text?: unknown }
+    if (item.type === "text" && typeof item.text === "string") return [item.text]
+    return [stringifyUnknown(part)]
+  })
+}
+
+function serializeSupplementalInput(label: string, value: unknown) {
+  if (value === undefined) return
+  if (Array.isArray(value) && value.length === 0) return
+  return `${label}: ${stringifyUnknown(value)}`
+}
+
+function stringifyUnknown(value: unknown) {
+  if (typeof value === "string") return value
+  if (value === undefined) return ""
+  try {
+    return JSON.stringify(value) ?? String(value)
+  } catch {
+    return String(value)
+  }
 }
 
 function claudeContentToResponsesBlocks(role: "user" | "assistant", content: unknown) {
@@ -200,6 +313,8 @@ function claudeContentToResponsesBlocks(role: "user" | "assistant", content: unk
           media_type?: unknown
           data?: unknown
           url?: unknown
+          file_id?: unknown
+          content?: unknown
         }
       }
 
@@ -210,25 +325,28 @@ function claudeContentToResponsesBlocks(role: "user" | "assistant", content: unk
         }
       }
 
-      if (item.type === "tool_use" && typeof (item as { id?: unknown }).id === "string") {
+      if ((item.type === "tool_use" || item.type === "mcp_tool_use") && typeof (item as { id?: unknown }).id === "string") {
+        const toolUseId = (item as { id: string }).id
         return {
           kind: "item" as const,
           value: {
-            type: "function_call",
-            call_id: (item as { id: string }).id,
+            type: item.type === "mcp_tool_use" ? "mcp_call" : "function_call",
+            id: item.type === "mcp_tool_use" ? toolUseId : claudeFunctionCallItemId(toolUseId),
+            call_id: toolUseId,
             name: (item as { name?: unknown }).name ?? "unknown",
+            server_label: item.type === "mcp_tool_use" ? (item as { server_name?: unknown }).server_name ?? "unknown" : undefined,
             arguments: JSON.stringify((item as { input?: unknown }).input ?? {}),
           },
         }
       }
 
-      if (item.type === "tool_result" && typeof (item as { tool_use_id?: unknown }).tool_use_id === "string") {
+      if ((item.type === "tool_result" || item.type === "mcp_tool_result") && typeof (item as { tool_use_id?: unknown }).tool_use_id === "string") {
         return {
           kind: "item" as const,
           value: {
-            type: "function_call_output",
+            type: item.type === "mcp_tool_result" ? "mcp_call_output" : "function_call_output",
             call_id: (item as { tool_use_id: string }).tool_use_id,
-            output: toolResultToText(item),
+            output: toolResultToText(item as { content?: unknown; is_error?: unknown }),
           },
         }
       }
@@ -253,20 +371,90 @@ function claudeContentToResponsesBlocks(role: "user" | "assistant", content: unk
         }
       }
 
-      if (role === "user" && item.type === "document" && item.source?.type === "base64") {
-        return {
-          kind: "content" as const,
-          value: {
-            type: "input_file",
-            filename: typeof item.title === "string" ? item.title : "document.pdf",
-            file_data: `data:${item.source.media_type};base64,${item.source.data}`,
-          },
-        }
-      }
+      if (role === "user" && item.type === "document") return claudeDocumentToResponsesBlock(item)
 
       return
     })
     .filter((part) => part !== undefined)
+}
+
+function claudeDocumentToResponsesBlock(item: {
+  title?: unknown
+  source?: {
+    type?: unknown
+    media_type?: unknown
+    data?: unknown
+    url?: unknown
+    file_id?: unknown
+    content?: unknown
+  }
+}) {
+  const title = typeof item.title === "string" && item.title.trim() ? item.title.trim() : "document.pdf"
+  const source = item.source
+  if (!source || typeof source !== "object") throw new Error("Claude document source is required")
+
+  if (source.type === "base64" && typeof source.data === "string") {
+    const data = source.data.trim()
+    if (!data) throw new Error("Claude document base64 source requires data")
+    const mediaType = typeof source.media_type === "string" && source.media_type.trim() ? source.media_type.trim() : "application/pdf"
+    return {
+      kind: "content" as const,
+      value: {
+        type: "input_file",
+        filename: title,
+        file_data: data.startsWith("data:") ? data : `data:${mediaType};base64,${data}`,
+      },
+    }
+  }
+
+  if (source.type === "url") {
+    if (typeof source.url !== "string" || !source.url.trim()) throw new Error("Claude document URL source requires url")
+    return {
+      kind: "content" as const,
+      value: {
+        type: "input_file",
+        file_url: source.url.trim(),
+      },
+    }
+  }
+
+  if (source.type === "file") {
+    if (typeof source.file_id !== "string" || !source.file_id.trim()) throw new Error("Claude document file source requires file_id")
+    const fileId = source.file_id.trim()
+    if (!fileId.startsWith("file-")) {
+      throw new Error("Claude Files API document source cannot be proxied unless file_id is an OpenAI file id")
+    }
+    return {
+      kind: "content" as const,
+      value: {
+        type: "input_file",
+        file_id: fileId,
+      },
+    }
+  }
+
+  if (source.type === "text" && typeof source.data === "string") {
+    return {
+      kind: "content" as const,
+      value: { type: "input_text", text: `Document: ${title}\n\n${source.data}` },
+    }
+  }
+
+  if (source.type === "content") {
+    const text = extractDocumentSourceText(source.content).join("\n")
+    if (!text) throw new Error("Claude document content source requires content")
+    return {
+      kind: "content" as const,
+      value: { type: "input_text", text: `Document: ${title}\n\n${text}` },
+    }
+  }
+
+  throw new Error(`Unsupported Claude document source type: ${stringifyUnknown(source.type) || "missing"}`)
+}
+
+function claudeFunctionCallItemId(id: string) {
+  if (id.startsWith("fc")) return id
+  return `fc_${id.replace(/[^A-Za-z0-9]/g, "")}`
 }
 
 function toolResultToText(item: { content?: unknown; is_error?: unknown }) {

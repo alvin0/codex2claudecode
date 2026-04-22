@@ -1,8 +1,10 @@
 import { CodexStandaloneClient } from "./client"
 import { LOG_BODY_PREVIEW_LIMIT } from "./constants"
 import { handleClaudeCountTokens, handleClaudeMessages } from "./claude"
+import { claudeErrorResponse } from "./claude/errors"
 import { cors, responseHeaders } from "./http"
 import { resolveAuthFile } from "./paths"
+import { appendRequestLog, ensureRequestLogFile, requestLogFilePath } from "./request-logs"
 import { normalizeReasoningBody, normalizeRequestBody } from "./reasoning"
 import type { HealthStatus, JsonObject, RequestLogEntry, RequestProxyLog, RuntimeOptions } from "./types"
 
@@ -15,8 +17,12 @@ export async function startRuntime(options?: RuntimeOptions) {
   const healthTimeoutMs = options?.healthTimeoutMs ?? Number(process.env.HEALTH_TIMEOUT_MS || 5000)
   const logBody = options?.logBody ?? process.env.LOG_BODY !== "0"
   const quiet = options?.quiet ?? false
+  const onRequestLogStart = options?.onRequestLogStart
   const onRequestLog = options?.onRequestLog
   const client = await CodexStandaloneClient.fromAuthFile(authFile, { authAccount })
+  await ensureRequestLogFile(authFile).catch((error) => {
+    if (!quiet) warnRequestLogError(authFile, error)
+  })
   const health = createHealthMonitor(client, healthIntervalMs, healthTimeoutMs, quiet)
 
   health.start()
@@ -32,31 +38,73 @@ export async function startRuntime(options?: RuntimeOptions) {
         const started = Date.now()
         const url = new URL(request.url)
         const requestBody = logBody ? await readLoggedBody(request) : undefined
-        const bodyPreview = requestBody ? previewText(requestBody) : undefined
         const headersPreview = interestingHeaders(request.headers)
 
-        if (!quiet) logRequestStart(requestId, request, url, bodyPreview)
+        if (!quiet) logRequestStart(requestId, request, url, requestBody)
 
-        async function requestLog(response: Response, durationMs: number, error?: string, proxy?: RequestProxyLog): Promise<RequestLogEntry> {
+        async function requestLog(
+          response: Response,
+          durationMs: number,
+          error?: string,
+          proxy?: RequestProxyLog,
+          responseBody?: string,
+        ): Promise<RequestLogEntry> {
           return {
             id: requestId,
+            state: "complete",
             at: new Date().toISOString(),
             method: request.method,
             path: `${url.pathname}${url.search}`,
             status: response.status,
             durationMs,
-            error: error ?? await responseErrorMessage(response),
+            error: error ?? (response.status >= 400 && responseBody !== undefined ? responseErrorText(responseBody) : await responseErrorMessage(response)),
             requestHeaders: headersPreview,
             requestBody,
+            responseBody,
             proxy,
           }
         }
 
+        function pendingRequestLog(): RequestLogEntry {
+          return {
+            id: requestId,
+            state: "pending",
+            at: new Date().toISOString(),
+            method: request.method,
+            path: `${url.pathname}${url.search}`,
+            status: 0,
+            durationMs: 0,
+            error: "-",
+            requestHeaders: headersPreview,
+            requestBody,
+          }
+        }
+
+        async function emitRequestLog(response: Response, durationMs: number, error?: string, proxy?: RequestProxyLog, responseBody?: string) {
+          const entry = await requestLog(response, durationMs, error, proxy, responseBody)
+          try {
+            await appendRequestLog(authFile, entry)
+          } catch (error) {
+            if (!quiet) warnRequestLogError(authFile, error)
+            // Request logging must not change runtime responses.
+          }
+          onRequestLog?.(entry)
+        }
+
+        onRequestLogStart?.(pendingRequestLog())
+
         async function finish(response: Response, proxy?: RequestProxyLog) {
-          const durationMs = Date.now() - started
-          if (!quiet) logResponseEnd(requestId, request, url, response, durationMs)
-          onRequestLog?.(await requestLog(response, durationMs, undefined, proxy))
-          return response
+          if (!logBody || !response.body) {
+            const durationMs = Date.now() - started
+            if (!quiet) logResponseEnd(requestId, request, url, response, durationMs)
+            await emitRequestLog(response, durationMs, undefined, proxy)
+            return response
+          }
+          return responseWithLoggedBody(response, async (responseBody, responseError) => {
+            const durationMs = Date.now() - started
+            if (!quiet) logResponseEnd(requestId, request, url, response, durationMs)
+            await emitRequestLog(response, durationMs, responseError, proxy, responseBody)
+          })
         }
 
         async function fail(error: unknown, proxy?: RequestProxyLog) {
@@ -72,7 +120,16 @@ export async function startRuntime(options?: RuntimeOptions) {
               { status: 500 },
             ),
           )
-          onRequestLog?.(await requestLog(response, durationMs, error instanceof Error ? error.message : String(error), proxy))
+          await emitRequestLog(response, durationMs, error instanceof Error ? error.message : String(error), proxy)
+          return response
+        }
+
+        async function failClaude(error: unknown, proxy?: RequestProxyLog) {
+          const durationMs = Date.now() - started
+          const message = errorMessage(error)
+          if (!quiet) logRequestError(requestId, request, url, error, durationMs)
+          const response = cors(claudeErrorResponse(message, 500))
+          await emitRequestLog(response, durationMs, message, proxy)
           return response
         }
 
@@ -114,22 +171,30 @@ export async function startRuntime(options?: RuntimeOptions) {
         }
 
         if (request.method === "POST" && url.pathname === "/v1/messages/count_tokens") {
-          return finish(cors(await handleClaudeCountTokens(request)))
+          try {
+            return finish(cors(await handleClaudeCountTokens(request)))
+          } catch (error) {
+            return failClaude(error)
+          }
         }
 
         if (request.method === "POST" && (url.pathname === "/v1/messages" || url.pathname === "/v1/message")) {
           let proxy: RequestProxyLog | undefined
-          return finish(
-            cors(
-              await handleClaudeMessages(client, request, requestId, {
-                logBody: logBody && !quiet,
-                onProxy: (entry) => {
-                  proxy = entry
-                },
-              }),
-            ),
-            proxy,
-          )
+          try {
+            return finish(
+              cors(
+                await handleClaudeMessages(client, request, requestId, {
+                  logBody: logBody && !quiet,
+                  onProxy: (entry) => {
+                    proxy = entry
+                  },
+                }),
+              ),
+              proxy,
+            )
+          } catch (error) {
+            return failClaude(error, proxy)
+          }
         }
 
         if (request.method !== "POST") {
@@ -144,7 +209,7 @@ export async function startRuntime(options?: RuntimeOptions) {
           const body = normalizeRequestBody(url.pathname, (await request.json()) as JsonObject)
           if (logBody && !quiet) logUpstreamBody(requestId, body)
           const proxyStarted = Date.now()
-          const proxyRequestBody = stringifyNormalizedBody(body)
+          const proxyRequestBody = previewText(stringifyNormalizedBody(body))
           const response = await client.proxy(body, {
             headers: request.headers,
             signal: request.signal,
@@ -169,10 +234,7 @@ export async function startRuntime(options?: RuntimeOptions) {
                 headers: responseHeaders(response.headers),
               }),
             )
-            const durationMs = Date.now() - started
-            if (!quiet) logResponseEnd(requestId, request, url, errorResponse, durationMs)
-            onRequestLog?.(await requestLog(errorResponse, durationMs, text.slice(0, LOG_BODY_PREVIEW_LIMIT), proxy))
-            return errorResponse
+            return finish(errorResponse, proxy)
           }
           const proxy: RequestProxyLog = {
             label: "Codex responses",
@@ -258,10 +320,10 @@ async function readLoggedBody(request: Request) {
   if (request.method === "GET" || request.method === "HEAD" || request.method === "OPTIONS") return
   try {
     const text = await request.clone().text()
-    return redactSecrets(text)
+    return previewText(redactSecrets(text))
     /* node:coverage ignore next 3 */
   } catch (error) {
-    return `<failed to read body: ${error instanceof Error ? error.message : String(error)}>`
+    return previewText(`<failed to read body: ${error instanceof Error ? error.message : String(error)}>`)
   }
 }
 
@@ -338,6 +400,71 @@ function stringifyNormalizedBody(body: JsonObject) {
 
 function previewText(text: string) {
   return text.slice(0, LOG_BODY_PREVIEW_LIMIT)
+}
+
+function responseWithLoggedBody(
+  response: Response,
+  onComplete: (responseBody?: string, responseError?: string) => Promise<void>,
+) {
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let preview = ""
+  let completed = false
+
+  async function complete(responseError?: string) {
+    if (completed) return
+    completed = true
+    const tail = decoder.decode()
+    if (tail) preview = appendPreview(preview, tail)
+    await onComplete(preview || undefined, responseError)
+  }
+
+  const body = new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      try {
+        const chunk = await reader.read()
+        if (chunk.done) {
+          await complete()
+          controller.close()
+          return
+        }
+        controller.enqueue(chunk.value)
+        preview = appendPreview(preview, decoder.decode(chunk.value, { stream: true }))
+      } catch (error) {
+        await complete(error instanceof Error ? error.message : String(error))
+        controller.error(error)
+      }
+    },
+    async cancel(reason) {
+      await complete(`response cancelled: ${cancelReasonText(reason)}`)
+      await reader.cancel(reason)
+    },
+  })
+
+  return new Response(body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers: response.headers,
+  })
+}
+
+function appendPreview(current: string, next: string) {
+  if (!next || current.length >= LOG_BODY_PREVIEW_LIMIT) return current
+  return `${current}${next}`.slice(0, LOG_BODY_PREVIEW_LIMIT)
+}
+
+function cancelReasonText(reason: unknown) {
+  if (reason === undefined) return "client disconnected"
+  if (reason instanceof Error) return reason.message
+  return String(reason)
+}
+
+function errorMessage(error: unknown) {
+  return error instanceof Error ? error.message : String(error)
+}
+
+function warnRequestLogError(authFile: string, error: unknown) {
+  console.warn(`Request log file unavailable at ${requestLogFilePath(authFile)}: ${errorMessage(error)}`)
 }
 
 async function proxyUpstream(fetcher: () => Promise<Response>) {

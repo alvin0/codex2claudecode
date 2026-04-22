@@ -3,7 +3,7 @@ import type { CodexStandaloneClient } from "../client"
 import { normalizeReasoningBody } from "../reasoning"
 import type { ClaudeMessagesRequest, JsonObject, RequestProxyLog } from "../types"
 
-import { claudeToResponsesBody, estimateClaudeInputTokens } from "./convert"
+import { claudeToResponsesBody, countClaudeInputTokens } from "./convert"
 import { claudeErrorResponse } from "./errors"
 import { collectClaudeMessage, claudeStreamResponse } from "./response"
 
@@ -22,15 +22,25 @@ export async function handleClaudeMessages(
 
   if (!Array.isArray(body.messages)) return claudeErrorResponse("Claude messages request requires messages", 400)
 
-  const responsesBody = claudeToResponsesBody(body)
-  const requestBody = stringifyBody(responsesBody)
+  let responsesBody: JsonObject
+  try {
+    responsesBody = claudeToResponsesBody(body)
+  } catch (error) {
+    return claudeErrorResponse(errorMessage(error), 400)
+  }
+  const requestBody = previewText(stringifyBody(responsesBody))
   if (options?.logBody) logUpstreamBody(requestId, responsesBody)
 
   const started = Date.now()
-  const response = await client.proxy(responsesBody, {
-    headers: request.headers,
-    signal: request.signal,
-  })
+  let response: Response
+  try {
+    response = await client.proxy(responsesBody, {
+      headers: request.headers,
+      signal: request.signal,
+    })
+  } catch (error) {
+    return claudeErrorResponse(errorMessage(error), 500)
+  }
   const durationMs = Date.now() - started
 
   if (!response.ok) {
@@ -73,7 +83,7 @@ export async function handleClaudeCountTokens(request: Request) {
   if (!Array.isArray(body.messages)) return claudeErrorResponse("Claude count_tokens request requires messages", 400)
 
   return Response.json({
-    input_tokens: estimateClaudeInputTokens(body),
+    input_tokens: countClaudeInputTokens(body),
   })
 }
 
@@ -89,6 +99,10 @@ function stringifyBody(body: JsonObject) {
 
 function previewText(text: string) {
   return text.slice(0, LOG_BODY_PREVIEW_LIMIT)
+}
+
+function errorMessage(error: unknown) {
+  return error instanceof Error ? error.message : String(error)
 }
 
 function redactSecrets(text: string) {
