@@ -4,7 +4,13 @@ import { runUi } from "./ui"
 
 if (import.meta.main) {
   const options = parseCliOptions()
-  Promise.resolve(process.env.CODEX_RUN_EXAMPLE === "1" ? runExample() : process.env.CODEX_NO_UI === "1" ? startRuntime({ port: options.port }) : runUi(options)).catch((error) => {
+  Promise.resolve(
+    process.env.CODEX_RUN_EXAMPLE === "1"
+      ? runExample()
+      : process.env.CODEX_NO_UI === "1"
+        ? startRuntime({ port: options.port, provider: options.provider })
+        : runUi(options),
+  ).catch((error) => {
     console.error(error)
     process.exit(1)
   })

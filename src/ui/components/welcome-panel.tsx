@@ -1,12 +1,16 @@
 import { Box, Text } from "ink";
 
-export function WelcomePanel(props: { hostname: string; port: number }) {
+import type { ProviderName } from "../../llm-connect/factory"
+
+export function WelcomePanel(props: { hostname: string; port: number; provider?: ProviderName }) {
+  const providerLabel = props.provider === "kiro" ? "Kiro" : "Codex"
   return (
     <Box width={54} flexDirection="column" alignItems="center" justifyContent="center" paddingX={2}>
       <Text bold>Codex2ClaudeCode</Text>
       <Box marginTop={2} width={50} flexDirection="column">
         <Text bold color="#a58a86">Connect</Text>
         <InfoLine label="Base URL" value={`http://${props.hostname}:${props.port}`} />
+        <InfoLine label="Provider" value={providerLabel} />
       </Box>
       <Box marginTop={1} width={50} flexDirection="column">
         <Text bold color="#a58a86">Supported endpoints</Text>

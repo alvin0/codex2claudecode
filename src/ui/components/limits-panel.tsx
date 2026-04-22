@@ -30,14 +30,14 @@ export function LimitsPanel(props: { limitGroups: LimitGroupView[]; loading?: bo
 
 function LimitRow(props: { label: string; used: number; left: string; reset: string }) {
   return (
-    <Box>
-      <Box width={24}>
-        <Text color="gray">{props.label}</Text>
+    <Box flexDirection="column" marginTop={1}>
+      <Box>
+        <Text color="#aab3cf">{props.label} </Text>
+        <Text bold color="#d97757">{props.used}%</Text>
+        <Text color="gray"> — </Text>
+        <Text color="#aab3cf">{props.left}</Text>
       </Box>
-      <Box width={11}>
-        <Text bold>{props.left}</Text>
-      </Box>
-      <Text color="gray">({props.reset})</Text>
+      <Text color="gray" dimColor>{props.reset}</Text>
     </Box>
   )
 }

@@ -3,10 +3,10 @@ import { Box, Text, useStdout } from "ink"
 
 import { filterCommands } from "../commands"
 
-export function CommandInput(props: { value: string; message?: string; selected: number }) {
+export function CommandInput(props: { value: string; message?: string; selected: number; provider?: "codex" | "kiro" }) {
   const { stdout } = useStdout()
   const isCommand = props.value.startsWith("/")
-  const commands = isCommand ? filterCommands(props.value) : []
+  const commands = isCommand ? filterCommands(props.value, props.provider) : []
   const commandWidth = Math.max(22, ...commands.map((command) => command.name.length + 4))
   const descriptionWidth = Math.max(20, (stdout.columns ?? 100) - commandWidth - 6)
 
@@ -19,15 +19,15 @@ export function CommandInput(props: { value: string; message?: string; selected:
       </Box>
       {isCommand && (
         <Box flexDirection="column" paddingX={1}>
-          {commands.map((command) => (
-            <Box key={command.name}>
+          {commands.map((command, index) => (
+            <Box key={`${command.name}-${index}`}>
               <Box width={commandWidth}>
-                <Text color={commands[props.selected]?.name === command.name ? "#d97757" : "#aab3cf"}>
-                  {commands[props.selected]?.name === command.name ? "› " : "  "}
+                <Text color={index === props.selected ? "#d97757" : "#aab3cf"}>
+                  {index === props.selected ? "› " : "  "}
                   {command.name}
                 </Text>
               </Box>
-              <Text color={commands[props.selected]?.name === command.name ? "white" : "gray"}>{truncate(command.description, descriptionWidth)}</Text>
+              <Text color={index === props.selected ? "white" : "gray"}>{truncate(command.description, descriptionWidth)}</Text>
             </Box>
           ))}
           {!commands.length && <Text color="gray">No matching commands</Text>}

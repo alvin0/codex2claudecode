@@ -1,30 +1,39 @@
-import { CodexStandaloneClient } from "./client"
 import { LOG_BODY_PREVIEW_LIMIT } from "./constants"
-import { handleClaudeCountTokens, handleClaudeMessages } from "./claude"
 import { handleListModels, handleGetModel } from "./models"
 import { claudeErrorResponse } from "./claude/errors"
 import { cors, responseHeaders } from "./http"
 import { resolveAuthFile } from "./paths"
 import { appendRequestLog, ensureRequestLogFile, requestLogFilePath } from "./request-logs"
 import { normalizeReasoningBody, normalizeRequestBody } from "./reasoning"
-import type { HealthStatus, JsonObject, RequestLogEntry, RequestProxyLog, RuntimeOptions } from "./types"
+import { createProvider, CodexProvider, KiroProvider } from "./llm-connect"
+import type { LlmProvider, HealthResult } from "./llm-connect"
+import type { ProviderName } from "./llm-connect/factory"
+import type { JsonObject, RequestLogEntry, RequestProxyLog, RuntimeOptions } from "./types"
 
 export async function startRuntime(options?: RuntimeOptions) {
   const authFile = resolveAuthFile(options?.authFile ?? process.env.CODEX_AUTH_FILE)
   const authAccount = options?.authAccount ?? process.env.CODEX_AUTH_ACCOUNT
   const hostname = options?.hostname ?? process.env.HOST ?? "127.0.0.1"
   const preferredPort = options?.port ?? Number(process.env.PORT || 8787)
+  const providerName: ProviderName = options?.provider ?? (process.env.LLM_PROVIDER as ProviderName) ?? "codex"
   const healthIntervalMs = options?.healthIntervalMs ?? Number(process.env.HEALTH_INTERVAL_MS || 30_000)
   const healthTimeoutMs = options?.healthTimeoutMs ?? Number(process.env.HEALTH_TIMEOUT_MS || 5000)
   const logBody = options?.logBody ?? process.env.LOG_BODY !== "0"
   const quiet = options?.quiet ?? false
   const onRequestLogStart = options?.onRequestLogStart
   const onRequestLog = options?.onRequestLog
-  const client = await CodexStandaloneClient.fromAuthFile(authFile, { authAccount })
+
+  const provider = await createProvider({
+    provider: providerName,
+    authFile,
+    authAccount,
+    kiroAccount: options?.kiroAccount,
+  })
+
   await ensureRequestLogFile(authFile).catch((error) => {
     if (!quiet) warnRequestLogError(authFile, error)
   })
-  const health = createHealthMonitor(client, healthIntervalMs, healthTimeoutMs, quiet)
+  const health = createHealthMonitor(provider, healthIntervalMs, healthTimeoutMs, quiet)
 
   health.start()
 
@@ -86,11 +95,7 @@ export async function startRuntime(options?: RuntimeOptions) {
           try {
             await appendRequestLog(authFile, entry)
           } catch (logError) {
-            // Always warn about log write failures regardless of quiet mode so
-            // the caller's onRequestLog callback can surface the error in the UI.
             warnRequestLogError(authFile, logError)
-            // Request logging must not change runtime responses or prevent
-            // the in-memory callback from firing.
           }
           onRequestLog?.(entry)
         }
@@ -139,12 +144,14 @@ export async function startRuntime(options?: RuntimeOptions) {
 
         if (request.method === "OPTIONS") return finish(cors(new Response(null, { status: 204 })))
 
+        // ---- Root info ----
         if ((request.method === "GET" || request.method === "HEAD") && url.pathname === "/") {
           return finish(
             cors(
               Response.json({
                 message: "Codex2ClaudeCode",
                 status: "running",
+                provider: provider.name,
                 config: {
                   hostname,
                   port: server.port,
@@ -156,11 +163,12 @@ export async function startRuntime(options?: RuntimeOptions) {
                   messages: "/v1/messages",
                   count_tokens: "/v1/messages/count_tokens",
                   models: "/v1/models",
+                  ...(providerName === "kiro" ? { kiro_models: "/kiro/models" } : {}),
                   responses: "/v1/responses",
                   chat_completions: "/v1/chat/completions",
                   health: "/health",
-                  usage: "/usage",
-                  environments: "/environments",
+                  ...(providerName === "codex" ? { usage: "/usage", environments: "/environments" } : {}),
+                  ...(providerName === "kiro" ? { usage: "/usage" } : {}),
                   test_connection: "/test-connection",
                 },
               }),
@@ -168,17 +176,19 @@ export async function startRuntime(options?: RuntimeOptions) {
           )
         }
 
+        // ---- Test connection ----
         if (request.method === "GET" && url.pathname === "/test-connection") {
           try {
             const testStarted = Date.now()
-            const testHealth = await client.checkHealth(healthTimeoutMs)
+            const testHealth = await provider.checkHealth(healthTimeoutMs)
             const testDurationMs = Date.now() - testStarted
             if (testHealth.ok) {
               return finish(
                 cors(
                   Response.json({
                     status: "success",
-                    message: "Successfully connected to Codex upstream",
+                    message: `Successfully connected to ${provider.name} upstream`,
+                    provider: provider.name,
                     timestamp: new Date().toISOString(),
                     latency_ms: testDurationMs,
                     upstream: {
@@ -195,7 +205,8 @@ export async function startRuntime(options?: RuntimeOptions) {
                   {
                     status: "failed",
                     error_type: "Connection Error",
-                    message: testHealth.error ?? "Unable to reach Codex upstream",
+                    message: testHealth.error ?? `Unable to reach ${provider.name} upstream`,
+                    provider: provider.name,
                     timestamp: new Date().toISOString(),
                     latency_ms: testDurationMs,
                     suggestions: [
@@ -216,6 +227,7 @@ export async function startRuntime(options?: RuntimeOptions) {
                     status: "failed",
                     error_type: "API Error",
                     message: error instanceof Error ? error.message : String(error),
+                    provider: provider.name,
                     timestamp: new Date().toISOString(),
                     suggestions: [
                       "Check your auth credentials are valid",
@@ -230,14 +242,16 @@ export async function startRuntime(options?: RuntimeOptions) {
           }
         }
 
+        // ---- Health ----
         if ((request.method === "GET" || request.method === "HEAD") && url.pathname === "/health") {
           return finish(
             cors(
               Response.json(
                 {
                   ok: health.current.ok,
+                  provider: provider.name,
                   runtime: { ok: true },
-                  codex: health.current,
+                  upstream: health.current,
                 },
                 { status: health.current.ok ? 200 : 503 },
               ),
@@ -245,30 +259,38 @@ export async function startRuntime(options?: RuntimeOptions) {
           )
         }
 
+        // ---- Codex-specific: usage & environments (only when codex provider) ----
         if (request.method === "GET" && (url.pathname === "/usage" || url.pathname === "/wham/usage")) {
-          const proxy = await proxyRequestLog("Codex usage", "GET", "/usage", () => client.usage({ headers: request.headers, signal: request.signal }))
-          return finish(
-            cors(proxy.response),
-            proxy.entry,
-          )
+          if (provider instanceof CodexProvider) {
+            const proxy = await proxyRequestLog("Codex usage", "GET", "/usage", () => provider.raw.usage({ headers: request.headers, signal: request.signal }))
+            return finish(cors(proxy.response), proxy.entry)
+          }
+          if (provider instanceof KiroProvider) {
+            const proxy = await proxyRequestLog("Kiro usage", "GET", "/usage", async () => {
+              const data = await provider.raw.getUsageLimits()
+              return Response.json(data)
+            })
+            return finish(cors(proxy.response), proxy.entry)
+          }
+          return finish(cors(Response.json({ error: { message: `Usage endpoint not available for ${provider.name} provider` } }, { status: 404 })))
         }
 
         if (
           request.method === "GET" &&
           (url.pathname === "/environments" || url.pathname === "/wham/environments")
         ) {
-          const proxy = await proxyRequestLog("Codex environments", "GET", "/environments", () =>
-            client.environments({ headers: request.headers, signal: request.signal }),
-          )
-          return finish(
-            cors(proxy.response),
-            proxy.entry,
-          )
+          if (provider instanceof CodexProvider) {
+            const proxy = await proxyRequestLog("Codex environments", "GET", "/environments", () =>
+              provider.raw.environments({ headers: request.headers, signal: request.signal }),
+            )
+            return finish(cors(proxy.response), proxy.entry)
+          }
+          return finish(cors(Response.json({ error: { message: `Environments endpoint not available for ${provider.name} provider` } }, { status: 404 })))
         }
 
         // ---- Models API ----
         if (request.method === "GET" && url.pathname === "/v1/models") {
-          return finish(cors(await handleListModels(url)))
+          return finish(cors(await handleListModels(url, providerName)))
         }
 
         if (request.method === "GET" && url.pathname.startsWith("/v1/models/")) {
@@ -278,9 +300,23 @@ export async function startRuntime(options?: RuntimeOptions) {
           }
         }
 
+        // ---- Kiro native models (proxy to Kiro ListAvailableModels API) ----
+        if (request.method === "GET" && url.pathname === "/kiro/models") {
+          if (!(provider instanceof KiroProvider)) {
+            return finish(cors(Response.json({ error: { message: "Kiro models endpoint is only available when using the kiro provider" } }, { status: 404 })))
+          }
+          try {
+            const models = await provider.raw.listAvailableModels()
+            return finish(cors(Response.json(models)))
+          } catch (error) {
+            return finish(cors(Response.json({ error: { message: error instanceof Error ? error.message : String(error) } }, { status: 502 })))
+          }
+        }
+
+        // ---- Claude Messages API (provider-agnostic) ----
         if (request.method === "POST" && url.pathname === "/v1/messages/count_tokens") {
           try {
-            return finish(cors(await handleClaudeCountTokens(request)))
+            return finish(cors(await provider.handleCountTokens(request)))
           } catch (error) {
             return failClaude(error)
           }
@@ -291,7 +327,7 @@ export async function startRuntime(options?: RuntimeOptions) {
           try {
             return finish(
               cors(
-                await handleClaudeMessages(client, request, requestId, {
+                await provider.handleMessages(request, requestId, {
                   logBody: logBody && !quiet,
                   onProxy: (entry) => {
                     proxy = entry
@@ -313,12 +349,13 @@ export async function startRuntime(options?: RuntimeOptions) {
           return finish(cors(Response.json({ error: { message: "Not found" } }, { status: 404 })))
         }
 
+        // ---- OpenAI-shaped proxy (responses / chat completions) ----
         try {
           const body = normalizeRequestBody(url.pathname, (await request.json()) as JsonObject)
           if (logBody && !quiet) logUpstreamBody(requestId, body)
           const proxyStarted = Date.now()
           const proxyRequestBody = previewText(stringifyNormalizedBody(body))
-          const response = await client.proxy(body, {
+          const response = await provider.proxy(body, {
             headers: request.headers,
             signal: request.signal,
           })
@@ -327,9 +364,9 @@ export async function startRuntime(options?: RuntimeOptions) {
             const text = await response.text()
             if (!quiet) console.error(`[${requestId}] upstream error ${response.status}: ${text.slice(0, LOG_BODY_PREVIEW_LIMIT)}`)
             const proxy: RequestProxyLog = {
-              label: "Codex responses",
+              label: `${provider.name} responses`,
               method: "POST",
-              target: "/v1/responses",
+              target: url.pathname,
               status: response.status,
               durationMs: proxyDurationMs,
               error: redactSecrets(text).slice(0, LOG_BODY_PREVIEW_LIMIT) || "-",
@@ -345,9 +382,9 @@ export async function startRuntime(options?: RuntimeOptions) {
             return finish(errorResponse, proxy)
           }
           const proxy: RequestProxyLog = {
-            label: "Codex responses",
+            label: `${provider.name} responses`,
             method: "POST",
-            target: "/v1/responses",
+            target: url.pathname,
             status: response.status,
             durationMs: proxyDurationMs,
             error: "-",
@@ -381,25 +418,35 @@ export async function startRuntime(options?: RuntimeOptions) {
   }
 
   if (!quiet) {
-    console.log(`Codex runtime is listening on http://${server.hostname}:${server.port}`)
+    console.log(`Runtime listening on http://${server.hostname}:${server.port} [provider: ${provider.name}]`)
     console.log(`Root:             http://${server.hostname}:${server.port}/`)
     console.log(`Claude messages:  http://${server.hostname}:${server.port}/v1/messages`)
     console.log(`Claude tokens:    http://${server.hostname}:${server.port}/v1/messages/count_tokens`)
     console.log(`Models:           http://${server.hostname}:${server.port}/v1/models`)
+    if (provider instanceof KiroProvider) {
+      console.log(`Kiro models:      http://${server.hostname}:${server.port}/kiro/models`)
+    }
     console.log(`Responses:        http://${server.hostname}:${server.port}/v1/responses`)
     console.log(`Chat completions: http://${server.hostname}:${server.port}/v1/chat/completions`)
-    console.log(`Usage:            http://${server.hostname}:${server.port}/usage`)
-    console.log(`Environments:     http://${server.hostname}:${server.port}/environments`)
+    if (provider instanceof CodexProvider) {
+      console.log(`Usage:            http://${server.hostname}:${server.port}/usage`)
+      console.log(`Environments:     http://${server.hostname}:${server.port}/environments`)
+    }
+    if (provider instanceof KiroProvider) {
+      console.log(`Usage:            http://${server.hostname}:${server.port}/usage`)
+    }
     console.log(`Health:           http://${server.hostname}:${server.port}/health`)
     console.log(`Test connection:  http://${server.hostname}:${server.port}/test-connection`)
     console.log(`Health interval:  ${healthIntervalMs}ms`)
     console.log(`Log body:         ${logBody ? "enabled" : "disabled"}${logBody ? " (set LOG_BODY=0 to disable)" : ""}`)
     console.log(`Auth file:        ${authFile}`)
+    console.log(`Provider:         ${provider.name}`)
     if (authAccount) console.log(`Auth account:     ${authAccount}`)
   }
 
   return server
 }
+
 
 function serveWithPortFallback(
   hostname: string,
@@ -614,20 +661,20 @@ async function proxyRequestLog(label: string, method: string, target: string, fe
   }
 }
 
-function createHealthMonitor(client: CodexStandaloneClient, intervalMs: number, timeoutMs: number, quiet: boolean) {
-  const state: { current: HealthStatus; timer?: ReturnType<typeof setInterval> } = {
+function createHealthMonitor(provider: LlmProvider, intervalMs: number, timeoutMs: number, quiet: boolean) {
+  const state: { current: HealthResult; timer?: ReturnType<typeof setInterval> } = {
     current: { ok: false, error: "Health check has not run yet" },
   }
 
   async function run() {
     const previous = state.current.ok
-    state.current = await client.checkHealth(timeoutMs)
+    state.current = await provider.checkHealth(timeoutMs)
     if (previous === state.current.ok) return
     if (!quiet) {
       console.log(
         state.current.ok
-          ? `Codex upstream healthy (${state.current.status}, ${state.current.latencyMs}ms)`
-          : `Codex upstream unhealthy (${state.current.error ?? state.current.status ?? "unknown"})`,
+          ? `${provider.name} upstream healthy (${state.current.status ?? "ok"}, ${state.current.latencyMs}ms)`
+          : `${provider.name} upstream unhealthy (${state.current.error ?? state.current.status ?? "unknown"})`,
       )
     }
   }

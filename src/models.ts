@@ -3,6 +3,7 @@ import { homedir } from "node:os"
 import path from "node:path"
 
 import modelsConfig from "../models.json"
+import type { ProviderName } from "./llm-connect/factory"
 
 // ---------------------------------------------------------------------------
 // Types – Claude Models API format
@@ -10,7 +11,7 @@ import modelsConfig from "../models.json"
 //
 // The proxy returns model information in Claude API format so that Claude Code
 // and other Claude API consumers work seamlessly, while the actual upstream
-// models are GPT models served by Codex.
+// models are GPT/Kiro models served by the active provider.
 //
 // All model data is driven by models.json at the project root.
 // The /v1/models endpoint reads ~/.claude/settings.json to determine which
@@ -93,6 +94,7 @@ interface JsonModelCapabilities {
 
 interface JsonModelEntry {
   id: string
+  provider?: string
   display_name: string
   created_at: string
   max_input_tokens: number
@@ -140,8 +142,13 @@ function expandCapabilities(c: JsonModelCapabilities): ModelCapabilities {
 // Build full catalog from JSON (used for lookups)
 // ---------------------------------------------------------------------------
 
-const MODEL_CATALOG: ModelInfo[] = (modelsConfig.models as JsonModelEntry[]).map((entry) => ({
+interface ModelInfoWithProvider extends ModelInfo {
+  provider?: string
+}
+
+const MODEL_CATALOG: ModelInfoWithProvider[] = (modelsConfig.models as JsonModelEntry[]).map((entry) => ({
   id: entry.id,
+  provider: entry.provider,
   capabilities: expandCapabilities(entry.capabilities),
   created_at: entry.created_at,
   display_name: entry.display_name,
@@ -153,7 +160,7 @@ const MODEL_CATALOG: ModelInfo[] = (modelsConfig.models as JsonModelEntry[]).map
 const MODEL_ALIASES: Record<string, string> = modelsConfig.aliases as Record<string, string>
 
 // Build a lookup map for O(1) access
-const MODEL_MAP = new Map<string, ModelInfo>()
+const MODEL_MAP = new Map<string, ModelInfoWithProvider>()
 for (const model of MODEL_CATALOG) {
   MODEL_MAP.set(model.id, model)
 }
@@ -162,12 +169,22 @@ for (const model of MODEL_CATALOG) {
 // Client defaults (consumed by claude-code-env.config.ts)
 // ---------------------------------------------------------------------------
 
-export const MODEL_CLIENT_DEFAULTS = modelsConfig.clientDefaults as {
+type ClientDefaultsMap = Record<string, {
   ANTHROPIC_MODEL: string
   ANTHROPIC_DEFAULT_OPUS_MODEL: string
   ANTHROPIC_DEFAULT_SONNET_MODEL: string
   ANTHROPIC_DEFAULT_HAIKU_MODEL: string
+}>
+
+const CLIENT_DEFAULTS_BY_PROVIDER = modelsConfig.clientDefaults as ClientDefaultsMap
+
+/** Get client defaults for a specific provider. Falls back to codex. */
+export function modelClientDefaults(provider: ProviderName = "codex") {
+  return CLIENT_DEFAULTS_BY_PROVIDER[provider] ?? CLIENT_DEFAULTS_BY_PROVIDER.codex
 }
+
+/** Backward-compatible export — defaults to codex. */
+export const MODEL_CLIENT_DEFAULTS = CLIENT_DEFAULTS_BY_PROVIDER.codex
 
 /** The env keys in ~/.claude/settings.json that hold model IDs */
 const MODEL_ENV_KEYS = [
@@ -188,10 +205,10 @@ function resolveModelId(raw: string): string {
 /**
  * Reads ~/.claude/settings.json and extracts the unique model IDs that the
  * user has configured via ANTHROPIC_MODEL / ANTHROPIC_DEFAULT_*_MODEL env
- * vars. Falls back to clientDefaults from models.json when the file is
+ * vars. Falls back to clientDefaults for the given provider when the file is
  * missing or a key is not set.
  */
-async function readActiveModelIds(): Promise<string[]> {
+async function readActiveModelIds(provider: ProviderName = "codex"): Promise<string[]> {
   let envMap: Record<string, unknown> = {}
   try {
     const settingsPath = path.join(homedir(), ".claude", "settings.json")
@@ -203,7 +220,7 @@ async function readActiveModelIds(): Promise<string[]> {
     // File missing or unreadable — use defaults only
   }
 
-  const defaults = MODEL_CLIENT_DEFAULTS as Record<string, string>
+  const defaults = modelClientDefaults(provider) as Record<string, string>
   const seen = new Set<string>()
   const ids: string[] = []
 
@@ -228,7 +245,7 @@ async function readActiveModelIds(): Promise<string[]> {
 function resolveModelInfos(ids: string[]): ModelInfo[] {
   return ids.map((id) => {
     const known = MODEL_MAP.get(id)
-    if (known) return known
+    if (known) return toModelInfo(known)
     // Synthetic entry for models not in catalog (user set a custom model)
     return {
       id,
@@ -257,6 +274,17 @@ function resolveModelInfos(ids: string[]): ModelInfo[] {
   })
 }
 
+/** Strip the internal `provider` field before returning to the API. */
+function toModelInfo(model: ModelInfoWithProvider): ModelInfo {
+  const { provider: _provider, ...info } = model
+  return info
+}
+
+/** Get all models for a specific provider from the catalog. */
+export function getModelsForProvider(provider: ProviderName): ModelInfo[] {
+  return MODEL_CATALOG.filter((m) => m.provider === provider).map(toModelInfo)
+}
+
 // ---------------------------------------------------------------------------
 // Handlers
 // ---------------------------------------------------------------------------
@@ -271,15 +299,29 @@ function resolveModelInfos(ids: string[]): ModelInfo[] {
  *   after_id  – cursor for forward pagination
  *   before_id – cursor for backward pagination
  *   limit     – items per page (default 20, max 1000)
+ *   provider  – filter by provider ("codex" | "kiro")
  */
-export async function handleListModels(url: URL): Promise<Response> {
+export async function handleListModels(url: URL, provider?: ProviderName): Promise<Response> {
   const afterId = url.searchParams.get("after_id") ?? undefined
   const beforeId = url.searchParams.get("before_id") ?? undefined
   const rawLimit = url.searchParams.get("limit")
   const limit = rawLimit ? Math.min(Math.max(1, Number(rawLimit) || 20), 1000) : 20
+  const queryProvider = url.searchParams.get("provider") as ProviderName | null
 
-  const activeIds = await readActiveModelIds()
+  const effectiveProvider = queryProvider ?? provider
+
+  const activeIds = await readActiveModelIds(effectiveProvider)
   let data = resolveModelInfos(activeIds)
+
+  // If a provider filter is active, also include all catalog models for that provider
+  // that aren't already in the active set.
+  if (effectiveProvider) {
+    const providerModels = getModelsForProvider(effectiveProvider)
+    const activeSet = new Set(data.map((m) => m.id))
+    for (const model of providerModels) {
+      if (!activeSet.has(model.id)) data.push(model)
+    }
+  }
 
   if (afterId) {
     const idx = data.findIndex((m) => m.id === afterId)
@@ -332,5 +374,5 @@ export function handleGetModel(modelId: string): Response {
     )
   }
 
-  return Response.json(model)
+  return Response.json(toModelInfo(model))
 }

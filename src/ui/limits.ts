@@ -46,6 +46,128 @@ export function usageToView(usage: unknown): UsageView {
   }
 }
 
+/**
+ * Parse Kiro getUsageLimits API response into the shared UsageView format.
+ *
+ * Actual Kiro response shape:
+ * {
+ *   "subscriptionInfo": { "subscriptionTitle": "KIRO POWER", ... },
+ *   "userInfo": { "email": "...", "userId": "..." },
+ *   "usageBreakdownList": [
+ *     { "displayName": "Credit", "currentUsage": 3733, "usageLimit": 10000,
+ *       "nextDateReset": 1777593600, "resourceType": "CREDIT", ... }
+ *   ],
+ *   "nextDateReset": 1777593600,
+ *   ...
+ * }
+ */
+export function kiroUsageToView(data: unknown): UsageView {
+  if (!data || typeof data !== "object") return { limitGroups: [] }
+  const item = data as Record<string, unknown>
+
+  const accountInfo: Partial<AccountInfo> = { updatedAt: new Date().toISOString() }
+
+  // Extract user info
+  const userInfo = item.userInfo as Record<string, unknown> | undefined
+  if (userInfo && typeof userInfo === "object") {
+    if (typeof userInfo.email === "string") accountInfo.email = userInfo.email
+  }
+
+  // Extract subscription info
+  const subInfo = item.subscriptionInfo as Record<string, unknown> | undefined
+  if (subInfo && typeof subInfo === "object") {
+    if (typeof subInfo.subscriptionTitle === "string") accountInfo.plan = subInfo.subscriptionTitle
+  }
+
+  const groups: LimitGroupView[] = []
+
+  // Parse usageBreakdownList (primary Kiro format)
+  const breakdownList = item.usageBreakdownList
+  if (Array.isArray(breakdownList)) {
+    const rows: LimitRowView[] = []
+    for (const entry of breakdownList) {
+      if (!entry || typeof entry !== "object") continue
+      const row = kiroBreakdownToRow(entry as Record<string, unknown>)
+      if (row) rows.push(row)
+    }
+    if (rows.length) groups.push({ rows })
+  }
+
+  // Fallback: try legacy array-based fields
+  if (!groups.length) {
+    const usageLimits = item.usageLimits ?? item.usage_limits ?? item.limits
+    if (Array.isArray(usageLimits)) {
+      const rows: LimitRowView[] = []
+      for (const entry of usageLimits) {
+        if (!entry || typeof entry !== "object") continue
+        const row = kiroLegacyLimitToRow(entry as Record<string, unknown>)
+        if (row) rows.push(row)
+      }
+      if (rows.length) groups.push({ rows })
+    }
+  }
+
+  return { accountInfo, limitGroups: groups }
+}
+
+function kiroBreakdownToRow(entry: Record<string, unknown>): LimitRowView | undefined {
+  const currentUsage = typeof entry.currentUsageWithPrecision === "number" ? entry.currentUsageWithPrecision : typeof entry.currentUsage === "number" ? entry.currentUsage : undefined
+  const usageLimit = typeof entry.usageLimitWithPrecision === "number" ? entry.usageLimitWithPrecision : typeof entry.usageLimit === "number" ? entry.usageLimit : undefined
+
+  if (currentUsage === undefined && usageLimit === undefined) return undefined
+
+  const used = currentUsage ?? 0
+  const limit = usageLimit ?? 0
+  const remaining = Math.max(0, limit - used)
+  const usedPercent = limit > 0 ? Math.round(used / limit * 100) : 0
+
+  const label = typeof entry.displayName === "string"
+    ? entry.displayName
+    : typeof entry.resourceType === "string"
+      ? String(entry.resourceType).toLowerCase().replace(/_/g, " ")
+      : "usage"
+
+  const left = limit > 0
+    ? `used ${formatNum(used)} · left ${formatNum(remaining)} / ${formatNum(limit)}`
+    : `${formatNum(used)} used`
+
+  const resetEpoch = typeof entry.nextDateReset === "number" ? entry.nextDateReset : undefined
+  const reset = resetEpoch ? `resets ${formatReset(resetEpoch)}` : "reset unknown"
+
+  return { label, used: usedPercent, left, reset }
+}
+
+function formatNum(value: number) {
+  return Number.isInteger(value) ? String(value) : value.toFixed(2)
+}
+
+function kiroLegacyLimitToRow(entry: Record<string, unknown>): LimitRowView | undefined {
+  const used = typeof entry.used === "number" ? entry.used : undefined
+  const limit = typeof entry.limit === "number" ? entry.limit : undefined
+
+  if (used === undefined && limit === undefined) return undefined
+
+  const usedPercent = limit && limit > 0 ? Math.round((used ?? 0) / limit * 100) : 0
+  const remaining = Math.max(0, (limit ?? 0) - (used ?? 0))
+  const left = limit !== undefined ? `${remaining}/${limit} (${Math.max(0, 100 - usedPercent)}% left)` : `${used ?? 0} used`
+
+  const resetAt = entry.resetAt ?? entry.reset_at ?? entry.resetDate ?? entry.nextDateReset
+  let reset = "reset unknown"
+  if (typeof resetAt === "number") reset = `resets ${formatReset(resetAt)}`
+  else if (typeof resetAt === "string") {
+    try {
+      const date = new Date(resetAt)
+      if (!Number.isNaN(date.getTime())) reset = `resets ${formatReset(Math.floor(date.getTime() / 1000))}`
+    } catch { /* ignore */ }
+  }
+
+  const label = typeof entry.limitType === "string"
+    ? String(entry.limitType).toLowerCase().replace(/_/g, " ")
+    : typeof entry.label === "string" ? entry.label : "usage"
+
+  return { label, used: usedPercent, left, reset }
+}
+
 function rateLimitRows(rateLimit: unknown): LimitRowView[] {
   if (!rateLimit || typeof rateLimit !== "object") return []
   const item = rateLimit as { primary_window?: unknown; secondary_window?: unknown }

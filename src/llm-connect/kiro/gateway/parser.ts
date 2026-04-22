@@ -23,6 +23,30 @@ export async function collectKiroEvents(response: Response): Promise<KiroParsedE
   return events
 }
 
+export async function* streamKiroEvents(response: Response): AsyncGenerator<KiroParsedEvent> {
+  if (!response.body) throw new Error("Kiro response did not include a body")
+
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  const parser = new KiroEventParser()
+
+  try {
+    while (true) {
+      const chunk = await reader.read()
+      if (chunk.done) break
+      for (const event of parser.feed(decoder.decode(chunk.value, { stream: true }))) {
+        yield event
+      }
+    }
+
+    for (const event of parser.flush()) {
+      yield event
+    }
+  } finally {
+    reader.releaseLock()
+  }
+}
+
 class KiroEventParser {
   private buffer = ""
   private contentBuffer = ""
@@ -55,6 +79,18 @@ class KiroEventParser {
 
   flush() {
     const events: KiroParsedEvent[] = []
+    // Flush any remaining content still held back by the thinking-tag parser.
+    // This happens when the stream ends while we're inside a <thinking> block
+    // (no closing tag arrived) or when trailing content is shorter than the
+    // tag-lookahead window.
+    if (this.contentBuffer) {
+      if (this.inThinking) {
+        events.push({ type: "thinking", thinking: this.contentBuffer, isLast: true } satisfies KiroParsedEvent)
+      } else {
+        events.push({ type: "content", content: this.contentBuffer } satisfies KiroParsedEvent)
+      }
+      this.contentBuffer = ""
+    }
     events.push(...this.flushCurrentTool())
     return events
   }

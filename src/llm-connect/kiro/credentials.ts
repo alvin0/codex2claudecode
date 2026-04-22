@@ -16,7 +16,7 @@ export async function loadKiroCredentials(options: KiroCredentialLoadOptions = {
   const shouldAutoResolve = !hasInlineCredentialOptions(options) && !options.credsFile
   const credsFile = options.credsFile ? resolveKiroAuthFile(options.credsFile) : shouldAutoResolve ? await resolveKiroCredsFile() : undefined
 
-  const json = credsFile ? await readCredentialsFile(credsFile) : undefined
+  const json = credsFile ? await readCredentialsFileWithAccount(credsFile, options.kiroAccount) : undefined
 
   const snapshot: KiroCredentialSnapshot = {
     ...json,
@@ -38,6 +38,52 @@ export async function loadKiroCredentials(options: KiroCredentialLoadOptions = {
 export async function readCredentialsFile(filePath: string): Promise<KiroCredentialSnapshot> {
   const resolved = resolveKiroAuthFile(filePath)
   const data = JSON.parse(await readFile(resolved, "utf8")) as Record<string, unknown>
+  const device = typeof data.clientIdHash === "string" ? await readEnterpriseDeviceRegistration(data.clientIdHash) : undefined
+
+  return {
+    refreshToken: stringValue(data.refreshToken),
+    accessToken: stringValue(data.accessToken),
+    profileArn: stringValue(data.profileArn),
+    clientIdHash: stringValue(data.clientIdHash),
+    clientId: stringValue(data.clientId) ?? device?.clientId,
+    clientSecret: stringValue(data.clientSecret) ?? device?.clientSecret,
+    ssoRegion: stringValue(data.region),
+    detectedApiRegion: stringValue(data.region),
+    expiresAt: parseExpiresAt(data.expiresAt),
+    source: "json",
+  }
+}
+
+/**
+ * Read credentials from a file that may be a single object or an array of
+ * account entries. When the file is an array, selects the entry matching
+ * `account` (by profileArn, clientIdHash, or name), or the first entry.
+ */
+async function readCredentialsFileWithAccount(filePath: string, account?: string): Promise<KiroCredentialSnapshot> {
+  const resolved = resolveKiroAuthFile(filePath)
+  const raw = JSON.parse(await readFile(resolved, "utf8")) as unknown
+
+  // Single object — use as-is
+  if (!Array.isArray(raw)) {
+    return readCredentialObject(raw as Record<string, unknown>)
+  }
+
+  // Array — select the right entry
+  const entries = raw as Array<Record<string, unknown>>
+  if (!entries.length) return { source: "json" }
+
+  const selected = account
+    ? entries.find((e) =>
+        stringValue(e.profileArn) === account ||
+        stringValue(e.clientIdHash) === account ||
+        stringValue(e.name) === account,
+      ) ?? entries[0]
+    : entries[0]
+
+  return readCredentialObject(selected)
+}
+
+async function readCredentialObject(data: Record<string, unknown>): Promise<KiroCredentialSnapshot> {
   const device = typeof data.clientIdHash === "string" ? await readEnterpriseDeviceRegistration(data.clientIdHash) : undefined
 
   return {

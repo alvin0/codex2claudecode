@@ -177,6 +177,27 @@ function normalizeToolsForCurrentMessage(tools?: KiroGatewayTool[]): KiroToolSpe
   if (!tools?.length) return undefined
   const converted = tools.flatMap((tool) => {
     if (tool.type === "mcp") return []
+    // Convert web_search / web_fetch server tools into regular function tools
+    // so the Kiro model receives the schema and can supply the query parameter.
+    if (tool.type === "web_search" || tool.type === "web_fetch") {
+      return [
+        {
+          toolSpecification: {
+            name: tool.name === "web_search" ? "WebSearch" : tool.name,
+            description: tool.description?.trim() || "Search the web for current information. Use when you need up-to-date data from the internet.",
+            inputSchema: {
+              json: {
+                type: "object",
+                properties: {
+                  query: { type: "string", description: "The search query to execute" },
+                },
+                required: ["query"],
+              },
+            },
+          },
+        } satisfies KiroToolSpecification,
+      ]
+    }
     const description = tool.description?.trim() || `Tool: ${tool.name}`
     return [
       {

@@ -59,6 +59,70 @@ export class KiroStandaloneClient {
     throw lastError instanceof Error ? lastError : new Error("Kiro model list failed for all candidate API regions")
   }
 
+  async getUsageLimits(resourceType = "AGENTIC_REQUEST") {
+    let lastError: unknown
+
+    for (const apiHost of this.candidateApiHosts()) {
+      try {
+        const url = new URL(`${apiHost}/getUsageLimits`)
+        url.searchParams.set("isEmailRequired", "true")
+        url.searchParams.set("origin", "AI_EDITOR")
+        if (this.authManager.authType === "kiro_desktop" && this.authManager.profileArn) {
+          url.searchParams.set("profileArn", this.authManager.profileArn)
+        }
+        url.searchParams.set("resourceType", resourceType)
+        const response = await this.requestWithRetry(url, { method: "GET" })
+        if (response.ok) {
+          this.preferredApiHost = apiHost
+          return response.json() as Promise<Record<string, unknown>>
+        }
+        if (!shouldTryNextApiHost(response.status)) {
+          throw new Error(`Kiro getUsageLimits failed: ${response.status} ${await response.text()}`)
+        }
+        lastError = new Error(`Kiro getUsageLimits failed: ${response.status} ${await response.text()}`)
+      } catch (error) {
+        lastError = error
+        if (!isRetryableApiHostError(error)) throw error
+      }
+    }
+
+    throw lastError instanceof Error ? lastError : new Error("Kiro getUsageLimits failed for all candidate API regions")
+  }
+
+  async mcpCall(method: string, params: Record<string, unknown>) {
+    const token = await this.authManager.getAccessToken()
+    const requestId = `mcp_${crypto.randomUUID().replace(/-/g, "")}`
+    const body = {
+      id: requestId,
+      jsonrpc: "2.0",
+      method,
+      params,
+    }
+
+    for (const apiHost of this.candidateApiHosts()) {
+      try {
+        const response = await this.fetchFn(`${apiHost}/mcp`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+            "x-amzn-codewhisperer-optout": "false",
+          },
+          body: JSON.stringify(body),
+          signal: AbortSignal.timeout(60_000),
+        })
+        if (response.ok) {
+          this.preferredApiHost = apiHost
+          return response.json() as Promise<Record<string, unknown>>
+        }
+        if (!shouldTryNextApiHost(response.status)) return undefined
+      } catch {
+        continue
+      }
+    }
+    return undefined
+  }
+
   async generateAssistantResponse(options: KiroGenerateAssistantResponseOptions) {
     const payload = buildKiroGenerateAssistantResponsePayload({
       content: options.content,

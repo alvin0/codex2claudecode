@@ -2,6 +2,8 @@ import { readFile, writeFile } from "node:fs/promises"
 import { homedir } from "node:os"
 import path from "node:path"
 import { CLAUDE_CODE_ENV_CONFIG, type ClaudeCodeEditableEnvKey } from "../claude-code-env.config"
+import type { ProviderName } from "../llm-connect/factory"
+import { modelClientDefaults } from "../models"
 import { ensureParentDir } from "../paths"
 
 export const CLAUDE_ENV_FIXED = CLAUDE_CODE_ENV_CONFIG.lockedEnv
@@ -33,19 +35,24 @@ interface ClaudeSettingsFile {
   [key: string]: unknown
 }
 
-export function defaultClaudeEnvironment(): ClaudeEnvironmentDraft {
+export function defaultClaudeEnvironment(provider?: ProviderName): ClaudeEnvironmentDraft {
+  const defaults = provider ? modelClientDefaults(provider) : CLAUDE_CODE_ENV_CONFIG.editableEnvDefaults
+  // When a provider is explicitly set, use its defaults directly.
+  // Only fall back to process.env when no provider is specified (backward compat).
+  const env = provider ? undefined : process.env
   return {
-    ANTHROPIC_MODEL: process.env.ANTHROPIC_MODEL ?? CLAUDE_CODE_ENV_CONFIG.editableEnvDefaults.ANTHROPIC_MODEL,
-    ANTHROPIC_DEFAULT_OPUS_MODEL: process.env.ANTHROPIC_DEFAULT_OPUS_MODEL ?? CLAUDE_CODE_ENV_CONFIG.editableEnvDefaults.ANTHROPIC_DEFAULT_OPUS_MODEL,
-    ANTHROPIC_DEFAULT_SONNET_MODEL: process.env.ANTHROPIC_DEFAULT_SONNET_MODEL ?? CLAUDE_CODE_ENV_CONFIG.editableEnvDefaults.ANTHROPIC_DEFAULT_SONNET_MODEL,
-    ANTHROPIC_DEFAULT_HAIKU_MODEL: process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL ?? CLAUDE_CODE_ENV_CONFIG.editableEnvDefaults.ANTHROPIC_DEFAULT_HAIKU_MODEL,
+    ANTHROPIC_MODEL: env?.ANTHROPIC_MODEL ?? defaults.ANTHROPIC_MODEL,
+    ANTHROPIC_DEFAULT_OPUS_MODEL: env?.ANTHROPIC_DEFAULT_OPUS_MODEL ?? defaults.ANTHROPIC_DEFAULT_OPUS_MODEL,
+    ANTHROPIC_DEFAULT_SONNET_MODEL: env?.ANTHROPIC_DEFAULT_SONNET_MODEL ?? defaults.ANTHROPIC_DEFAULT_SONNET_MODEL,
+    ANTHROPIC_DEFAULT_HAIKU_MODEL: env?.ANTHROPIC_DEFAULT_HAIKU_MODEL ?? defaults.ANTHROPIC_DEFAULT_HAIKU_MODEL,
     extraEnv: { ...CLAUDE_CODE_ENV_CONFIG.defaultExtraEnv },
     unsetEnv: [...CLAUDE_CODE_ENV_CONFIG.defaultUnsetEnv],
   }
 }
 
-export function claudeEnvironmentConfigPath(authFile: string) {
-  return path.join(path.dirname(authFile), ".claude-env.json")
+export function claudeEnvironmentConfigPath(authFile: string, provider?: ProviderName) {
+  const suffix = provider ? `-${provider}` : ""
+  return path.join(path.dirname(authFile), `.claude-env${suffix}.json`)
 }
 
 export function claudeSettingsPath(file?: string) {
@@ -64,17 +71,18 @@ export function claudeSettingsScopeLabel(scope: ClaudeSettingsScope) {
   return "~/.claude/settings.json"
 }
 
-export async function readClaudeEnvironmentConfig(authFile: string): Promise<ClaudeEnvironmentDraft> {
+export async function readClaudeEnvironmentConfig(authFile: string, provider?: ProviderName): Promise<ClaudeEnvironmentDraft> {
   try {
-    return normalizeClaudeEnvironment(JSON.parse(await readFile(claudeEnvironmentConfigPath(authFile), "utf8")) as Partial<ClaudeEnvironmentDraft>)
+    return normalizeClaudeEnvironment(JSON.parse(await readFile(claudeEnvironmentConfigPath(authFile, provider), "utf8")) as Partial<ClaudeEnvironmentDraft>, provider)
   } catch {
-    return defaultClaudeEnvironment()
+    return defaultClaudeEnvironment(provider)
   }
 }
 
-export async function writeClaudeEnvironmentConfig(authFile: string, draft: ClaudeEnvironmentDraft) {
-  await ensureParentDir(claudeEnvironmentConfigPath(authFile))
-  await writeFile(claudeEnvironmentConfigPath(authFile), `${JSON.stringify(normalizeClaudeEnvironment(draft), null, 2)}\n`)
+export async function writeClaudeEnvironmentConfig(authFile: string, draft: ClaudeEnvironmentDraft, provider?: ProviderName) {
+  const configPath = claudeEnvironmentConfigPath(authFile, provider)
+  await ensureParentDir(configPath)
+  await writeFile(configPath, `${JSON.stringify(normalizeClaudeEnvironment(draft, provider), null, 2)}\n`)
 }
 
 export function claudeEnvironmentExports(draft: ClaudeEnvironmentDraft, baseUrl: string) {
@@ -162,8 +170,8 @@ export function detectShell(env: NodeJS.ProcessEnv = process.env, platform = pro
   return { kind: "unsupported", name: shell, reason: `Unsupported shell: ${shell}. Supported shells: sh, bash, zsh, dash, ksh, PowerShell.` }
 }
 
-function normalizeClaudeEnvironment(input: Partial<ClaudeEnvironmentDraft>): ClaudeEnvironmentDraft {
-  const defaults = defaultClaudeEnvironment()
+function normalizeClaudeEnvironment(input: Partial<ClaudeEnvironmentDraft>, provider?: ProviderName): ClaudeEnvironmentDraft {
+  const defaults = defaultClaudeEnvironment(provider)
   const extraEnv = {
     ...defaults.extraEnv,
     ...normalizeStringMap(input.extraEnv),

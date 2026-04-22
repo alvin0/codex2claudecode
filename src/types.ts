@@ -51,8 +51,10 @@ export interface RequestOptions {
 export interface RuntimeOptions {
   authFile?: string
   authAccount?: string
+  kiroAccount?: string
   hostname?: string
   port?: number
+  provider?: "codex" | "kiro"
   healthIntervalMs?: number
   healthTimeoutMs?: number
   logBody?: boolean

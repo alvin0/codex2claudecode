@@ -175,6 +175,7 @@ describe("Kiro gateway", () => {
               status: 200,
             }),
           ),
+        mcpCall: () => Promise.resolve(undefined),
       },
       new Request("http://localhost/v1/messages", {
         method: "POST",
@@ -229,6 +230,7 @@ describe("Kiro gateway", () => {
     const response = await handleKiroAnthropicMessages(
       {
         generateAssistantResponse: () => Promise.resolve(new Response(null, { status: 200 })),
+        mcpCall: () => Promise.resolve(undefined),
       },
       new Request("http://localhost/v1/messages", {
         method: "POST",
@@ -241,6 +243,126 @@ describe("Kiro gateway", () => {
     await expect(response.json()).resolves.toMatchObject({
       type: "error",
       error: { type: "invalid_request_error" },
+    })
+  })
+
+  test("handles web_search tool via MCP and returns Anthropic JSON with search results", async () => {
+    const mcpResponse = {
+      id: "test",
+      jsonrpc: "2.0",
+      result: {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({
+              results: [
+                { title: "AAPL Stock", url: "https://example.com/aapl", snippet: "AAPL is at $200" },
+                { title: "GOOGL Stock", url: "https://example.com/googl", snippet: "GOOGL is at $180" },
+              ],
+              totalResults: 2,
+              query: "AAPL GOOGL stock prices",
+            }),
+          },
+        ],
+        isError: false,
+      },
+    }
+
+    const response = await handleKiroAnthropicMessages(
+      {
+        generateAssistantResponse: () => Promise.resolve(new Response(null, { status: 200 })),
+        mcpCall: () => Promise.resolve(mcpResponse),
+      },
+      new Request("http://localhost/v1/messages", {
+        method: "POST",
+        body: JSON.stringify({
+          model: "claude-opus-4.6",
+          max_tokens: 4096,
+          messages: [{ role: "user", content: "Search for AAPL and GOOGL stock prices" }],
+          tools: [{ type: "web_search_20260209", name: "web_search" }],
+        }),
+        headers: { "content-type": "application/json" },
+      }),
+    )
+
+    expect(response.status).toBe(200)
+    const body = await response.json() as Record<string, unknown>
+    expect(body.type).toBe("message")
+    expect(body.role).toBe("assistant")
+    const content = body.content as Array<{ type: string }>
+    expect(content.some((block) => block.type === "server_tool_use")).toBe(true)
+    expect(content.some((block) => block.type === "web_search_tool_result")).toBe(true)
+    expect(content.some((block) => block.type === "text")).toBe(true)
+  })
+
+  test("handles web_search tool via MCP and returns streaming SSE", async () => {
+    const mcpResponse = {
+      id: "test",
+      jsonrpc: "2.0",
+      result: {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({
+              results: [{ title: "Result", url: "https://example.com", snippet: "A result" }],
+              totalResults: 1,
+            }),
+          },
+        ],
+        isError: false,
+      },
+    }
+
+    const response = await handleKiroAnthropicMessages(
+      {
+        generateAssistantResponse: () => Promise.resolve(new Response(null, { status: 200 })),
+        mcpCall: () => Promise.resolve(mcpResponse),
+      },
+      new Request("http://localhost/v1/messages", {
+        method: "POST",
+        body: JSON.stringify({
+          model: "claude-opus-4.6",
+          max_tokens: 4096,
+          stream: true,
+          messages: [{ role: "user", content: "Search for something" }],
+          tools: [{ type: "web_search_20260209", name: "web_search" }],
+        }),
+        headers: { "content-type": "application/json" },
+      }),
+    )
+
+    expect(response.status).toBe(200)
+    expect(response.headers.get("content-type")).toContain("text/event-stream")
+    const events = await readSse(response)
+    expect(events.some((e) => e.event === "message_start")).toBe(true)
+    expect(events.some((e) => e.data?.content_block?.type === "server_tool_use")).toBe(true)
+    expect(events.some((e) => e.data?.content_block?.type === "web_search_tool_result")).toBe(true)
+    expect(events.some((e) => e.event === "message_stop")).toBe(true)
+  })
+
+  test("returns 500 when MCP web search fails", async () => {
+    const response = await handleKiroAnthropicMessages(
+      {
+        generateAssistantResponse: () => Promise.resolve(new Response(null, { status: 200 })),
+        mcpCall: () => Promise.resolve(undefined),
+      },
+      new Request("http://localhost/v1/messages", {
+        method: "POST",
+        body: JSON.stringify({
+          model: "claude-opus-4.6",
+          max_tokens: 4096,
+          messages: [{ role: "user", content: "Search for something" }],
+          tools: [{ type: "web_search_20260209", name: "web_search" }],
+        }),
+        headers: { "content-type": "application/json" },
+      }),
+    )
+
+    expect(response.status).toBe(500)
+    const body = await response.json() as Record<string, unknown>
+    expect(body).toMatchObject({
+      type: "error",
+      error: { type: "api_error" },
     })
   })
 })

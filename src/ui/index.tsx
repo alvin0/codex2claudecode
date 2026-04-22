@@ -5,7 +5,7 @@ import { CodexCodeApp } from "./app"
 import type { CliOptions } from "../cli"
 
 export function runUi(options?: CliOptions) {
-  return render(<CodexCodeApp port={options?.port} />)
+  return render(<CodexCodeApp port={options?.port} provider={options?.provider} />)
 }
 
 export { CodexCodeApp }

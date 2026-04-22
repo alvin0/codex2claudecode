@@ -23,6 +23,7 @@ export interface KiroEndpointSet {
 
 export interface KiroCredentialLoadOptions {
   credsFile?: string
+  kiroAccount?: string
   refreshToken?: string
   accessToken?: string
   expiresAt?: number

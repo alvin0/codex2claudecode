@@ -4,9 +4,10 @@ import { claudeErrorResponse } from "../../../claude/errors"
 
 import { anthropicMessagesToKiroInput, openAiChatCompletionsToKiroInput } from "./convert"
 import { anthropicJsonResponse, anthropicStreamResponse, collectKiroResponse, openAiJsonResponse, openAiStreamResponse } from "./stream"
+import { hasWebSearchTool, handleKiroWebSearch } from "./web-search"
 
 export async function handleKiroAnthropicMessages(
-  client: Pick<KiroStandaloneClient, "generateAssistantResponse">,
+  client: Pick<KiroStandaloneClient, "generateAssistantResponse" | "mcpCall">,
   request: Request,
 ) {
   let body: ClaudeMessagesRequest
@@ -17,6 +18,15 @@ export async function handleKiroAnthropicMessages(
   }
 
   if (!Array.isArray(body.messages)) return claudeErrorResponse("Claude messages request requires messages", 400)
+
+  // Web search: early return via MCP API (like Python Path A)
+  // Only intercept on the first turn (no prior assistant messages).
+  // Multi-turn requests that already contain search results should go
+  // through the normal Kiro API flow so the model can reason over them.
+  const isFirstTurn = !body.messages.some((m) => m.role === "assistant")
+  if (isFirstTurn && hasWebSearchTool(body)) {
+    return handleKiroWebSearch(client, body)
+  }
 
   try {
     const input = anthropicMessagesToKiroInput(body)
@@ -34,7 +44,7 @@ export async function handleKiroAnthropicMessages(
       return claudeErrorResponse(`Kiro request failed: ${response.status} ${text}`, response.status)
     }
 
-    if (body.stream) return anthropicStreamResponse(response, body)
+    if (body.stream) return anthropicStreamResponse(response, body, { mcpCall: client.mcpCall.bind(client) })
     return Response.json(anthropicJsonResponse(await collectKiroResponse(response), body))
   } catch (error) {
     return claudeErrorResponse(error instanceof Error ? error.message : String(error), 400)
