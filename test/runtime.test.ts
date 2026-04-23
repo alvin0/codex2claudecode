@@ -6,7 +6,7 @@ import path from "node:path"
 import { LOG_BODY_PREVIEW_LIMIT } from "../src/constants"
 import { cors, responseHeaders } from "../src/http"
 import { requestLogFilePath } from "../src/request-logs"
-import { startRuntime } from "../src/runtime"
+import { requestStateFromResult, responseWithLoggedBody, startRuntime } from "../src/runtime"
 import { sse } from "./helpers"
 
 const tempDirs: string[] = []
@@ -323,6 +323,38 @@ describe("runtime server", () => {
     }
   })
 
+  test("marks cancelled streaming responses as cancelled instead of complete errors", async () => {
+    const completions: Array<{ responseBody?: string; responseError?: string; state: string }> = []
+    const response = responseWithLoggedBody(
+      new Response(
+        new ReadableStream({
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode('data: {"type":"response.output_text.delta","text":"partial"}\n\n'))
+          },
+        }),
+      ) as Response & { body: ReadableStream<Uint8Array> },
+      async (responseBody, responseError) => {
+        completions.push({
+          responseBody,
+          responseError,
+          state: requestStateFromResult(responseError),
+        })
+      },
+    )
+
+    const reader = response.body?.getReader()
+    expect(reader).toBeDefined()
+    await reader?.read()
+    await reader?.cancel()
+
+    await waitFor(() => completions.length > 0)
+    expect(completions[0]).toMatchObject({
+      state: "cancelled",
+      responseError: "response cancelled: client disconnected",
+      responseBody: expect.stringContaining("partial"),
+    })
+  })
+
   test("reports unhealthy health state, proxy failures, and clears interval timers", async () => {
     globalThis.fetch = rejectingFetch()
     const server = await startRuntime({ authFile: await authFile(), port: 0, healthIntervalMs: 5, logBody: false })
@@ -352,10 +384,13 @@ describe("runtime server", () => {
   })
 })
 
-async function waitFor(predicate: () => boolean) {
-  for (let index = 0; index < 50; index += 1) {
+async function waitFor(predicate: () => boolean, options?: { timeoutMs?: number; intervalMs?: number }) {
+  const timeoutMs = options?.timeoutMs ?? 250
+  const intervalMs = options?.intervalMs ?? 5
+  const attempts = Math.max(1, Math.ceil(timeoutMs / intervalMs))
+  for (let index = 0; index < attempts; index += 1) {
     if (predicate()) return
-    await new Promise((resolve) => setTimeout(resolve, 5))
+    await new Promise((resolve) => setTimeout(resolve, intervalMs))
   }
   throw new Error("Timed out waiting for condition")
 }

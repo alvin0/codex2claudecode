@@ -64,5 +64,6 @@ export interface KiroCollectedResponse {
   webSearches?: Array<{ toolUseId: string; query: string; results: Array<{ url: string; title: string; encrypted_content?: string; text?: string }>; summary?: string }>
   usage?: Record<string, unknown>
   contextUsagePercentage?: number
+  completed?: boolean
   events?: KiroParsedEvent[]
 }

@@ -1,9 +1,27 @@
 import type { JsonObject } from "../../../types"
 
 import type { KiroParsedEvent } from "./types"
+import { detectToolInputTruncation, saveToolTruncation, detectContentTruncation, saveContentTruncation } from "./truncation"
 
 const THINKING_OPEN_TAG = "<thinking>"
 const THINKING_CLOSE_TAG = "</thinking>"
+
+/** Default timeout (ms) waiting for the very first data from the stream. */
+const FIRST_TOKEN_TIMEOUT_MS = 15_000
+
+/** Maximum number of first-token-timeout retries. */
+const FIRST_TOKEN_MAX_RETRIES = 3
+
+/**
+ * Error thrown when the model does not produce any data within the
+ * first-token timeout window.
+ */
+export class FirstTokenTimeoutError extends Error {
+  constructor(timeoutMs: number) {
+    super(`No response from model within ${timeoutMs}ms`)
+    this.name = "FirstTokenTimeoutError"
+  }
+}
 
 export async function collectKiroEvents(response: Response): Promise<KiroParsedEvent[]> {
   if (!response.body) throw new Error("Kiro response did not include a body")
@@ -23,28 +41,87 @@ export async function collectKiroEvents(response: Response): Promise<KiroParsedE
   return events
 }
 
-export async function* streamKiroEvents(response: Response): AsyncGenerator<KiroParsedEvent> {
+export async function* streamKiroEvents(
+  response: Response,
+  options?: { firstTokenTimeoutMs?: number },
+): AsyncGenerator<KiroParsedEvent> {
   if (!response.body) throw new Error("Kiro response did not include a body")
 
   const reader = response.body.getReader()
   const decoder = new TextDecoder()
   const parser = new KiroEventParser()
+  const timeoutMs = options?.firstTokenTimeoutMs ?? FIRST_TOKEN_TIMEOUT_MS
+  let firstChunkReceived = false
+  let hasUsageEvent = false
+  let hasContextUsageEvent = false
+  let totalContentLength = 0
 
   try {
     while (true) {
-      const chunk = await reader.read()
+      // Apply first-token timeout only for the very first chunk
+      let chunk: ReadableStreamReadResult<Uint8Array>
+      if (!firstChunkReceived) {
+        chunk = await readWithTimeout(reader, timeoutMs)
+        firstChunkReceived = true
+      } else {
+        chunk = await reader.read()
+      }
+
       if (chunk.done) break
+
       for (const event of parser.feed(decoder.decode(chunk.value, { stream: true }))) {
+        if (event.type === "usage") hasUsageEvent = true
+        if (event.type === "context_usage") hasContextUsageEvent = true
+        if (event.type === "content") totalContentLength += event.content.length
+        if (event.type === "thinking") totalContentLength += event.thinking.length
         yield event
       }
     }
 
     for (const event of parser.flush()) {
+      if (event.type === "usage") hasUsageEvent = true
+      if (event.type === "context_usage") hasContextUsageEvent = true
+      if (event.type === "content") totalContentLength += event.content.length
+      if (event.type === "thinking") totalContentLength += event.thinking.length
       yield event
+    }
+
+    // --- Content truncation detection ---
+    const contentTrunc = detectContentTruncation(hasUsageEvent, hasContextUsageEvent, totalContentLength)
+    if (contentTrunc.detected) {
+      // We can't yield a special event here (the caller handles it), but we
+      // save the state so the next request can inject a recovery message.
+      saveContentTruncation(`stream_content_${totalContentLength}_${Date.now()}`)
     }
   } finally {
     reader.releaseLock()
   }
+}
+
+/**
+ * Read from a ReadableStreamDefaultReader with a timeout.
+ * Throws FirstTokenTimeoutError if no data arrives within `timeoutMs`.
+ */
+async function readWithTimeout(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  timeoutMs: number,
+): Promise<ReadableStreamReadResult<Uint8Array>> {
+  return new Promise<ReadableStreamReadResult<Uint8Array>>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new FirstTokenTimeoutError(timeoutMs))
+    }, timeoutMs)
+
+    reader.read().then(
+      (result) => {
+        clearTimeout(timer)
+        resolve(result)
+      },
+      (err) => {
+        clearTimeout(timer)
+        reject(err)
+      },
+    )
+  })
 }
 
 class KiroEventParser {
@@ -186,11 +263,19 @@ class KiroEventParser {
 
   private flushCurrentTool() {
     if (!this.currentTool) return []
+    const rawInput = this.currentTool.input
+
+    // --- Truncation detection for tool input ---
+    const truncInfo = detectToolInputTruncation(rawInput)
     const toolUse = {
       id: this.currentTool.id,
       name: this.currentTool.name,
-      input: parseToolInput(this.currentTool.input),
+      input: parseToolInput(rawInput),
     }
+    if (truncInfo.detected) {
+      saveToolTruncation(toolUse.id, toolUse.name, truncInfo)
+    }
+
     this.currentTool = undefined
     this.toolUses.push(toolUse)
     return [{ type: "tool_use", toolUse } satisfies KiroParsedEvent]

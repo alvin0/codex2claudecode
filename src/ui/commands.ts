@@ -6,7 +6,7 @@ export interface UiCommand {
 }
 
 export const UI_COMMANDS: UiCommand[] = [
-  { name: "/limits", description: "Show account and model limits" },
+  { name: "/limits", description: "Show account and model limits", provider: "codex" },
   { name: "/limits", description: "Show Kiro usage limits", provider: "kiro" },
   { name: "/logs", description: "Show recent runtime request logs" },
   { name: "/provider", description: "Switch LLM provider (codex / kiro)" },

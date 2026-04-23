@@ -8,6 +8,7 @@ import type { KiroImage, KiroToolResult, KiroToolSpecification, KiroToolUse } fr
 
 import { normalizeAnthropicRequest, normalizeOpenAiRequest } from "./normalize"
 import type { KiroGatewayBlock, KiroGatewayInput, KiroGatewayMessage, KiroGatewayTool } from "./types"
+import { webSearchResultToText, webToolResultToText } from "./web-result-text"
 
 export function anthropicMessagesToKiroInput(body: ClaudeMessagesRequest): KiroGatewayInput {
   if (!Array.isArray(body.messages)) throw new Error("Claude messages request requires messages")
@@ -236,10 +237,20 @@ function toolResultContentToText(content: unknown): string {
         if (!item || typeof item !== "object") return ""
         const block = item as { type?: unknown; text?: unknown }
         if (block.type === "text" && typeof block.text === "string") return block.text
+        if (block.type === "web_search_tool_result" || block.type === "web_fetch_tool_result") {
+          return webToolResultToText(block)
+        }
+        if (block.type === "web_search_result") return webSearchResultToText(block)
         return ""
       })
       .filter(Boolean)
       .join("\n")
+  }
+  if (content && typeof content === "object") {
+    const block = content as { type?: unknown }
+    if (block.type === "web_search_tool_result" || block.type === "web_fetch_tool_result") {
+      return webToolResultToText(block)
+    }
   }
   if (content == null) return ""
   return String(content)

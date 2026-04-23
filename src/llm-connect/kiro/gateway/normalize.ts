@@ -9,6 +9,7 @@ import type {
 } from "../../../types"
 
 import type { KiroGatewayBlock, KiroGatewayMessage, KiroGatewayTool, KiroThinkingConfig } from "./types"
+import { normalizeClaudeCodeWebSearchText, webToolResultToText } from "./web-result-text"
 
 export function normalizeAnthropicRequest(body: ClaudeMessagesRequest) {
   return {
@@ -79,7 +80,7 @@ function normalizeAnthropicMessages(messages: ClaudeMessagesRequest["messages"])
 }
 
 function normalizeAnthropicContent(role: "user" | "assistant", content: unknown): KiroGatewayBlock[] {
-  if (typeof content === "string") return [{ type: "text", text: content }]
+  if (typeof content === "string") return [{ type: "text", text: normalizeClaudeCodeWebSearchText(content) }]
   if (!Array.isArray(content)) return [{ type: "text", text: content == null ? "" : String(content) }]
 
   const blocks: KiroGatewayBlock[] = []
@@ -102,7 +103,7 @@ function normalizeAnthropicContent(role: "user" | "assistant", content: unknown)
     }
 
     if (block.type === "text" && typeof block.text === "string") {
-      blocks.push({ type: "text", text: block.text })
+      blocks.push({ type: "text", text: normalizeClaudeCodeWebSearchText(block.text) })
       continue
     }
 
@@ -145,6 +146,22 @@ function normalizeAnthropicContent(role: "user" | "assistant", content: unknown)
         content: block.content,
       })
       blocks.push(...extractImages(block.content))
+      continue
+    }
+
+    if (block.type === "server_tool_use" && typeof block.id === "string" && typeof block.name === "string") {
+      blocks.push({
+        type: "tool_use",
+        id: block.id,
+        name: block.name,
+        input: asJsonObject(block.input),
+      })
+      continue
+    }
+
+    if (block.type === "web_search_tool_result" || block.type === "web_fetch_tool_result") {
+      const text = webToolResultToText(block)
+      if (text) blocks.push({ type: "text", text })
       continue
     }
 

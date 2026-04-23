@@ -76,7 +76,7 @@ export interface RequestProxyLog {
 
 export interface RequestLogEntry {
   id: string
-  state?: "pending" | "complete"
+  state?: "pending" | "complete" | "cancelled"
   at: string
   method: string
   path: string

@@ -32,9 +32,9 @@ export class KiroProvider implements LlmProvider {
   async handleMessages(
     request: Request,
     requestId: string,
-    _options?: HandleMessagesOptions,
+    options?: HandleMessagesOptions,
   ) {
-    return handleKiroAnthropicMessages(this.client, request)
+    return handleKiroAnthropicMessages(this.client, request, requestId, options)
   }
 
   async handleCountTokens(request: Request) {

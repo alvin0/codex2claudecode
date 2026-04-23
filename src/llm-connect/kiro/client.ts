@@ -1,6 +1,11 @@
 import { KiroAuthManager } from "./auth"
+import { guardPayloadSize } from "./gateway/payload-guard"
 import { buildKiroGenerateAssistantResponsePayload } from "./payload"
 import type { KiroClientOptions, KiroGenerateAssistantResponseOptions, KiroRequestHeaderOptions } from "./types"
+
+/** Default retry configuration. */
+const MAX_RETRIES = 3
+const BASE_RETRY_DELAY_MS = 1_000
 
 export class KiroStandaloneClient {
   private readonly authManager: KiroAuthManager
@@ -133,6 +138,15 @@ export class KiroStandaloneClient {
       profileArn: this.authManager.authType === "kiro_desktop" ? this.authManager.profileArn : undefined,
     })
 
+    // --- Payload size guard: trim history if payload exceeds ~600KB ---
+    const guardResult = guardPayloadSize(payload)
+    if (guardResult.trimmed) {
+      console.warn(
+        `[kiro-client] Payload trimmed: removed ${guardResult.entriesRemoved} history entries ` +
+        `(${guardResult.originalSizeBytes} → ${guardResult.finalSizeBytes} bytes)`,
+      )
+    }
+
     let lastError: unknown
     for (const apiHost of this.candidateApiHosts()) {
       try {
@@ -157,18 +171,65 @@ export class KiroStandaloneClient {
     throw lastError instanceof Error ? lastError : new Error("Kiro generateAssistantResponse failed for all candidate API regions")
   }
 
+  /**
+   * Execute a fetch request with comprehensive retry logic.
+   *
+   * Retry strategy (inspired by kiro-claude-proxy & kiro-gateway):
+   *  - 401/403  → force token refresh, then retry once
+   *  - 429      → honour Retry-After header or exponential backoff
+   *  - 500-504  → exponential backoff
+   *
+   * Network-level errors (DNS, connection reset, timeout) are NOT retried
+   * here — they bubble up to the caller's `candidateApiHosts()` loop which
+   * tries the next API region instead.
+   */
   private async requestWithRetry(url: string | URL, init: RequestInit) {
-    let response = await this.fetchFn(url, {
-      ...init,
-      headers: await this.headers(init.headers),
-    })
-    if (response.status !== 401 && response.status !== 403) return response
-    await this.authManager.forceRefresh()
-    response = await this.fetchFn(url, {
-      ...init,
-      headers: await this.headers(init.headers),
-    })
-    return response
+    let lastError: unknown
+
+    for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+      // Network errors propagate immediately so the caller can try the next host
+      const response = await this.fetchFn(url, {
+        ...init,
+        headers: await this.headers(init.headers),
+      })
+
+      // Success
+      if (response.ok) return response
+
+      // --- Auth errors: refresh token and retry (once) ---
+      if (response.status === 401 || response.status === 403) {
+        if (attempt < MAX_RETRIES - 1) {
+          await this.authManager.forceRefresh()
+          continue
+        }
+        return response
+      }
+
+      // --- Rate limiting (429) ---
+      if (response.status === 429) {
+        const retryAfter = response.headers.get("retry-after")
+        const waitMs = retryAfter ? Number.parseInt(retryAfter, 10) * 1_000 : BASE_RETRY_DELAY_MS * 2 ** attempt
+        if (attempt < MAX_RETRIES - 1) {
+          await sleep(Math.min(waitMs, 30_000))
+          continue
+        }
+        return response
+      }
+
+      // --- Server errors (500+) ---
+      if (response.status >= 500) {
+        if (attempt < MAX_RETRIES - 1) {
+          await sleep(BASE_RETRY_DELAY_MS * 2 ** attempt)
+          continue
+        }
+        return response
+      }
+
+      // Other status codes — return as-is (no retry)
+      return response
+    }
+
+    throw lastError instanceof Error ? lastError : new Error("Request failed after all retry attempts")
   }
 
   private async headers(input?: HeadersInit, options: KiroRequestHeaderOptions = {}) {
@@ -205,4 +266,8 @@ function isRetryableApiHostError(error: unknown) {
 
 function shouldTryNextApiHost(status: number) {
   return status === 502 || status === 503 || status === 504
+}
+
+function sleep(ms: number) {
+  return new Promise<void>((resolve) => setTimeout(resolve, ms))
 }

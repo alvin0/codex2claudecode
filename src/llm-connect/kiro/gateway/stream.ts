@@ -1,25 +1,38 @@
 import type { ChatCompletionRequest, ClaudeMessagesRequest, JsonObject } from "../../../types"
 import { codexWebCallToClaudeBlocks } from "../../../claude/web"
 
-import { collectKiroEvents, streamKiroEvents } from "./parser"
+import { collectKiroEvents, streamKiroEvents, FirstTokenTimeoutError } from "./parser"
 import type { KiroCollectedResponse } from "./types"
+import { getCachedWebSearchSummary } from "./web-result-cache"
+import { buildWebResultAnswer, extractWebResultAnswerFromMessages, extractWebResultSummaryFromMessages } from "./web-result-text"
 
 export async function collectKiroResponse(response: Response): Promise<KiroCollectedResponse> {
   const events = await collectKiroEvents(response)
-  const state: KiroCollectedResponse = { content: "", events }
+  const state: KiroCollectedResponse = { content: "", events, completed: false }
+  const seenToolUseIds = new Set<string>()
 
   for (const event of events) {
     if (event.type === "content") state.content += event.content
     if (event.type === "thinking") state.thinking = `${state.thinking ?? ""}${event.thinking}`
-    if (event.type === "tool_use") state.toolUses = [...(state.toolUses ?? []), event.toolUse]
+    if (event.type === "tool_use") {
+      if (shouldFilterKiroToolUse(event.toolUse) || seenToolUseIds.has(event.toolUse.id)) continue
+      seenToolUseIds.add(event.toolUse.id)
+      state.toolUses = [...(state.toolUses ?? []), event.toolUse]
+    }
     if (event.type === "web_search") state.webSearches = [...(state.webSearches ?? []), {
       toolUseId: event.toolUseId,
       query: event.query,
       results: event.results,
       summary: event.summary,
     }]
-    if (event.type === "usage") state.usage = event.usage
-    if (event.type === "context_usage") state.contextUsagePercentage = event.contextUsagePercentage
+    if (event.type === "usage") {
+      state.usage = event.usage
+      state.completed = true
+    }
+    if (event.type === "context_usage") {
+      state.contextUsagePercentage = event.contextUsagePercentage
+      state.completed = true
+    }
   }
 
   return state
@@ -97,10 +110,14 @@ export function anthropicStreamResponse(
         let thinkingEverOpened = false
         let textBlockOpen = false
         let hasToolUse = false
+        let hasEmittedTextOrTool = false
         let webSearchRequests = 0
+        let filteredToolCalls = 0
         let lastUsage: Record<string, unknown> | undefined
+        let sawCompletionSignal = false
         let preThinkingBuffer = ""
-        const searchedQueries = new Set<string>()
+        let suppressedThinkingText = ""
+        const emittedToolUseIds = new Set<string>()
 
         function closeThinkingBlock() {
           if (!thinkingBlockOpen) return
@@ -124,6 +141,7 @@ export function anthropicStreamResponse(
         function ensureTextBlock() {
           if (textBlockOpen) return
           textBlockOpen = true
+          hasEmittedTextOrTool = true
           send("content_block_start", {
             type: "content_block_start",
             index: blockIndex,
@@ -154,11 +172,13 @@ export function anthropicStreamResponse(
           },
         })
 
+        let streamError: Error | undefined
         try {
           for await (const event of streamKiroEvents(response)) {
             if (closed) break
 
             if (event.type === "thinking") {
+              if (event.thinking) suppressedThinkingText += event.thinking
               // Open thinking block on first thinking chunk
               if (!thinkingBlockOpen) {
                 thinkingBlockOpen = true
@@ -167,13 +187,6 @@ export function anthropicStreamResponse(
                   type: "content_block_start",
                   index: blockIndex,
                   content_block: { type: "thinking", thinking: "", signature: "" },
-                })
-              }
-              if (event.thinking) {
-                send("content_block_delta", {
-                  type: "content_block_delta",
-                  index: blockIndex,
-                  delta: { type: "thinking_delta", thinking: event.thinking },
                 })
               }
               continue
@@ -190,10 +203,12 @@ export function anthropicStreamResponse(
               closeThinkingBlock()
               ensureTextBlock()
               if (event.content) {
+                const recoveredContent = recoverSuppressedThinkingAnswer(suppressedThinkingText, event.content)
+                suppressedThinkingText = ""
                 send("content_block_delta", {
                   type: "content_block_delta",
                   index: blockIndex,
-                  delta: { type: "text_delta", text: event.content },
+                  delta: { type: "text_delta", text: recoveredContent },
                 })
               }
               continue
@@ -202,58 +217,20 @@ export function anthropicStreamResponse(
             if (event.type === "tool_use") {
               closeThinkingBlock()
 
-              const toolName = event.toolUse.name
-              const toolInput = event.toolUse.input
-              let query = typeof toolInput.query === "string" ? toolInput.query : ""
-
-              // Intercept WebSearch tool calls: call MCP API and inject
-              // results as a text block.  Claude Code does not support
-              // server_tool_use / web_search_tool_result block types from
-              // a proxy, so we surface results as plain text that the model
-              // can reference in its answer.
-              if ((toolName === "WebSearch" || toolName === "web_search") && mcpCall) {
-                // Fallback: extract query from the last user message when
-                // the model omits it (Kiro sometimes sends empty input).
-                if (!query) {
-                  query = extractLastUserText(request) ?? ""
-                }
-                if (!query) continue // nothing to search
-
-                // Deduplicate: skip if we already searched this exact query
-                if (searchedQueries.has(query)) continue
-                searchedQueries.add(query)
-
-                // Call MCP API
-                let summaryLines: string[] = []
-                try {
-                  const mcpResult = await mcpCall("tools/call", { name: "web_search", arguments: { query } })
-                  const resultData = mcpResult?.result as { content?: Array<{ text?: string }>; isError?: boolean } | undefined
-                  if (resultData && !resultData.isError && resultData.content?.[0]?.text) {
-                    const parsed = JSON.parse(resultData.content[0].text) as { results?: Array<{ title?: string; url?: string; snippet?: string }> }
-                    for (const r of parsed.results ?? []) {
-                      const parts = [r.title, r.url, r.snippet].filter(Boolean)
-                      if (parts.length) summaryLines.push(parts.join(" — "))
-                    }
-                  }
-                } catch { /* MCP call failed */ }
-
-                const summaryText = summaryLines.length
-                  ? `[Web search: "${query}"]\n\n${summaryLines.join("\n\n")}`
-                  : `[Web search: "${query}"]\n\nNo results found.`
-
-                // Emit as a text block
-                ensureTextBlock()
-                send("content_block_delta", {
-                  type: "content_block_delta",
-                  index: blockIndex,
-                  delta: { type: "text_delta", text: summaryText },
-                })
+              if (emittedToolUseIds.has(event.toolUse.id) || shouldFilterKiroToolUse(event.toolUse)) {
+                console.warn(
+                  `[kiro-stream] filtering out unsupported/empty tool call: ${event.toolUse.name} ` +
+                  `(input keys: ${Object.keys(event.toolUse.input).length})`,
+                )
+                filteredToolCalls++
                 continue
               }
+              emittedToolUseIds.add(event.toolUse.id)
 
-              // Normal tool_use (non-WebSearch)
               closeTextBlock()
+              suppressedThinkingText = ""
               hasToolUse = true
+              hasEmittedTextOrTool = true
               send("content_block_start", {
                 type: "content_block_start",
                 index: blockIndex,
@@ -276,11 +253,22 @@ export function anthropicStreamResponse(
 
             if (event.type === "usage") {
               lastUsage = event.usage
+              sawCompletionSignal = true
+              continue
+            }
+
+            if (event.type === "context_usage") {
+              sawCompletionSignal = true
               continue
             }
           }
         } catch (error) {
-          console.error(`[kiro-stream] error during streaming: ${error instanceof Error ? error.message : String(error)}`)
+          streamError = error instanceof Error ? error : new Error(String(error))
+          if (error instanceof FirstTokenTimeoutError) {
+            console.error(`[kiro-stream] first token timeout: ${error.message}`)
+          } else {
+            console.error(`[kiro-stream] error during streaming: ${error instanceof Error ? error.message : String(error)}`)
+          }
         }
 
         // If we only got pre-thinking content and no thinking block ever
@@ -292,10 +280,93 @@ export function anthropicStreamResponse(
         closeThinkingBlock()
         closeTextBlock()
 
+        // Anthropic streaming spec requires at least one text content
+        // block in the response.  When the model only produced thinking
+        // (no text, no tool_use), emit an empty text block so Claude Code
+        // does not receive a message with zero content blocks.
+        //
+        // If the stream was interrupted by an error, include a brief
+        // notice so the user knows something went wrong rather than
+        // seeing a completely blank response.
+        //
+        // If the model only produced thinking (e.g. it wanted to use a
+        // tool that isn't available, like web_fetch after a web_search),
+        // emit a helpful notice instead of a blank response.
+        const cachedWebSummary = getCachedWebSearchSummary(request, extractLastUserText(request))
+        const fallbackWebAnswer =
+          extractWebResultAnswerFromMessages(request.messages, extractLastUserText(request)) ||
+          cachedWebSummary
+
+        if (hasEmittedTextOrTool && !hasToolUse && filteredToolCalls > 0 && webSearchRequests === 0) {
+          const fallbackText =
+            fallbackWebAnswer ||
+            extractWebResultSummaryFromMessages(request.messages) ||
+            "The web search completed, but no readable result content was available to summarize."
+
+          send("content_block_start", {
+            type: "content_block_start",
+            index: blockIndex,
+            content_block: { type: "text", text: "" },
+          })
+          send("content_block_delta", {
+            type: "content_block_delta",
+            index: blockIndex,
+            delta: { type: "text_delta", text: `\n\n${fallbackText}` },
+          })
+          send("content_block_stop", { type: "content_block_stop", index: blockIndex })
+          blockIndex += 1
+        }
+
+        if (!hasEmittedTextOrTool && !hasToolUse && webSearchRequests === 0) {
+          let fallbackText = ""
+          if (streamError) {
+            fallbackText = "[Stream interrupted] The response was cut short due to a connection issue. Please try again."
+          } else if (filteredToolCalls > 0) {
+            // Model tried to use unsupported tools (e.g. WebFetch after
+            // a web search).  This typically means the search results
+            // contained enough data but the model wanted more detail.
+            // Return the available result text instead of ending with a
+            // placeholder that sounds like a continuation.
+            fallbackText =
+              fallbackWebAnswer ||
+              extractWebResultSummaryFromMessages(request.messages) ||
+              "The web search completed, but no readable result content was available to summarize."
+          } else if (cachedWebSummary) {
+            fallbackText = cachedWebSummary
+          } else if (thinkingEverOpened) {
+            fallbackText =
+              "I wasn't able to generate a complete response. " +
+              "Please try rephrasing your question or providing more context."
+          }
+
+          send("content_block_start", {
+            type: "content_block_start",
+            index: blockIndex,
+            content_block: { type: "text", text: "" },
+          })
+          if (fallbackText) {
+            send("content_block_delta", {
+              type: "content_block_delta",
+              index: blockIndex,
+              delta: { type: "text_delta", text: fallbackText },
+            })
+          }
+          send("content_block_stop", { type: "content_block_stop", index: blockIndex })
+          blockIndex += 1
+        }
+
+        const contentWasTruncated = !sawCompletionSignal && hasEmittedTextOrTool && !hasToolUse && filteredToolCalls === 0
+        const stopReason = hasToolUse ? "tool_use" : contentWasTruncated ? "max_tokens" : "end_turn"
+
         send("message_delta", {
           type: "message_delta",
-          delta: { stop_reason: hasToolUse ? "tool_use" : "end_turn", stop_sequence: null },
-          usage: anthroUsage(lastUsage),
+          delta: { stop_reason: stopReason, stop_sequence: null },
+          usage: {
+            ...anthroUsage(lastUsage),
+            ...(webSearchRequests > 0
+              ? { server_tool_use: { web_search_requests: webSearchRequests } }
+              : {}),
+          },
         })
         send("message_stop", { type: "message_stop" })
         if (!closed) controller.close()
@@ -309,6 +380,95 @@ export function anthropicStreamResponse(
       },
     },
   )
+}
+
+function recoverSuppressedThinkingAnswer(thinking: string, content: string) {
+  const answerTail = extractAnswerTailFromThinking(thinking)
+  if (answerTail) return mergeOverlappingText(answerTail, content)
+  const genericContinuation = extractGenericThinkingContinuation(thinking, content)
+  if (!genericContinuation) return content
+  return stitchThinkingContinuation(genericContinuation, content)
+}
+
+function shouldFilterKiroToolUse(toolUse: { name: string; input: JsonObject }) {
+  const isEmptyInput = Object.keys(toolUse.input).length === 0
+  const isUnsupportedTool = /^WebFetch$/i.test(toolUse.name)
+  return isUnsupportedTool || (isEmptyInput && toolUse.name !== "WebSearch")
+}
+
+function extractGenericThinkingContinuation(thinking: string, content: string) {
+  const trimmedContent = content.replace(/^\s+/, "")
+  if (!trimmedContent || !/^[\p{Ll}\p{Lo}\p{M}]/u.test(trimmedContent)) return ""
+
+  const normalized = thinking
+    .replace(/\s+/g, " ")
+    .trim()
+  if (!normalized) return ""
+
+  const tail = normalized.slice(-120)
+  const boundary = Math.max(
+    tail.lastIndexOf(". "),
+    tail.lastIndexOf("! "),
+    tail.lastIndexOf("? "),
+    tail.lastIndexOf("\n"),
+  )
+  const clause = (boundary >= 0 ? tail.slice(boundary + 1) : tail).trimStart()
+  const lastToken = clause.match(/([\p{L}\p{N}_-]{1,32})$/u)?.[1] ?? ""
+  if (!lastToken || lastToken.length > 3) return ""
+  return clause
+}
+
+function stitchThinkingContinuation(prefix: string, suffix: string) {
+  if (!prefix) return suffix
+  if (!suffix) return prefix
+  const leadingWhitespace = suffix.match(/^\s*/)?.[0] ?? ""
+  const trimmedSuffix = suffix.slice(leadingWhitespace.length)
+  if (trimmedSuffix && /[\p{L}\p{N}]$/u.test(prefix) && /^[\p{L}\p{N}]/u.test(trimmedSuffix)) {
+    return `${prefix}${trimmedSuffix}`
+  }
+  if (leadingWhitespace) return `${prefix}${suffix}`
+  return mergeOverlappingText(prefix, suffix)
+}
+
+function extractAnswerTailFromThinking(thinking: string) {
+  const normalized = thinking.replace(/^\s+/, "")
+  if (!normalized) return ""
+
+  const patterns = [
+    /(?:Gia|Giá)\s+Bitcoin[\s\S]{0,400}$/i,
+    /Bitcoin is currently[\s\S]{0,400}$/i,
+    /Để xem giá[\s\S]{0,300}$/i,
+    /Nguon:\s*[\s\S]{0,300}$/i,
+    /Sources:\s*[\s\S]{0,300}$/i,
+  ]
+
+  for (const pattern of patterns) {
+    const match = normalized.match(pattern)
+    if (match?.[0]) return match[0]
+  }
+
+  return ""
+}
+
+function mergeOverlappingText(prefix: string, suffix: string) {
+  if (!prefix) return suffix
+  if (!suffix) return prefix
+  if (prefix.includes(suffix)) return prefix
+  if (suffix.includes(prefix)) return suffix
+
+  const maxOverlap = Math.min(prefix.length, suffix.length)
+  for (let length = maxOverlap; length > 0; length -= 1) {
+    if (prefix.slice(-length) === suffix.slice(0, length)) {
+      return prefix + suffix.slice(length)
+    }
+  }
+  if (/\s$/.test(prefix) || /^\s/.test(suffix)) {
+    return prefix + suffix
+  }
+  if (/[A-Za-z0-9*_)>\]]$/.test(prefix) && /^[A-Za-z0-9*_(<\[]/.test(suffix)) {
+    return `${prefix} ${suffix}`
+  }
+  return prefix + suffix
 }
 
 export function openAiStreamResponse(response: Response, request: ChatCompletionRequest) {
@@ -331,6 +491,7 @@ export function openAiStreamResponse(response: Response, request: ChatCompletion
 
         let firstChunk = true
         const pendingToolUses: Array<{ id: string; name: string; input: JsonObject }> = []
+        const emittedToolUseIds = new Set<string>()
         let lastUsage: Record<string, unknown> | undefined
 
         try {
@@ -380,6 +541,8 @@ export function openAiStreamResponse(response: Response, request: ChatCompletion
             }
 
             if (event.type === "tool_use") {
+              if (emittedToolUseIds.has(event.toolUse.id) || shouldFilterKiroToolUse(event.toolUse)) continue
+              emittedToolUseIds.add(event.toolUse.id)
               pendingToolUses.push(event.toolUse)
               continue
             }
@@ -390,7 +553,11 @@ export function openAiStreamResponse(response: Response, request: ChatCompletion
             }
           }
         } catch (error) {
-          console.error(`[kiro-stream] error during OpenAI streaming: ${error instanceof Error ? error.message : String(error)}`)
+          if (error instanceof FirstTokenTimeoutError) {
+            console.error(`[kiro-stream] first token timeout (OpenAI): ${error.message}`)
+          } else {
+            console.error(`[kiro-stream] error during OpenAI streaming: ${error instanceof Error ? error.message : String(error)}`)
+          }
         }
 
         if (pendingToolUses.length) {
@@ -442,14 +609,27 @@ export function openAiStreamResponse(response: Response, request: ChatCompletion
 }
 
 export function anthropicJsonResponse(collected: KiroCollectedResponse, request: ClaudeMessagesRequest) {
+  const lastUserText = extractLastUserText(request)
+  const fallbackWebAnswer =
+    extractWebResultAnswerFromMessages(request.messages, lastUserText) ||
+    getCachedWebSearchSummary(request, lastUserText)
+  const contentWasTruncated = collected.completed === false && Boolean(collected.content) && !(collected.toolUses?.length)
+  const fallbackText =
+    collected.content ||
+    (
+      !(collected.toolUses?.length) &&
+      !(collected.webSearches?.length) &&
+      (fallbackWebAnswer || (collected.thinking ? "I wasn't able to generate a complete response. Please try rephrasing your question or providing more context." : ""))
+    ) ||
+    ""
+
   return {
     id: `msg_${crypto.randomUUID().replace(/-/g, "")}`,
     type: "message",
     role: "assistant",
     model: request.model,
     content: [
-      ...(collected.thinking ? [{ type: "thinking", thinking: collected.thinking }] : []),
-      ...(collected.content ? [{ type: "text", text: collected.content }] : []),
+      ...(fallbackText ? [{ type: "text", text: fallbackText }] : []),
       ...(collected.toolUses ?? []).map((tool) => ({
         type: "tool_use",
         id: tool.id,
@@ -467,7 +647,7 @@ export function anthropicJsonResponse(collected: KiroCollectedResponse, request:
         ).content,
       ),
     ],
-    stop_reason: collected.toolUses?.length ? "tool_use" : "end_turn",
+    stop_reason: collected.toolUses?.length ? "tool_use" : contentWasTruncated ? "max_tokens" : "end_turn",
     stop_sequence: null,
     usage: anthroUsage(collected.usage),
   }

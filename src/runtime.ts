@@ -59,15 +59,17 @@ export async function startRuntime(options?: RuntimeOptions) {
           proxy?: RequestProxyLog,
           responseBody?: string,
         ): Promise<RequestLogEntry> {
+          const resolvedError =
+            error ?? (response.status >= 400 && responseBody !== undefined ? responseErrorText(responseBody) : await responseErrorMessage(response))
           return {
             id: requestId,
-            state: "complete",
+            state: requestStateFromResult(resolvedError),
             at: new Date().toISOString(),
             method: request.method,
             path: `${url.pathname}${url.search}`,
             status: response.status,
             durationMs,
-            error: error ?? (response.status >= 400 && responseBody !== undefined ? responseErrorText(responseBody) : await responseErrorMessage(response)),
+            error: resolvedError,
             requestHeaders: headersPreview,
             requestBody,
             responseBody,
@@ -92,12 +94,12 @@ export async function startRuntime(options?: RuntimeOptions) {
 
         async function emitRequestLog(response: Response, durationMs: number, error?: string, proxy?: RequestProxyLog, responseBody?: string) {
           const entry = await requestLog(response, durationMs, error, proxy, responseBody)
+          onRequestLog?.(entry)
           try {
             await appendRequestLog(authFile, entry)
           } catch (logError) {
             warnRequestLogError(authFile, logError)
           }
-          onRequestLog?.(entry)
         }
 
         onRequestLogStart?.(pendingRequestLog())
@@ -111,7 +113,13 @@ export async function startRuntime(options?: RuntimeOptions) {
           }
           return responseWithLoggedBody(response as Response & { body: ReadableStream<Uint8Array> }, async (responseBody, responseError) => {
             const durationMs = Date.now() - started
-            if (!quiet) logResponseEnd(requestId, request, url, response, durationMs)
+            if (!quiet) {
+              if (isCancelledResult(responseError)) {
+                logResponseCancelled(requestId, request, url, response, durationMs, responseError)
+              } else {
+                logResponseEnd(requestId, request, url, response, durationMs)
+              }
+            }
             await emitRequestLog(response, durationMs, responseError, proxy, responseBody)
           })
         }
@@ -502,6 +510,17 @@ function logResponseEnd(id: string, request: Request, url: URL, response: Respon
   console[level](`[${id}] <- ${response.status} ${request.method} ${url.pathname} ${durationMs}ms`)
 }
 
+function logResponseCancelled(
+  id: string,
+  request: Request,
+  url: URL,
+  response: Response,
+  durationMs: number,
+  reason: string,
+) {
+  console.warn(`[${id}] ~ ${response.status} ${request.method} ${url.pathname} ${durationMs}ms ${reason}`)
+}
+
 function logRequestError(id: string, request: Request, url: URL, error: unknown, durationMs: number) {
   console.error(
     `[${id}] !! ${request.method} ${url.pathname} ${durationMs}ms ${error instanceof Error ? error.stack || error.message : String(error)}`,
@@ -533,6 +552,14 @@ function responseErrorText(text: string) {
   return redactSecrets(text).slice(0, LOG_BODY_PREVIEW_LIMIT)
 }
 
+export function isCancelledResult(error?: string) {
+  return Boolean(error && /^response cancelled:/i.test(error))
+}
+
+export function requestStateFromResult(error?: string): RequestLogEntry["state"] {
+  return isCancelledResult(error) ? "cancelled" : "complete"
+}
+
 function isJsonObject(value: unknown): value is JsonObject {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value)
 }
@@ -560,7 +587,7 @@ function previewText(text: string) {
   return text.slice(0, LOG_BODY_PREVIEW_LIMIT)
 }
 
-function responseWithLoggedBody(
+export function responseWithLoggedBody(
   response: Response & { body: ReadableStream<Uint8Array> },
   onComplete: (responseBody?: string, responseError?: string) => Promise<void>,
 ) {

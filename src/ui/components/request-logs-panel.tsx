@@ -23,8 +23,9 @@ export function RequestLogsPanel(props: {
   const hasMoreBelow = start + LOG_HEIGHT < props.logs.length
   const detail = props.logs[selected]
 
-  const pendingCount = props.logs.filter((l) => l.state === "pending").length
-  const errorCount = props.logs.filter((l) => l.error !== "-" || (l.proxy?.error !== undefined && l.proxy.error !== "-")).length
+  const pendingCount = props.logs.filter((l) => isPendingLog(l)).length
+  const cancelledCount = props.logs.filter((l) => isCancelledLog(l)).length
+  const errorCount = props.logs.filter((l) => !isCancelledLog(l) && (l.error !== "-" || (l.proxy?.error !== undefined && l.proxy.error !== "-"))).length
 
   return (
     <Box flexDirection="column" marginTop={1}>
@@ -92,13 +93,19 @@ export function RequestLogsPanel(props: {
             <Text color="yellow">{pendingCount}</Text>
           </>
         )}
+        {cancelledCount > 0 && (
+          <>
+            <Text color="#6b7280">  ~ Cancelled: </Text>
+            <Text color="yellow">{cancelledCount}</Text>
+          </>
+        )}
         {errorCount > 0 && (
           <>
             <Text color="#6b7280">  ✗ Errors: </Text>
             <Text color="red">{errorCount}</Text>
           </>
         )}
-        {pendingCount === 0 && errorCount === 0 && props.logs.length > 0 && (
+        {pendingCount === 0 && cancelledCount === 0 && errorCount === 0 && props.logs.length > 0 && (
           <>
             <Text color="#6b7280">  </Text>
             <Text color="green">✓ All OK</Text>
@@ -111,7 +118,8 @@ export function RequestLogsPanel(props: {
 }
 
 function LogRow(props: { log: RequestLogEntry; index: number; selected: boolean }) {
-  const pending = props.log.state === "pending"
+  const pending = isPendingLog(props.log)
+  const cancelled = isCancelledLog(props.log)
   const isNew = pending
 
   return (
@@ -120,24 +128,28 @@ function LogRow(props: { log: RequestLogEntry; index: number; selected: boolean 
         <Text color={props.selected ? "#d97757" : "#4b5563"}>{String(props.index).padStart(3, " ")} </Text>
       </Box>
       <Box width={2}>
-        <Text color={props.selected ? "#d97757" : isNew ? "#facc15" : "gray"}>{props.selected ? "›" : isNew ? "⏳" : " "}</Text>
+        <Text color={props.selected ? "#d97757" : isNew || cancelled ? "#facc15" : "gray"}>
+          {props.selected ? "›" : isNew ? "⏳" : cancelled ? "~" : " "}
+        </Text>
       </Box>
       <Box width={10}>
-        <Text color={props.selected ? "#d97757" : isNew ? "#facc15" : "gray"}>{props.log.id}</Text>
+        <Text color={props.selected ? "#d97757" : isNew || cancelled ? "#facc15" : "gray"}>{props.log.id}</Text>
       </Box>
       <Box width={10}>
-        <Text color={isNew ? "#facc15" : "#aab3cf"}>
+        <Text color={isNew || cancelled ? "#facc15" : "#aab3cf"}>
           {new Date(props.log.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false })}
         </Text>
       </Box>
       <Box width={7}>
-        <Text color={isNew ? "#facc15" : undefined}>{props.log.method}</Text>
+        <Text color={isNew || cancelled ? "#facc15" : undefined}>{props.log.method}</Text>
       </Box>
       <Box width={30}>
-        <Text color={isNew ? "#facc15" : "#aab3cf"}>{truncate(props.log.path, 28)}</Text>
+        <Text color={isNew || cancelled ? "#facc15" : "#aab3cf"}>{truncate(props.log.path, 28)}</Text>
       </Box>
       <Box width={8}>
-        <Text color={pending ? "yellow" : statusColor(props.log.status)}>{pending ? "···" : props.log.status}</Text>
+        <Text color={pending || cancelled ? "yellow" : statusColor(props.log.status)}>
+          {pending ? "···" : cancelled ? "cxl" : props.log.status}
+        </Text>
       </Box>
       <Box width={8}>
         <Text color={props.log.proxy ? statusColor(props.log.proxy.status) : "gray"}>
@@ -202,7 +214,8 @@ function formatDuration(ms: number): string {
 }
 
 function summaryText(log: RequestLogEntry) {
-  if (log.state === "pending") return "⏳ in process"
+  if (isPendingLog(log)) return "⏳ in process"
+  if (isCancelledLog(log)) return log.error !== "-" ? log.error : "cancelled by client"
   if (log.proxy && log.proxy.error !== "-") return `proxy: ${log.proxy.error}`
   if (log.error !== "-") return log.error
   if (log.proxy) return `${log.proxy.label} ${log.proxy.status}`
@@ -210,7 +223,7 @@ function summaryText(log: RequestLogEntry) {
 }
 
 function summaryColor(log: RequestLogEntry) {
-  if (log.state === "pending") return "yellow"
+  if (isPendingLog(log) || isCancelledLog(log)) return "yellow"
   if (log.proxy?.error !== "-" || log.error !== "-") return "red"
   if (log.proxy && log.proxy.status >= 400) return statusColor(log.proxy.status)
   return "gray"
@@ -227,11 +240,22 @@ function formatKeyValue(value: Record<string, string>) {
 }
 
 function buildDetailLines(log: RequestLogEntry) {
-  const pending = log.state === "pending"
+  const pending = isPendingLog(log)
+  const cancelled = isCancelledLog(log)
   return [
     { text: `[${log.id}] ${formatTimestamp(log.at)} · ${log.method} ${log.path}`, color: "gray" },
-    { text: pending ? "Client status: in process" : `Client status: ${log.status} · ${log.durationMs}ms`, color: pending ? "yellow" : statusColor(log.status) },
-    { text: `Client error: ${log.error}`, color: log.error === "-" ? "gray" : "red" },
+    {
+      text: pending
+        ? "Client status: in process"
+        : cancelled
+          ? `Client status: cancelled · ${log.status} · ${log.durationMs}ms`
+          : `Client status: ${log.status} · ${log.durationMs}ms`,
+      color: pending || cancelled ? "yellow" : statusColor(log.status),
+    },
+    {
+      text: `${cancelled ? "Client note" : "Client error"}: ${log.error}`,
+      color: log.error === "-" ? "gray" : cancelled ? "yellow" : "red",
+    },
     { text: "", color: "gray" },
     { text: "Request headers", color: "#c7d2fe" },
     ...blockLines(formatKeyValue(log.requestHeaders), "#aab3cf"),
@@ -239,7 +263,7 @@ function buildDetailLines(log: RequestLogEntry) {
     { text: "Request body preview", color: "#c7d2fe" },
     ...blockLines(formatStructuredText(log.requestBody), log.requestBody ? "#aab3cf" : "gray"),
     { text: "", color: "gray" },
-    { text: "Response body preview", color: "#c7d2fe" },
+    { text: cancelled ? "Response body preview (partial)" : "Response body preview", color: "#c7d2fe" },
     ...blockLines(formatStructuredText(log.responseBody), log.responseBody ? "#aab3cf" : "gray"),
     { text: "", color: "gray" },
     { text: "Proxy", color: "#c7d2fe" },
@@ -291,4 +315,12 @@ function statusColor(status: number) {
   if (status >= 500) return "red"
   if (status >= 400) return "yellow"
   return "green"
+}
+
+function isPendingLog(log: RequestLogEntry) {
+  return log.state === "pending"
+}
+
+function isCancelledLog(log: RequestLogEntry) {
+  return log.state === "cancelled" || /^response cancelled:/i.test(log.error)
 }
