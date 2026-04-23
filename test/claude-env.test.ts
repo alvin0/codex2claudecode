@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
 
-import { CLAUDE_CODE_ENV_CONFIG } from "../src/claude-code-env.config"
+import { CLAUDE_CODE_ENV_CONFIG } from "../src/inbound/claude/claude-code-env.config"
 import {
   claudeEnvironmentCommands,
   claudeEnvironmentConfigPath,

@@ -1,6 +1,6 @@
 export * from "./src/index"
 
-import { parseCliOptions } from "./src/cli"
+import { parseCliOptions } from "./src/app/cli"
 import { runExample, startRuntime } from "./src/index"
 import { runUi } from "./src/ui"
 

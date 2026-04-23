@@ -3,10 +3,10 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
 
-import { LOG_BODY_PREVIEW_LIMIT } from "../src/constants"
-import { cors, responseHeaders } from "../src/http"
-import { requestLogFilePath } from "../src/request-logs"
-import { startRuntime } from "../src/runtime"
+import { LOG_BODY_PREVIEW_LIMIT } from "../src/core/constants"
+import { cors, responseHeaders } from "../src/core/http"
+import { requestLogFilePath } from "../src/core/request-logs"
+import { startRuntime } from "../src/app/runtime"
 import { sse } from "./helpers"
 
 const tempDirs: string[] = []

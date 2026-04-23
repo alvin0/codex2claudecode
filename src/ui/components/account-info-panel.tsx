@@ -1,7 +1,7 @@
 import React from "react"
 import { Box, Text } from "ink"
 
-import type { AccountInfo } from "../../account-info"
+import type { AccountInfo } from "../../upstream/codex/account-info"
 import type { AccountView } from "../types"
 
 export function AccountInfoPanel(props: { account?: AccountView; info?: AccountInfo }) {

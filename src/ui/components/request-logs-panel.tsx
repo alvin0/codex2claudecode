@@ -1,7 +1,7 @@
 import React from "react"
 import { Box, Text } from "ink"
 
-import type { RequestLogEntry } from "../../types"
+import type { RequestLogEntry } from "../../core/types"
 
 const LOG_HEIGHT = 15
 const DETAIL_HEIGHT = 16

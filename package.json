@@ -44,5 +44,8 @@
     "ink": "^7.0.1",
     "react": "^19.2.5",
     "react-devtools-core": "^7.0.1"
+  },
+  "devDependencies": {
+    "fast-check": "^4.7.0"
   }
 }

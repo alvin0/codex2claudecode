@@ -10,7 +10,7 @@ import {
   refreshActiveAccountInfo,
   writeAccountInfoFile,
   writeActiveAccountInfo,
-} from "../src/account-info"
+} from "../src/upstream/codex/account-info"
 import { jwt } from "./helpers"
 
 const tempDirs: string[] = []

@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
 
-import { CodexStandaloneClient } from "../src/client"
+import { CodexStandaloneClient } from "../src/upstream/codex/client"
 import { jwt, sse } from "./helpers"
 
 const tempDirs: string[] = []

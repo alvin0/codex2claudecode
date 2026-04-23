@@ -1,0 +1,270 @@
+{
+  "modules": [
+    {
+      "path": "src/app/bin",
+      "file": "src/app/bin.ts",
+      "exports": []
+    },
+    {
+      "path": "src/app/cli",
+      "file": "src/app/cli.ts",
+      "exports": [
+        "CliOptions",
+        "parseCliOptions"
+      ]
+    },
+    {
+      "path": "src/app/package-info",
+      "file": "src/app/package-info.ts",
+      "exports": [
+        "packageInfo"
+      ]
+    },
+    {
+      "path": "src/app/runtime",
+      "file": "src/app/runtime.ts",
+      "exports": [
+        "startRuntime"
+      ]
+    },
+    {
+      "path": "src/index",
+      "file": "src/index.ts",
+      "exports": [
+        "AccountInfo",
+        "AccountInfoFile",
+        "AuthFileContent",
+        "AuthFileData",
+        "ChatCompletionRequest",
+        "ClaudeFunctionTool",
+        "ClaudeMcpServer",
+        "ClaudeMcpToolset",
+        "ClaudeMessagesRequest",
+        "ClaudeTool",
+        "CliOptions",
+        "CodexClientOptions",
+        "CodexClientTokens",
+        "CodexStandaloneClient",
+        "HealthStatus",
+        "IdTokenClaims",
+        "JsonObject",
+        "RequestLogEntry",
+        "RequestOptions",
+        "RequestProxyLog",
+        "ResponsesRequest",
+        "RuntimeOptions",
+        "SseEvent",
+        "TokenResponse",
+        "accountInfoFromAuth",
+        "accountInfoFromAuthData",
+        "accountInfoKey",
+        "accountInfoPath",
+        "extractAccountId",
+        "extractAccountIdFromClaims",
+        "normalizeReasoningBody",
+        "normalizeRequestBody",
+        "packageInfo",
+        "parseCliOptions",
+        "parseJwtClaims",
+        "readAccountInfoFile",
+        "readAuthFile",
+        "readAuthFileData",
+        "refreshActiveAccountInfo",
+        "runExample",
+        "selectAuthEntry",
+        "startRuntime",
+        "writeAccountInfoFile",
+        "writeActiveAccountInfo"
+      ]
+    },
+    {
+      "path": "src/ui/accounts",
+      "file": "src/ui/accounts.ts",
+      "exports": [
+        "authDataToAccounts",
+        "selectedAccountIndex"
+      ]
+    },
+    {
+      "path": "src/ui/app",
+      "file": "src/ui/app.tsx",
+      "exports": [
+        "CodexCodeApp"
+      ]
+    },
+    {
+      "path": "src/ui/claude-env",
+      "file": "src/ui/claude-env.ts",
+      "exports": [
+        "CLAUDE_ENV_FIXED",
+        "CLAUDE_ENV_KEYS",
+        "CLAUDE_MODEL_ENV_KEYS",
+        "ClaudeEnvironmentDraft",
+        "ClaudeEnvironmentRunOptions",
+        "ClaudeModelEnvKey",
+        "ClaudeSettingsScope",
+        "ShellDetection",
+        "ShellKind",
+        "applyClaudeEnvironment",
+        "claudeEnvironmentCommands",
+        "claudeEnvironmentConfigPath",
+        "claudeEnvironmentExports",
+        "claudeEnvironmentPowerShellCommands",
+        "claudeEnvironmentUnsetCommands",
+        "claudeSettingsPath",
+        "claudeSettingsPathForScope",
+        "claudeSettingsScopeLabel",
+        "defaultClaudeEnvironment",
+        "detectShell",
+        "echoClaudeEnvironment",
+        "echoClaudeEnvironmentUnset",
+        "persistClaudeEnvironment",
+        "persistClaudeEnvironmentUnset",
+        "readClaudeEnvironmentConfig",
+        "runClaudeEnvironmentSet",
+        "runClaudeEnvironmentUnset",
+        "unsetClaudeEnvironment",
+        "writeClaudeEnvironmentConfig"
+      ]
+    },
+    {
+      "path": "src/ui/clipboard",
+      "file": "src/ui/clipboard.ts",
+      "exports": [
+        "writeClipboard"
+      ]
+    },
+    {
+      "path": "src/ui/commands",
+      "file": "src/ui/commands.ts",
+      "exports": [
+        "UI_COMMANDS",
+        "UiCommand",
+        "filterCommands"
+      ]
+    },
+    {
+      "path": "src/ui/components/account-info-panel",
+      "file": "src/ui/components/account-info-panel.tsx",
+      "exports": [
+        "AccountInfoPanel"
+      ]
+    },
+    {
+      "path": "src/ui/components/account-selector",
+      "file": "src/ui/components/account-selector.tsx",
+      "exports": [
+        "AccountSelector"
+      ]
+    },
+    {
+      "path": "src/ui/components/claude-environment-editor",
+      "file": "src/ui/components/claude-environment-editor.tsx",
+      "exports": [
+        "ClaudeEnvironmentEditor"
+      ]
+    },
+    {
+      "path": "src/ui/components/claude-environment-scope-selector",
+      "file": "src/ui/components/claude-environment-scope-selector.tsx",
+      "exports": [
+        "ClaudeEnvironmentScopeSelector"
+      ]
+    },
+    {
+      "path": "src/ui/components/claude-environment-unset-confirm",
+      "file": "src/ui/components/claude-environment-unset-confirm.tsx",
+      "exports": [
+        "ClaudeEnvironmentUnsetConfirm"
+      ]
+    },
+    {
+      "path": "src/ui/components/command-input",
+      "file": "src/ui/components/command-input.tsx",
+      "exports": [
+        "CommandInput"
+      ]
+    },
+    {
+      "path": "src/ui/components/command-output",
+      "file": "src/ui/components/command-output.tsx",
+      "exports": [
+        "CommandOutput"
+      ]
+    },
+    {
+      "path": "src/ui/components/connect-account-wizard",
+      "file": "src/ui/components/connect-account-wizard.tsx",
+      "exports": [
+        "ConnectAccountWizard"
+      ]
+    },
+    {
+      "path": "src/ui/components/connect-source-selector",
+      "file": "src/ui/components/connect-source-selector.tsx",
+      "exports": [
+        "CONNECT_SOURCES",
+        "ConnectSourceSelector"
+      ]
+    },
+    {
+      "path": "src/ui/components/limits-panel",
+      "file": "src/ui/components/limits-panel.tsx",
+      "exports": [
+        "LimitsPanel"
+      ]
+    },
+    {
+      "path": "src/ui/components/request-logs-panel",
+      "file": "src/ui/components/request-logs-panel.tsx",
+      "exports": [
+        "RequestLogsPanel",
+        "formatAllRequestLogs",
+        "formatRequestLogDetail"
+      ]
+    },
+    {
+      "path": "src/ui/components/welcome-panel",
+      "file": "src/ui/components/welcome-panel.tsx",
+      "exports": [
+        "WelcomePanel"
+      ]
+    },
+    {
+      "path": "src/ui/index",
+      "file": "src/ui/index.tsx",
+      "exports": [
+        "CodexCodeApp",
+        "runUi"
+      ]
+    },
+    {
+      "path": "src/ui/limits",
+      "file": "src/ui/limits.ts",
+      "exports": [
+        "LimitGroupView",
+        "LimitRowView",
+        "UsageView",
+        "usageToView"
+      ]
+    },
+    {
+      "path": "src/ui/runtime-state",
+      "file": "src/ui/runtime-state.ts",
+      "exports": [
+        "accountShortLabel",
+        "accountSubtitle",
+        "modelLabel",
+        "runtimeLine"
+      ]
+    },
+    {
+      "path": "src/ui/types",
+      "file": "src/ui/types.ts",
+      "exports": [
+        "AccountView",
+        "RuntimeState"
+      ]
+    }
+  ]
+}

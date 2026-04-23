@@ -1,7 +1,7 @@
 import React from "react"
 import { Box, Text } from "ink"
 
-import type { ConnectAccountDraft } from "../../connect-account"
+import type { ConnectAccountDraft } from "../../upstream/codex/connect-account"
 
 const FIELDS = [
   { key: "accountId", label: "accountId", secret: false },

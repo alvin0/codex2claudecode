@@ -1,6 +1,6 @@
 import { Box, Text } from "ink"
 
-import { CLAUDE_CODE_ENV_CONFIG } from "../../claude-code-env.config"
+import { CLAUDE_CODE_ENV_CONFIG } from "../../inbound/claude/claude-code-env.config"
 import { CLAUDE_ENV_FIXED, CLAUDE_MODEL_ENV_KEYS, type ClaudeEnvironmentDraft, type ShellKind } from "../claude-env"
 
 export function ClaudeEnvironmentEditor(props: {

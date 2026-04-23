@@ -1,8 +1,8 @@
 import { readFile, writeFile } from "node:fs/promises"
 import { homedir } from "node:os"
 import path from "node:path"
-import { CLAUDE_CODE_ENV_CONFIG, type ClaudeCodeEditableEnvKey } from "../claude-code-env.config"
-import { ensureParentDir } from "../paths"
+import { CLAUDE_CODE_ENV_CONFIG, type ClaudeCodeEditableEnvKey } from "../inbound/claude/claude-code-env.config"
+import { ensureParentDir } from "../core/paths"
 
 export const CLAUDE_ENV_FIXED = CLAUDE_CODE_ENV_CONFIG.lockedEnv
 

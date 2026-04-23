@@ -1,6 +1,6 @@
-import { parseJwtClaims, selectAuthEntry } from "../auth"
-import { accountInfoKey } from "../account-info"
-import type { AuthFileContent, AuthFileData } from "../types"
+import { parseJwtClaims, selectAuthEntry } from "../upstream/codex/auth"
+import { accountInfoKey } from "../upstream/codex/account-info"
+import type { AuthFileContent, AuthFileData } from "../upstream/codex/types"
 
 import type { AccountView } from "./types"
 

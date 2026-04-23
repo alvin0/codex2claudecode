@@ -3,8 +3,8 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
 
-import { appendRequestLog, clearRequestLogs, ensureRequestLogFile, MAX_REQUEST_LOG_ENTRIES, readRecentRequestLogs, requestLogFilePath } from "../src/request-logs"
-import type { RequestLogEntry } from "../src/types"
+import { appendRequestLog, clearRequestLogs, ensureRequestLogFile, MAX_REQUEST_LOG_ENTRIES, readRecentRequestLogs, requestLogFilePath } from "../src/core/request-logs"
+import type { RequestLogEntry } from "../src/core/types"
 
 const tempDirs: string[] = []
 

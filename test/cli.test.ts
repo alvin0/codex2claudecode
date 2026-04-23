@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test"
 
-import { parseCliOptions } from "../src/cli"
+import { parseCliOptions } from "../src/app/cli"
 
 test("parses port flags", () => {
   expect(parseCliOptions(["-p", "8786"])).toEqual({ port: 8786 })
