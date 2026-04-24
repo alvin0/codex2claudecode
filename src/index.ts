@@ -22,7 +22,7 @@ export async function runExample() {
   const client = await CodexStandaloneClient.fromAuthFile(resolveAuthFile(process.env.CODEX_AUTH_FILE))
 
   const response = await client.responses({
-    model: "gpt-5.1-codex",
+    model: "gpt-5.5",
     input: "Say hello in one short sentence.",
   })
 
