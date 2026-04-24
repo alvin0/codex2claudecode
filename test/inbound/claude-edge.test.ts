@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test"
 
 import type { Canonical_Response, Canonical_StreamResponse } from "../../src/core/canonical"
 import { Claude_Inbound_Provider } from "../../src/inbound/claude"
-import { claudeToCanonicalRequest } from "../../src/inbound/claude/convert"
+import { claudeToCanonicalRequest, countClaudeInputTokens } from "../../src/inbound/claude/convert"
 import { claudeErrorResponse, claudeStreamErrorEvent } from "../../src/inbound/claude/errors"
 import { Model_Catalog } from "../../src/inbound/claude/models"
 import { canonicalResponseToClaudeMessage, claudeCanonicalStreamResponse, claudeStreamResponse } from "../../src/inbound/claude/response"
@@ -440,6 +440,32 @@ describe("Claude_Inbound_Provider edge cases", () => {
     expect(capturedProxy).toMatchObject({
       target: "/v1/responses/input_tokens",
       responseBody: expect.stringContaining('"input_tokens":27'),
+    })
+  })
+
+  test("count_tokens falls back to local token counting when upstream auth lacks scope", async () => {
+    let capturedProxy: any
+    const provider = new Claude_Inbound_Provider()
+    const body = { model: "gpt-5.4", messages: [{ role: "user" as const, content: "hello" }] }
+    const upstream = {
+      proxy: dummyUpstream.proxy,
+      inputTokens: () => Promise.resolve(Response.json({ error: { message: "Missing scopes: api.responses.write" } }, { status: 401 })),
+      checkHealth: dummyUpstream.checkHealth,
+    }
+
+    const response = await provider.handle(
+      new Request("http://localhost/v1/messages/count_tokens", { method: "POST", body: JSON.stringify(body) }),
+      { path: "/v1/messages/count_tokens", method: "POST" },
+      upstream,
+      { requestId: "req_1", logBody: true, quiet: true, onProxy: (entry) => { capturedProxy = entry } },
+    )
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ input_tokens: countClaudeInputTokens(body) })
+    expect(capturedProxy).toMatchObject({
+      target: "/v1/responses/input_tokens",
+      status: 401,
+      error: expect.stringContaining("Missing scopes"),
     })
   })
 

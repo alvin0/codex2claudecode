@@ -3,7 +3,7 @@ import type { Inbound_Provider, RequestHandlerContext, Route_Descriptor, Upstrea
 import { LOG_BODY_PREVIEW_LIMIT } from "../../core/constants"
 import { createLogPreview } from "../../core/log-preview"
 import type { RequestProxyLog } from "../../core/types"
-import { claudeToCanonicalRequest } from "./convert"
+import { claudeToCanonicalRequest, countClaudeInputTokens } from "./convert"
 import { claudeErrorResponse } from "./errors"
 import { canonicalResponseToClaudeMessage, claudeCanonicalStreamResponse } from "./response"
 import { Model_Catalog, claudeSettingsModelResolver } from "./models"
@@ -133,8 +133,6 @@ export class Claude_Inbound_Provider implements Inbound_Provider {
   }
 
   private async handleCountTokens(request: Request, upstream: Upstream_Provider, context: RequestHandlerContext): Promise<Response> {
-    if (!upstream.inputTokens) return claudeErrorResponse("Codex input token count is not implemented", 501)
-
     let body: ClaudeMessagesRequest
     try {
       body = (await request.json()) as ClaudeMessagesRequest
@@ -150,6 +148,8 @@ export class Claude_Inbound_Provider implements Inbound_Provider {
     } catch (error) {
       return claudeErrorResponse(error instanceof Error ? error.message : String(error), 400)
     }
+
+    if (!upstream.inputTokens) return localCountTokensResponse(body)
 
     const requestBody = context.logBody ? previewText(JSON.stringify(canonicalRequest)) : undefined
     const started = Date.now()
@@ -176,6 +176,7 @@ export class Claude_Inbound_Provider implements Inbound_Provider {
         requestBody,
         responseBody: previewText(text) || undefined,
       })
+      if (response.status === 401 || response.status === 403) return localCountTokensResponse(body)
       return claudeErrorResponse(`Codex input token count failed: ${response.status} ${text}`, response.status)
     }
 
@@ -210,6 +211,10 @@ export { handleClaudeCountTokens, handleClaudeMessages } from "./handlers"
 
 function previewText(text: string) {
   return text.slice(0, LOG_BODY_PREVIEW_LIMIT)
+}
+
+function localCountTokensResponse(body: ClaudeMessagesRequest) {
+  return Response.json({ input_tokens: countClaudeInputTokens(body) })
 }
 
 function withLoggedCanonicalStream(response: Canonical_StreamResponse, proxyLog: RequestProxyLog, started: number, responseBody: () => string | undefined): Canonical_StreamResponse {

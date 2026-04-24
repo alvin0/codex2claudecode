@@ -57,6 +57,7 @@ export function RequestLogsPanel(props: {
   const pendingCount = props.logs.filter((l) => l.state === "pending").length
   const errorCount = props.logs.filter((l) => l.error !== "-" || (l.proxy?.error !== undefined && l.proxy.error !== "-")).length
   const loadingFrame = useSpinner(pendingCount > 0)
+  const now = useNow(pendingCount > 0)
 
   return (
     <Box flexDirection="column" marginTop={1}>
@@ -87,6 +88,7 @@ export function RequestLogsPanel(props: {
               selected={globalIndex === selected}
               table={table}
               loadingFrame={loadingFrame}
+              now={now}
             />
           )
         })
@@ -122,7 +124,7 @@ export function RequestLogsPanel(props: {
   )
 }
 
-function LogRow(props: { log: RequestLogEntry; index: number; selected: boolean; table: TableLayout; loadingFrame: string }) {
+function LogRow(props: { log: RequestLogEntry; index: number; selected: boolean; table: TableLayout; loadingFrame: string; now: number }) {
   const pending = props.log.state === "pending"
   const isNew = pending
 
@@ -134,7 +136,8 @@ function LogRow(props: { log: RequestLogEntry; index: number; selected: boolean;
   const pathStr = truncate(props.log.path, props.table.pathWidth)
   const clientStr = pending ? "..." : String(props.log.status)
   const proxyStr = props.log.proxy ? String(props.log.proxy.status) : pending ? "..." : "-"
-  const durationStr = pending ? "..." : formatDuration(props.log.durationMs)
+  const durationMs = pending ? elapsedDurationMs(props.log.at, props.now) : props.log.durationMs
+  const durationStr = formatDuration(durationMs)
   const summaryStr = summaryText(props.log, props.loadingFrame)
   const summaryTruncated = truncate(summaryStr, props.table.summaryWidth)
 
@@ -148,7 +151,7 @@ function LogRow(props: { log: RequestLogEntry; index: number; selected: boolean;
       <Text color={isNew ? "#facc15" : "#aab3cf"} wrap="truncate-end">{col(pathStr, props.table.pathWidth)}</Text>
       <Text color={pending ? "yellow" : statusColor(props.log.status)} wrap="truncate-end">{col(clientStr, COL_CLIENT)}</Text>
       {props.table.showProxy && <Text color={props.log.proxy ? statusColor(props.log.proxy.status) : "gray"} wrap="truncate-end">{col(proxyStr, COL_PROXY)}</Text>}
-      {props.table.showDuration && <Text color={pending ? "yellow" : durationColor(props.log.durationMs)} wrap="truncate-end">{col(durationStr, COL_DURATION)}</Text>}
+      {props.table.showDuration && <Text color={durationColor(durationMs)} wrap="truncate-end">{col(durationStr, COL_DURATION)}</Text>}
       <Text color={summaryColor(props.log)} wrap="truncate-end">{col(summaryTruncated, props.table.summaryWidth)}</Text>
     </Box>
   )
@@ -284,6 +287,19 @@ function useSpinner(active?: boolean) {
   return active ? LOADING_FRAMES[index] : " "
 }
 
+function useNow(active?: boolean) {
+  const [now, setNow] = useState(() => Date.now())
+
+  useEffect(() => {
+    if (!active) return
+    setNow(Date.now())
+    const timer = setInterval(() => setNow(Date.now()), 250)
+    return () => clearInterval(timer)
+  }, [active])
+
+  return now
+}
+
 /** Color-code duration: green < 1s, yellow 1-5s, red > 5s */
 function durationColor(ms: number): string {
   if (ms < 1000) return "green"
@@ -295,6 +311,12 @@ function durationColor(ms: number): string {
 function formatDuration(ms: number): string {
   if (ms < 1000) return `${ms}ms`
   return `${(ms / 1000).toFixed(1)}s`
+}
+
+function elapsedDurationMs(startedAt: string, now: number) {
+  const startedAtMs = new Date(startedAt).getTime()
+  if (!Number.isFinite(startedAtMs)) return 0
+  return Math.max(0, now - startedAtMs)
 }
 
 function summaryText(log: RequestLogEntry, loadingFrame = " ") {
