@@ -16,6 +16,7 @@ export type UpstreamResult =
 export interface Upstream_Provider {
   proxy(request: Canonical_Request, options?: RequestOptions): Promise<UpstreamResult>
   checkHealth(timeoutMs: number): Promise<HealthStatus>
+  inputTokens?(request: Canonical_Request, options?: RequestOptions): Promise<Response>
   usage?(options?: RequestOptions): Promise<Response>
   environments?(options?: RequestOptions): Promise<Response>
 }
@@ -49,6 +50,7 @@ export interface Inbound_Provider {
 
 export interface RequestHandlerContext {
   requestId: string
+  authFile?: string
   logBody: boolean
   quiet: boolean
   onProxy?: (entry: RequestProxyLog) => void

@@ -2,13 +2,13 @@ import { Box, Text } from "ink";
 
 export function WelcomePanel(props: { hostname: string; port: number }) {
   return (
-    <Box width={54} flexDirection="column" alignItems="center" justifyContent="center" paddingX={2}>
+    <Box width={42} flexDirection="column" paddingX={1}>
       <Text bold>Codex2ClaudeCode</Text>
-      <Box marginTop={2} width={50} flexDirection="column">
+      <Box marginTop={1} width={39} flexDirection="column">
         <Text bold color="#a58a86">Connect</Text>
         <InfoLine label="Base URL" value={`http://${props.hostname}:${props.port}`} />
       </Box>
-      <Box marginTop={1} width={50} flexDirection="column">
+      <Box marginTop={1} width={39} flexDirection="column">
         <Text bold color="#a58a86">Supported endpoints</Text>
         <InfoLine label="Claude" value="/v1/messages" />
         <InfoLine label="" value="/v1/messages/count_tokens" />
@@ -23,7 +23,7 @@ export function WelcomePanel(props: { hostname: string; port: number }) {
 function InfoLine(props: { label: string; value: string }) {
   return (
     <Box>
-      <Box width={12}>
+      <Box width={10}>
         <Text color="gray">{props.label ? `${props.label}:` : ""}</Text>
       </Box>
       <Text color="#aab3cf">{props.value}</Text>

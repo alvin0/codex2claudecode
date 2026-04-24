@@ -1,7 +1,23 @@
-import { describe, expect, test } from "bun:test"
+import { afterEach, describe, expect, test } from "bun:test"
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import path from "node:path"
 
 import { OpenAI_Inbound_Provider } from "../../src/inbound/openai"
+import { codexConfigPath, writeCodexFastModeConfig } from "../../src/inbound/openai/fast-mode"
 import { normalizeCanonicalRequest, normalizeRequestBody } from "../../src/inbound/openai/normalize"
+
+const tempDirs: string[] = []
+
+afterEach(async () => {
+  await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })))
+})
+
+async function tempAuthFile() {
+  const dir = await mkdtemp(path.join(tmpdir(), "openai-inbound-test-"))
+  tempDirs.push(dir)
+  return path.join(dir, "auth-codex.json")
+}
 
 describe("OpenAI inbound normalization", () => {
   test("normalizes responses and chat completions into canonical requests", () => {
@@ -42,6 +58,19 @@ describe("OpenAI inbound normalization", () => {
       store: false,
       stream: true,
     })
+  })
+
+  test("adds service tier fast when requested for responses", () => {
+    expect(normalizeRequestBody("/v1/responses", { model: "gpt-5.4", input: "hello" }, { serviceTier: "fast" })).toMatchObject({
+      service_tier: "fast",
+      input: [{ role: "user", content: [{ type: "input_text", text: "hello" }] }],
+    })
+
+    expect(normalizeCanonicalRequest("/v1/responses", { model: "gpt-5.4", input: "hello" }, { serviceTier: "fast" }).metadata).toMatchObject({
+      serviceTier: "fast",
+    })
+
+    expect(normalizeRequestBody("/v1/chat/completions", { model: "gpt-5.4", messages: [] }, { serviceTier: "fast" }).service_tier).toBeUndefined()
   })
 
   test("property: randomized OpenAI requests become valid canonical requests", () => {
@@ -122,5 +151,45 @@ describe("OpenAI inbound provider", () => {
     )
     expect(invalid.status).toBe(500)
     expect(await invalid.json()).toEqual({ error: { message: expect.stringContaining("Invalid JSON") } })
+  })
+
+  test("reads Codex fast mode from config file", async () => {
+    const authFile = await tempAuthFile()
+    await writeCodexFastModeConfig(authFile, { enabled: true })
+    let capturedRequest: any
+    const provider = new OpenAI_Inbound_Provider()
+    const upstream = {
+      proxy: (request: unknown) => {
+        capturedRequest = request
+        return Promise.resolve({
+          type: "canonical_passthrough" as const,
+          status: 200,
+          statusText: "OK",
+          headers: new Headers(),
+          body: "ok",
+        })
+      },
+      checkHealth: () => Promise.resolve({ ok: true }),
+    }
+
+    await provider.handle(
+      new Request("http://localhost/v1/responses", { method: "POST", body: JSON.stringify({ model: "m", input: "hi" }) }),
+      { path: "/v1/responses", method: "POST" },
+      upstream,
+      { requestId: "req_fast", authFile, logBody: false, quiet: true },
+    )
+
+    expect(capturedRequest.metadata.serviceTier).toBe("fast")
+  })
+
+  test("stores Codex fast mode inside shared Codex config file", async () => {
+    const authFile = await tempAuthFile()
+    await writeFile(codexConfigPath(authFile), `${JSON.stringify({ other: { value: true } }, null, 2)}\n`)
+    await writeCodexFastModeConfig(authFile, { enabled: true })
+
+    expect(JSON.parse(await readFile(codexConfigPath(authFile), "utf8"))).toEqual({
+      other: { value: true },
+      fastMode: { enabled: true },
+    })
   })
 })

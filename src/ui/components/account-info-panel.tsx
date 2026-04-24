@@ -6,7 +6,7 @@ import type { AccountView } from "../types"
 
 export function AccountInfoPanel(props: { account?: AccountView; info?: AccountInfo }) {
   return (
-    <Box flexDirection="column" marginTop={1}>
+    <Box flexDirection="column">
       <Text bold color="#a58a86">Account info</Text>
       <Text color="#aab3cf">{accountInfo(props.account, props.info)}</Text>
     </Box>

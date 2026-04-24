@@ -14,6 +14,7 @@ export interface CodexClientOptions {
   authFile?: string
   authAccount?: string
   codexAuthFile?: string
+  openAiApiKey?: string
 }
 
 export interface TokenResponse {
@@ -47,6 +48,11 @@ export interface ResponsesRequest extends JsonObject {
   model: string
   input: unknown
   stream?: boolean
+}
+
+export interface InputTokensRequest extends JsonObject {
+  model: string
+  input?: unknown
 }
 
 export interface ChatCompletionRequest extends JsonObject {

@@ -32,7 +32,9 @@
       "Bash(node -e \"let s='';process.stdin.on\\('data',d=>s+=d\\).on\\('end',\\(\\)=>s.split\\(/\\\\r?\\\\n/\\).forEach\\(\\(l,i\\)=>{const n=i+1;if\\(n>=1&&n<=90\\) console.log\\(n+': '+l\\)}\\)\\)\")",
       "Bash(node -e \"let s='';process.stdin.on\\('data',d=>s+=d\\).on\\('end',\\(\\)=>s.split\\(/\\\\r?\\\\n/\\).forEach\\(\\(l,i\\)=>{const n=i+1;if\\(n>=83&&n<=130\\) console.log\\(n+': '+l\\)}\\)\\)\")",
       "Bash(node -e \"let s='';process.stdin.on\\('data',d=>s+=d\\).on\\('end',\\(\\)=>console.log\\(s.split\\(/\\\\r?\\\\n/\\).filter\\(Boolean\\).includes\\('src/upstream/codex/index.ts'\\) ? 'staged' : 'not staged'\\)\\)\")",
-      "Bash(node -e \"let s='';process.stdin.on\\('data',d=>s+=d\\).on\\('end',\\(\\)=>s.split\\(/\\\\r?\\\\n/\\).forEach\\(\\(l,i\\)=>{const n=i+1;if\\(n>=210&&n<=280\\) console.log\\(n+': '+l\\)}\\)\\)\")"
+      "Bash(node -e \"let s='';process.stdin.on\\('data',d=>s+=d\\).on\\('end',\\(\\)=>s.split\\(/\\\\r?\\\\n/\\).forEach\\(\\(l,i\\)=>{const n=i+1;if\\(n>=210&&n<=280\\) console.log\\(n+': '+l\\)}\\)\\)\")",
+      "Bash(git apply *)",
+      "Bash(bun run *)"
     ]
   }
 }

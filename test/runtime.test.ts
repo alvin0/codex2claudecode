@@ -30,6 +30,7 @@ function mockFetch(status = 200) {
     if (init?.method === "HEAD") return Promise.resolve(new Response(null, { status: 405 }))
     if (String(url).includes("/usage")) return Promise.resolve(Response.json({ used: true }))
     if (String(url).includes("/environments")) return Promise.resolve(Response.json([]))
+    if (String(url).includes("/responses/input_tokens")) return Promise.resolve(Response.json({ object: "response.input_tokens", input_tokens: 7 }))
     if (status !== 200) return Promise.resolve(new Response("upstream bad", { status }))
     return Promise.resolve(new Response(sse([{ type: "response.output_text.done", text: "ok" }, { type: "response.completed", response: { usage: { input_tokens: 1, output_tokens: 2 } } }])))
   }) as typeof fetch

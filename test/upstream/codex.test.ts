@@ -56,6 +56,12 @@ describe("Codex upstream translation", () => {
     })
   })
 
+  test("translates service tier metadata into Codex responses bodies", () => {
+    expect(canonicalToCodexBody(canonicalRequest({ metadata: { serviceTier: "fast" } }))).toMatchObject({
+      service_tier: "fast",
+    })
+  })
+
   test("property: translated bodies preserve structure across random canonical requests", () => {
     for (let iteration = 0; iteration < 100; iteration += 1) {
       const request = canonicalRequest({

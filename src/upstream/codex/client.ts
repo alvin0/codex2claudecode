@@ -5,9 +5,9 @@ import { normalizeReasoningBody } from "../../core/reasoning"
 import type { HealthStatus, JsonObject, RequestOptions } from "../../core/types"
 import { writeAccountInfoFile } from "./account-info"
 import { extractAccountId, readAuthFileData, selectAuthEntry } from "./auth"
-import { DEFAULT_CLIENT_ID, DEFAULT_CODEX_ENDPOINT, DEFAULT_ISSUER, REFRESH_SAFETY_MARGIN_MS, WHAM_ENVIRONMENTS_ENDPOINT, WHAM_USAGE_ENDPOINT } from "./constants"
+import { DEFAULT_CLIENT_ID, DEFAULT_CODEX_ENDPOINT, DEFAULT_ISSUER, OPENAI_RESPONSES_INPUT_TOKENS_ENDPOINT, REFRESH_SAFETY_MARGIN_MS, WHAM_ENVIRONMENTS_ENDPOINT, WHAM_USAGE_ENDPOINT } from "./constants"
 import { syncCodexCliAuthTokens } from "./codex-auth"
-import type { AuthFileContent, AuthFileData, ChatCompletionRequest, CodexClientOptions, CodexClientTokens, ResponsesRequest, TokenResponse } from "./types"
+import type { AuthFileContent, AuthFileData, ChatCompletionRequest, CodexClientOptions, CodexClientTokens, InputTokensRequest, ResponsesRequest, TokenResponse } from "./types"
 
 export class CodexStandaloneClient {
   private accessToken: string
@@ -24,6 +24,7 @@ export class CodexStandaloneClient {
   private readonly fetchFn: typeof fetch
   private readonly authFile?: string
   private readonly codexAuthFile?: string
+  private readonly openAiApiKey?: string
   private authEntryIndex?: number
   private authFileIsArray?: boolean
 
@@ -40,6 +41,7 @@ export class CodexStandaloneClient {
     this.fetchFn = options.fetch ?? fetch
     this.authFile = options.authFile
     this.codexAuthFile = options.codexAuthFile
+    this.openAiApiKey = options.openAiApiKey ?? process.env.OPENAI_API_KEY
   }
 
   static async fromAuthFile(
@@ -102,6 +104,24 @@ export class CodexStandaloneClient {
 
   async proxy(body: JsonObject, options?: RequestOptions) {
     return this.request(body, options)
+  }
+
+  async inputTokens(body: InputTokensRequest, options?: RequestOptions) {
+    if (this.openAiApiKey) {
+      return this.fetchFn(OPENAI_RESPONSES_INPUT_TOKENS_ENDPOINT, {
+        method: "POST",
+        headers: this.openAiHeaders(options?.headers),
+        body: JSON.stringify(normalizeReasoningBody(body)),
+        signal: options?.signal,
+      })
+    }
+
+    return this.requestUpstream(
+      OPENAI_RESPONSES_INPUT_TOKENS_ENDPOINT,
+      "POST",
+      options,
+      JSON.stringify(normalizeReasoningBody(body)),
+    )
   }
 
   async usage(options?: RequestOptions) {
@@ -267,6 +287,14 @@ export class CodexStandaloneClient {
     headers.set("originator", this.originator)
     headers.set("user-agent", this.userAgent)
     if (this.accountId) headers.set("ChatGPT-Account-Id", this.accountId)
+    return headers
+  }
+
+  private openAiHeaders(input?: HeadersInit) {
+    const headers = this.headers(input)
+    headers.delete("originator")
+    headers.delete("ChatGPT-Account-Id")
+    if (this.openAiApiKey) headers.set("authorization", `Bearer ${this.openAiApiKey}`)
     return headers
   }
 

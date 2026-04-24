@@ -273,6 +273,7 @@ export async function startRuntimeWithBootstrap(
               cors(
                 await matched.provider.handle(request, matched.descriptor, upstream, {
                   requestId,
+                  authFile,
                   logBody,
                   quiet,
                   onProxy: (entry) => {

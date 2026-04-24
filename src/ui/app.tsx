@@ -2,6 +2,7 @@ import { Box, Text, useApp, useInput } from "ink"
 import { useEffect, useMemo, useState } from "react"
 
 import { readAccountInfoFile, refreshActiveAccountInfo, writeAccountInfoFile, writeActiveAccountInfo, type AccountInfo } from "../upstream/codex/account-info"
+import { readCodexFastModeConfig, writeCodexFastModeConfig } from "../inbound/openai/fast-mode"
 import { readAuthFileData } from "../upstream/codex/auth"
 import { CodexStandaloneClient } from "../upstream/codex/client"
 import { connectAccount, connectAccountFromCodexAuth, type ConnectAccountDraft } from "../upstream/codex/connect-account"
@@ -42,6 +43,8 @@ import { WelcomePanel } from "./components/welcome-panel"
 import { usageToView, type LimitGroupView } from "./limits"
 import type { RuntimeState } from "./types"
 
+const LIMITS_REFRESH_INTERVAL_MS = 5 * 60_000
+
 export function CodexCodeApp(props: { port?: number }) {
   const app = useApp()
   const authFile = resolveAuthFile(process.env.CODEX_AUTH_FILE)
@@ -59,7 +62,7 @@ export function CodexCodeApp(props: { port?: number }) {
   const [inputMessage, setInputMessage] = useState("Type / for commands")
   const [commandIndex, setCommandIndex] = useState(0)
   const [mode, setMode] = useState<
-    "home" | "account-selector" | "logs" | "claude-env-scope" | "claude-env-editor" | "claude-env-confirm" | "claude-env-unset-confirm" | "connect-source" | "connect-account"
+    "home" | "account-selector" | "logs" | "codex-fast-mode" | "claude-env-scope" | "claude-env-editor" | "claude-env-confirm" | "claude-env-unset-confirm" | "connect-source" | "connect-account"
   >("home")
   const [selectorIndex, setSelectorIndex] = useState(0)
   const [requestLogs, setRequestLogs] = useState<RequestLogEntry[]>([])
@@ -71,6 +74,8 @@ export function CodexCodeApp(props: { port?: number }) {
   const [logsClearConfirm, setLogsClearConfirm] = useState(false)
   const [logsFileError, setLogsFileError] = useState<string>()
   const [logsAutoFollow, setLogsAutoFollow] = useState(true)
+  const [codexFastMode, setCodexFastMode] = useState(false)
+  const [codexFastModeIndex, setCodexFastModeIndex] = useState(1)
   const [claudeEnvDraft, setClaudeEnvDraft] = useState<ClaudeEnvironmentDraft>(() => defaultClaudeEnvironment())
   const [claudeEnvIndex, setClaudeEnvIndex] = useState(0)
   const [claudeEnvScopeIndex, setClaudeEnvScopeIndex] = useState(0)
@@ -101,6 +106,24 @@ export function CodexCodeApp(props: { port?: number }) {
     const timer = setTimeout(() => setLogsCopyStatus(undefined), 2000)
     return () => clearTimeout(timer)
   }, [logsCopyStatus])
+
+  useEffect(() => {
+    let active = true
+    void readCodexFastModeConfig(authFile)
+      .then((config) => {
+        if (!active) return
+        setCodexFastMode(config.enabled)
+        setCodexFastModeIndex(config.enabled ? 0 : 1)
+      })
+      .catch(() => {
+        if (!active) return
+        setCodexFastMode(false)
+        setCodexFastModeIndex(1)
+      })
+    return () => {
+      active = false
+    }
+  }, [authFile])
 
   useEffect(() => {
     let active = true
@@ -258,7 +281,7 @@ export function CodexCodeApp(props: { port?: number }) {
       }
     }
     void refresh()
-    const timer = setInterval(() => void refresh(), 60_000)
+    const timer = setInterval(() => void refresh(), LIMITS_REFRESH_INTERVAL_MS)
     return () => {
       active = false
       clearInterval(timer)
@@ -410,6 +433,14 @@ export function CodexCodeApp(props: { port?: number }) {
         setInputMessage("Closed request logs")
         return
       }
+      if (mode === "codex-fast-mode") {
+        setMode("home")
+        setInputValue("")
+        setCommandIndex(0)
+        setCodexFastModeIndex(codexFastMode ? 0 : 1)
+        setInputMessage("Codex fast mode unchanged")
+        return
+      }
       if (mode === "account-selector") {
         setMode("home")
         setInputValue("")
@@ -486,6 +517,18 @@ export function CodexCodeApp(props: { port?: number }) {
         setMode("claude-env-confirm")
         return
       }
+      if (mode === "codex-fast-mode") {
+        const enabled = codexFastModeIndex === 0
+        setCodexFastMode(enabled)
+        setMode("home")
+        setInputValue("")
+        setCommandIndex(0)
+        setInputMessage(`Codex fast mode ${enabled ? "ON" : "OFF"}`)
+        void writeCodexFastModeConfig(authFile, { enabled }).catch((error) =>
+          setInputMessage(`Codex fast mode save failed: ${error instanceof Error ? error.message : String(error)}`),
+        )
+        return
+      }
       if (mode === "account-selector") {
         setSelected(selectorIndex)
         if (authData) void writeActiveAccountInfo(authFile, authData, accounts[selectorIndex]?.key ?? "").catch(() => {})
@@ -530,6 +573,14 @@ export function CodexCodeApp(props: { port?: number }) {
           setInputValue("")
           setCommandIndex(0)
           setInputMessage("Showing request logs")
+          return
+        }
+        if (command.name === "/codex-fast-mode") {
+          setCodexFastModeIndex(codexFastMode ? 0 : 1)
+          setMode("codex-fast-mode")
+          setInputValue("")
+          setCommandIndex(0)
+          setInputMessage("Select Codex fast mode")
           return
         }
         if (command.name === "/connect") {
@@ -585,6 +636,10 @@ export function CodexCodeApp(props: { port?: number }) {
     if (mode === "account-selector") {
       if (key.upArrow && accounts.length) setSelectorIndex((value) => (value - 1 + accounts.length) % accounts.length)
       if (key.downArrow && accounts.length) setSelectorIndex((value) => (value + 1) % accounts.length)
+      return
+    }
+    if (mode === "codex-fast-mode") {
+      if (key.upArrow || key.downArrow) setCodexFastModeIndex((value) => (value + 1) % 2)
       return
     }
     if (mode === "connect-source") {
@@ -696,15 +751,17 @@ export function CodexCodeApp(props: { port?: number }) {
         <Text color="#aab3cf">v{pkg.version} - Author: {pkg.author} </Text>
         <Text color="#d97757">────────────────────────────────────────</Text>
       </Box>
-      <Box borderStyle="round" borderColor="#d97757" minHeight={18}>
+      <Box borderStyle="round" borderColor="#d97757" minHeight={13}>
         <WelcomePanel hostname={hostname} port={activePort} />
         <Box width={1} borderStyle="single" borderColor="#7f4f45" />
-        <Box flexGrow={1} flexDirection="column" paddingX={2} paddingY={1}>
+        <Box flexGrow={1} flexDirection="column" paddingX={2}>
           <AccountInfoPanel account={account} info={activeAccountInfo} />
+          <CodexFastModeStatus enabled={codexFastMode} />
           <LimitsPanel limitGroups={limitGroups} loading={limitsLoading} error={limitsError} />
         </Box>
       </Box>
       {mode === "account-selector" && <AccountSelector accounts={accounts} selected={selectorIndex} />}
+      {mode === "codex-fast-mode" && <CodexFastModeSelector selected={codexFastModeIndex} current={codexFastMode} />}
       {mode === "connect-source" && <ConnectSourceSelector selected={connectSourceIndex} saving={connectSaving} />}
       {mode === "logs" && (
         <>
@@ -755,6 +812,43 @@ function updateConnectDraft(draft: ConnectAccountDraft, step: number, update: (v
     ...draft,
     [key]: update(draft[key]),
   }
+}
+
+function CodexFastModeSelector(props: { selected: number; current: boolean }) {
+  const options = [
+    { label: "on", description: 'Add service_tier: "fast" to /v1/responses' },
+    { label: "off", description: "Default request body" },
+  ]
+
+  return (
+    <Box borderStyle="round" borderColor="#7f4f45" flexDirection="column" paddingX={2} paddingY={1}>
+      <Text bold color="#d97757">Codex fast mode</Text>
+      <Text color="gray">Current: {props.current ? "on" : "off"}</Text>
+      {options.map((option, index) => (
+        <Box key={option.label}>
+          <Box width={3}>
+            <Text color={props.selected === index ? "#d97757" : "gray"}>{props.selected === index ? ">" : " "}</Text>
+          </Box>
+          <Box width={8}>
+            <Text bold={props.selected === index}>{option.label}</Text>
+          </Box>
+          <Text color="#aab3cf">{option.description}</Text>
+        </Box>
+      ))}
+    </Box>
+  )
+}
+
+function CodexFastModeStatus(props: { enabled: boolean }) {
+  return (
+    <Box marginTop={1} flexDirection="column">
+      <Box>
+        <Text bold color="#a58a86">Codex fast: </Text>
+        <Text bold color={props.enabled ? "#d97757" : "gray"}>{props.enabled ? "ON" : "OFF"}</Text>
+      </Box>
+      <Text color="gray">{props.enabled ? "Responses tier: fast" : "Responses use default tier"}</Text>
+    </Box>
+  )
 }
 
 function updateClaudeEnvDraft(draft: ClaudeEnvironmentDraft, index: number, update: (value: string) => string): ClaudeEnvironmentDraft {

@@ -105,11 +105,17 @@ export function canonicalToCodexBody(request: Canonical_Request): JsonObject {
     }),
     store: false,
     stream: request.stream,
+    ...(typeof request.metadata.serviceTier === "string" && { service_tier: request.metadata.serviceTier }),
     ...(request.tools && { tools: request.tools }),
     ...(request.include && { include: request.include }),
     ...(request.toolChoice && { tool_choice: request.toolChoice }),
     ...(request.textFormat && { text: { format: request.textFormat } }),
   }
+}
+
+export function canonicalToCodexInputTokensBody(request: Canonical_Request): JsonObject {
+  const { stream: _stream, store: _store, service_tier: _serviceTier, ...body } = canonicalToCodexBody(request)
+  return body
 }
 
 export async function collectCodexResponse(response: Response, fallbackModel = "unknown"): Promise<Canonical_Response> {

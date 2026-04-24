@@ -7,7 +7,7 @@ export function LimitsPanel(props: { limitGroups: LimitGroupView[]; loading?: bo
   const spinner = useSpinner(props.loading)
 
   return (
-    <Box flexDirection="column" marginTop={2}>
+    <Box flexDirection="column" marginTop={1}>
       <Box>
         <Text bold color="#a58a86">Limits</Text>
         <Box marginLeft={1}>
@@ -17,7 +17,7 @@ export function LimitsPanel(props: { limitGroups: LimitGroupView[]; loading?: bo
       {props.error && <Text color="red">{props.error}</Text>}
       {!props.loading && !props.error && !props.limitGroups.length && <Text color="gray">No limits available</Text>}
       {props.limitGroups.map((group, groupIndex) => (
-        <Box key={`${group.title ?? "default"}-${groupIndex}`} flexDirection="column" marginTop={group.title ? 1 : 0}>
+        <Box key={`${group.title ?? "default"}-${groupIndex}`} flexDirection="column" marginTop={group.title && groupIndex > 0 ? 1 : 0}>
           {group.title && <Text color="gray">{group.title}</Text>}
           {group.rows.map((row) => (
             <LimitRow key={`${group.title ?? "default"}-${row.label}`} label={row.label} used={row.used} left={row.left} reset={row.reset} />
@@ -31,10 +31,10 @@ export function LimitsPanel(props: { limitGroups: LimitGroupView[]; loading?: bo
 function LimitRow(props: { label: string; used: number; left: string; reset: string }) {
   return (
     <Box>
-      <Box width={24}>
+      <Box width={21}>
         <Text color="gray">{props.label}</Text>
       </Box>
-      <Box width={11}>
+      <Box width={10}>
         <Text bold>{props.left}</Text>
       </Box>
       <Text color="gray">({props.reset})</Text>

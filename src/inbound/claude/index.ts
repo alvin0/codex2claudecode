@@ -3,7 +3,7 @@ import type { Inbound_Provider, RequestHandlerContext, Route_Descriptor, Upstrea
 import { LOG_BODY_PREVIEW_LIMIT } from "../../core/constants"
 import { createLogPreview } from "../../core/log-preview"
 import type { RequestProxyLog } from "../../core/types"
-import { claudeToCanonicalRequest, countClaudeInputTokens } from "./convert"
+import { claudeToCanonicalRequest } from "./convert"
 import { claudeErrorResponse } from "./errors"
 import { canonicalResponseToClaudeMessage, claudeCanonicalStreamResponse } from "./response"
 import { Model_Catalog, claudeSettingsModelResolver } from "./models"
@@ -56,15 +56,7 @@ export class Claude_Inbound_Provider implements Inbound_Provider {
     }
 
     if (route.path === "/v1/messages/count_tokens") {
-      let body: ClaudeMessagesRequest
-      try {
-        body = (await request.json()) as ClaudeMessagesRequest
-      } catch (error) {
-        return claudeErrorResponse(`Invalid JSON: ${error instanceof Error ? error.message : String(error)}`, 400)
-      }
-      if (!body.model || typeof body.model !== "string") return claudeErrorResponse("Claude count_tokens request requires model", 400)
-      if (!Array.isArray(body.messages)) return claudeErrorResponse("Claude count_tokens request requires messages", 400)
-      return Response.json({ input_tokens: countClaudeInputTokens(body) })
+      return this.handleCountTokens(request, upstream, context)
     }
 
     let body: ClaudeMessagesRequest
@@ -138,6 +130,79 @@ export class Claude_Inbound_Provider implements Inbound_Provider {
     }
     if (isCanonicalPassthrough(result)) return claudeErrorResponse("Unexpected passthrough response for Claude inbound provider", 500)
     return claudeErrorResponse("Unexpected upstream response", 500)
+  }
+
+  private async handleCountTokens(request: Request, upstream: Upstream_Provider, context: RequestHandlerContext): Promise<Response> {
+    if (!upstream.inputTokens) return claudeErrorResponse("Codex input token count is not implemented", 501)
+
+    let body: ClaudeMessagesRequest
+    try {
+      body = (await request.json()) as ClaudeMessagesRequest
+    } catch (error) {
+      return claudeErrorResponse(`Invalid JSON: ${error instanceof Error ? error.message : String(error)}`, 400)
+    }
+    if (!body.model || typeof body.model !== "string") return claudeErrorResponse("Claude count_tokens request requires model", 400)
+    if (!Array.isArray(body.messages)) return claudeErrorResponse("Claude count_tokens request requires messages", 400)
+
+    let canonicalRequest
+    try {
+      canonicalRequest = claudeToCanonicalRequest({ ...body, stream: false })
+    } catch (error) {
+      return claudeErrorResponse(error instanceof Error ? error.message : String(error), 400)
+    }
+
+    const requestBody = context.logBody ? previewText(JSON.stringify(canonicalRequest)) : undefined
+    const started = Date.now()
+    let response: Response
+    try {
+      response = await upstream.inputTokens(canonicalRequest, {
+        headers: request.headers,
+        signal: request.signal,
+      })
+    } catch (error) {
+      return claudeErrorResponse(error instanceof Error ? error.message : String(error), 500)
+    }
+    const durationMs = Date.now() - started
+
+    if (!response.ok) {
+      const text = await response.text()
+      context.onProxy?.({
+        label: "OpenAI input tokens",
+        method: "POST",
+        target: "/v1/responses/input_tokens",
+        status: response.status,
+        durationMs,
+        error: previewText(text) || "-",
+        requestBody,
+        responseBody: previewText(text) || undefined,
+      })
+      return claudeErrorResponse(`Codex input token count failed: ${response.status} ${text}`, response.status)
+    }
+
+    const text = await response.text()
+    context.onProxy?.({
+      label: "OpenAI input tokens",
+      method: "POST",
+      target: "/v1/responses/input_tokens",
+      status: response.status,
+      durationMs,
+      error: "-",
+      requestBody,
+      responseBody: previewText(text) || undefined,
+    })
+
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(text)
+    } catch (error) {
+      return claudeErrorResponse(`Invalid input token response: ${error instanceof Error ? error.message : String(error)}`, 502)
+    }
+    const inputTokens = parsed && typeof parsed === "object" && typeof (parsed as { input_tokens?: unknown }).input_tokens === "number"
+      ? (parsed as { input_tokens: number }).input_tokens
+      : undefined
+    if (inputTokens === undefined) return claudeErrorResponse("Invalid input token response: missing input_tokens", 502)
+
+    return Response.json({ input_tokens: inputTokens })
   }
 }
 

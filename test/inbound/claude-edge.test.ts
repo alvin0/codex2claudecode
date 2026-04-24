@@ -355,6 +355,7 @@ describe("Claude_Inbound_Provider edge cases", () => {
         content: [{ type: "text" as const, text: "hello" }],
         usage: { inputTokens: 1, outputTokens: 2 },
       }),
+    inputTokens: () => Promise.resolve(Response.json({ object: "response.input_tokens", input_tokens: 12 })),
     checkHealth: () => Promise.resolve({ ok: true }),
   }
 
@@ -411,8 +412,35 @@ describe("Claude_Inbound_Provider edge cases", () => {
 
     expect(response.status).toBe(200)
     const body = await response.json()
-    expect(typeof body.input_tokens).toBe("number")
-    expect(body.input_tokens).toBeGreaterThan(0)
+    expect(body).toEqual({ input_tokens: 12 })
+  })
+
+  test("count_tokens proxies to OpenAI input_tokens and logs adjusted response", async () => {
+    let capturedRequest: any
+    let capturedProxy: any
+    const provider = new Claude_Inbound_Provider()
+    const upstream = {
+      proxy: dummyUpstream.proxy,
+      inputTokens: (request: unknown) => {
+        capturedRequest = request
+        return Promise.resolve(Response.json({ object: "response.input_tokens", input_tokens: 27 }))
+      },
+      checkHealth: dummyUpstream.checkHealth,
+    }
+
+    const response = await provider.handle(
+      new Request("http://localhost/v1/messages/count_tokens", { method: "POST", body: JSON.stringify({ model: "gpt-5.4", messages: [{ role: "user", content: "hello" }] }) }),
+      { path: "/v1/messages/count_tokens", method: "POST" },
+      upstream,
+      { requestId: "req_1", logBody: true, quiet: true, onProxy: (entry) => { capturedProxy = entry } },
+    )
+
+    expect(await response.json()).toEqual({ input_tokens: 27 })
+    expect(capturedRequest.input).toEqual([{ role: "user", content: [{ type: "input_text", text: "hello" }] }])
+    expect(capturedProxy).toMatchObject({
+      target: "/v1/responses/input_tokens",
+      responseBody: expect.stringContaining('"input_tokens":27'),
+    })
   })
 
   test("model not found returns 404 with Claude error format", async () => {

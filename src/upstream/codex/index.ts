@@ -4,7 +4,7 @@ import type { TokenCredentialProvider, UpstreamResult, Upstream_Provider } from 
 import type { RequestOptions } from "../../core/types"
 import { CodexStandaloneClient } from "./client"
 import type { CodexClientOptions, CodexClientTokens } from "./types"
-import { canonicalToCodexBody, collectCodexResponse, streamCodexResponse } from "./parse"
+import { canonicalToCodexBody, canonicalToCodexInputTokensBody, collectCodexResponse, streamCodexResponse } from "./parse"
 
 export class Codex_Upstream_Provider implements Upstream_Provider, TokenCredentialProvider<CodexClientTokens> {
   private readonly client: CodexStandaloneClient
@@ -28,6 +28,10 @@ export class Codex_Upstream_Provider implements Upstream_Provider, TokenCredenti
     if (request.passthrough) return toCanonicalPassthrough(response)
     if (request.stream) return streamCodexResponse(response, request.model)
     return collectCodexResponse(response, request.model)
+  }
+
+  async inputTokens(request: Canonical_Request, options?: RequestOptions) {
+    return this.client.inputTokens(canonicalToCodexInputTokensBody(request), options)
   }
 
   async checkHealth(timeoutMs: number) {
