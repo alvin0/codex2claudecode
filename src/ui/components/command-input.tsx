@@ -24,7 +24,12 @@ export function CommandInput(props: { selected: number; message?: string }) {
           </Box>
         ))}
       </Box>
-      {props.message && <Text color="gray">{props.message}</Text>}
+      {props.message && (
+        <Box flexDirection="column" marginTop={0}>
+          <Text color="#7f4f45">{"─".repeat(Math.min(60, stdout.columns ?? 60))}</Text>
+          <Text color="#d97757">{"⚡ "}{props.message}</Text>
+        </Box>
+      )}
     </Box>
   )
 }

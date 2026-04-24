@@ -8,7 +8,7 @@ export function AccountInfoPanel(props: { account?: AccountView; info?: AccountI
   return (
     <Box flexDirection="column">
       <Text bold color="#a58a86">Account info</Text>
-      <Text color="#aab3cf">{accountInfo(props.account, props.info)}</Text>
+      <Text color="#aab3cf" wrap="truncate-end">{accountInfo(props.account, props.info)}</Text>
     </Box>
   )
 }

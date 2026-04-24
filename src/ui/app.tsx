@@ -1,4 +1,4 @@
-import { Box, Text, useApp, useInput } from "ink"
+import { Box, Text, useApp, useInput, useStdout } from "ink"
 import { useEffect, useMemo, useState } from "react"
 
 import { readAccountInfoFile, refreshActiveAccountInfo, writeAccountInfoFile, writeActiveAccountInfo, type AccountInfo } from "../upstream/codex/account-info"
@@ -51,6 +51,7 @@ const LIMITS_REFRESH_INTERVAL_MS = 5 * 60_000
 
 export function CodexCodeApp(props: { port?: number }) {
   const app = useApp()
+  const { stdout } = useStdout()
   const authFile = resolveAuthFile(process.env.CODEX_AUTH_FILE)
   const hostname = process.env.HOST ?? "127.0.0.1"
   const port = props.port ?? Number(process.env.PORT || 8787)
@@ -93,6 +94,13 @@ export function CodexCodeApp(props: { port?: number }) {
   const [authRevision, setAuthRevision] = useState(0)
   const pkg = useMemo(() => packageInfo(), [])
   const activePort = runtime.status === "running" ? runtime.server.port : port
+  const terminalColumns = stdout.columns ?? 120
+  const contentWidth = Math.max(40, terminalColumns - 2)
+  const dashboardCompact = contentWidth < 106
+  const dashboardInnerWidth = Math.max(32, contentWidth - 4)
+  const headerText = `v${pkg.version} - Author: ${pkg.author}`
+  const headerTextWidth = Math.max(12, Math.min(headerText.length, contentWidth - 8))
+  const headerRuleWidth = Math.max(0, contentWidth - headerTextWidth - 5)
   const visibleRequestLogs = useMemo(
     () => requestLogs.map((log) => requestLogDetails[log.id] ?? log),
     [requestLogDetails, requestLogs],
@@ -771,51 +779,49 @@ export function CodexCodeApp(props: { port?: number }) {
 
   return (
     <Box flexDirection="column" paddingX={1} paddingY={1}>
-      <Box marginLeft={1}>
+      <Box marginLeft={1} width={Math.max(1, contentWidth - 1)}>
         <Text color="#d97757">─── </Text>
-        <Text color="#aab3cf">v{pkg.version} - Author: {pkg.author} </Text>
-        <Text color="#d97757">────────────────────────────────────────</Text>
+        <Box width={headerTextWidth}>
+          <Text color="#aab3cf" wrap="truncate-end">{headerText}</Text>
+        </Box>
+        <Text color="#d97757">{"─".repeat(headerRuleWidth)}</Text>
       </Box>
-      <Box borderStyle="round" borderColor="#d97757" minHeight={13}>
-        <WelcomePanel hostname={hostname} port={activePort} />
-        <Box width={1} borderStyle="single" borderColor="#7f4f45" />
-        <Box flexGrow={1} flexDirection="column" paddingX={2}>
+      <Box borderStyle="round" borderColor="#d97757" minHeight={dashboardCompact ? undefined : 13} width={contentWidth} flexDirection={dashboardCompact ? "column" : "row"}>
+        <WelcomePanel hostname={hostname} port={activePort} compact={dashboardCompact} width={dashboardCompact ? dashboardInnerWidth : 42} />
+        {dashboardCompact ? (
+          <Text color="#7f4f45">{"─".repeat(dashboardInnerWidth)}</Text>
+        ) : (
+          <Box width={1} borderStyle="single" borderColor="#7f4f45" />
+        )}
+        <Box flexGrow={1} flexDirection="column" paddingX={dashboardCompact ? 1 : 2} marginTop={dashboardCompact ? 1 : 0} width={dashboardCompact ? dashboardInnerWidth : undefined}>
           <AccountInfoPanel account={account} info={activeAccountInfo} />
           <CodexFastModeStatus enabled={codexFastMode} />
-          <LimitsPanel limitGroups={limitGroups} loading={limitsLoading} error={limitsError} />
+          <LimitsPanel limitGroups={limitGroups} loading={limitsLoading} error={limitsError} compact={dashboardCompact} width={dashboardInnerWidth} />
         </Box>
       </Box>
+      {mode === "home" && <CommandInput selected={commandIndex} message={inputMessage} />}
       {mode === "account-selector" && <AccountSelector accounts={accounts} selected={selectorIndex} />}
       {mode === "codex-fast-mode" && <CodexFastModeSelector selected={codexFastModeIndex} current={codexFastMode} />}
       {mode === "connect-source" && <ConnectSourceSelector selected={connectSourceIndex} saving={connectSaving} />}
+      {mode === "connect-account" && <ConnectAccountWizard draft={connectDraft} step={connectStep} saving={connectSaving} />}
       {mode === "logs" && (
-        <>
-          <CommandInput selected={commandIndex} message={inputMessage} />
-          <RequestLogsPanel
-            logs={visibleRequestLogs}
-            selected={logsSelected}
-            autoFollow={logsAutoFollow}
-            detailOpen={logsDetailOpen}
-            detailScroll={logsDetailScroll}
-            copyStatus={logsCopyStatus}
-            clearConfirm={logsClearConfirm}
-            fileError={logsFileError}
-          />
-        </>
+        <RequestLogsPanel
+          logs={visibleRequestLogs}
+          selected={logsSelected}
+          autoFollow={logsAutoFollow}
+          detailOpen={logsDetailOpen}
+          detailScroll={logsDetailScroll}
+          copyStatus={logsCopyStatus}
+          clearConfirm={logsClearConfirm}
+          fileError={logsFileError}
+        />
       )}
-      {mode === "claude-env-scope" ? (
-        <ClaudeEnvironmentScopeSelector selected={claudeEnvScopeIndex} action={claudeEnvAction} />
-      ) : mode === "claude-env-preset" ? (
-        <ClaudeEnvironmentPresetSelector selected={claudeEnvPresetIndex} settingsTarget={claudeSettingsTarget} />
-      ) : (mode === "claude-env-editor" || mode === "claude-env-confirm") ? (
+      {mode === "claude-env-scope" && <ClaudeEnvironmentScopeSelector selected={claudeEnvScopeIndex} action={claudeEnvAction} />}
+      {mode === "claude-env-preset" && <ClaudeEnvironmentPresetSelector selected={claudeEnvPresetIndex} settingsTarget={claudeSettingsTarget} />}
+      {(mode === "claude-env-editor" || mode === "claude-env-confirm") && (
         <ClaudeEnvironmentEditor draft={claudeEnvDraft} selected={claudeEnvIndex} baseUrl={baseUrl(hostname, activePort)} confirm={mode === "claude-env-confirm"} shell={shell.kind === "unsupported" ? "posix" : shell.kind} settingsTarget={claudeSettingsTarget} />
-      ) : mode === "claude-env-unset-confirm" ? (
-        <ClaudeEnvironmentUnsetConfirm draft={claudeEnvDraft} shell={shell.kind === "unsupported" ? "posix" : shell.kind} settingsTarget={claudeSettingsTarget} />
-      ) : mode === "connect-account" ? (
-        <ConnectAccountWizard draft={connectDraft} step={connectStep} saving={connectSaving} />
-      ) : (
-        mode === "home" && <CommandInput selected={commandIndex} message={inputMessage} />
       )}
+      {mode === "claude-env-unset-confirm" && <ClaudeEnvironmentUnsetConfirm draft={claudeEnvDraft} shell={shell.kind === "unsupported" ? "posix" : shell.kind} settingsTarget={claudeSettingsTarget} />}
       {commandOutput && <CommandOutput title={commandOutput.title} output={commandOutput.output} />}
     </Box>
   )
@@ -873,7 +879,7 @@ function CodexFastModeStatus(props: { enabled: boolean }) {
         <Text bold color="#a58a86">Codex fast: </Text>
         <Text bold color={props.enabled ? "#d97757" : "gray"}>{props.enabled ? "ON" : "OFF"}</Text>
       </Box>
-      {props.enabled && <Text color="gray">Responses tier: priority</Text>}
+      {props.enabled && <Text color="gray" wrap="truncate-end">Responses tier: priority</Text>}
     </Box>
   )
 }
