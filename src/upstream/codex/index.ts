@@ -23,7 +23,7 @@ export class Codex_Upstream_Provider implements Upstream_Provider, TokenCredenti
   }
 
   async proxy(request: Canonical_Request, options?: RequestOptions): Promise<UpstreamResult> {
-    const response = await this.client.proxy(canonicalToCodexBody(request), options)
+    const response = withLoggedResponseBody(await this.client.proxy(canonicalToCodexBody(request), options), options?.onResponseBodyChunk)
     if (!response.ok) return toCanonicalError(response)
     if (request.passthrough) return toCanonicalPassthrough(response)
     if (request.stream) return streamCodexResponse(response, request.model)
@@ -78,4 +78,35 @@ export type {
   Canonical_Request,
   Canonical_Response,
   Canonical_StreamResponse,
+}
+
+function withLoggedResponseBody(response: Response, onChunk?: (chunk: string) => void): Response {
+  if (!onChunk || !response.body) return response
+
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  const body = new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      const chunk = await reader.read()
+      if (chunk.done) {
+        const tail = decoder.decode()
+        if (tail) onChunk(tail)
+        controller.close()
+        return
+      }
+      onChunk(decoder.decode(chunk.value, { stream: true }))
+      controller.enqueue(chunk.value)
+    },
+    async cancel(reason) {
+      const tail = decoder.decode()
+      if (tail) onChunk(tail)
+      await reader.cancel(reason)
+    },
+  })
+
+  return new Response(body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers: response.headers,
+  })
 }

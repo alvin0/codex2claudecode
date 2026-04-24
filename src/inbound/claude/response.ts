@@ -1,6 +1,6 @@
 import type { ClaudeMessagesRequest, JsonObject } from "../types"
 
-import type { Canonical_ContentBlock, Canonical_Response, Canonical_StreamResponse } from "../../core/canonical"
+import type { Canonical_ContentBlock, Canonical_Event, Canonical_Response, Canonical_StreamResponse } from "../../core/canonical"
 import { collectCodexResponse, streamCodexResponse } from "../../upstream/codex/parse"
 import { countClaudeServerToolCalls, codexOutputItemsToClaudeContent, codexServerToolCallToClaudeBlocks, isServerToolOutputItem } from "./server-tools"
 import { consumeCodexSse, StreamIdleTimeoutError, parseJsonObject, parseSseJson } from "./sse"
@@ -160,40 +160,40 @@ export async function canonicalResponseToClaudeMessage(response: Canonical_Respo
  * UPSTREAM_THINKING_TEXT_EVENTS) or silently consumed.
  */
 const UPSTREAM_THINKING_EVENTS: Record<string, string> = {
-  "response.queued": "Queued…",
-  "response.created": "Initializing…",
-  "response.in_progress": "Processing…",
-  "response.output_item.added": "Preparing output…",
-  "response.content_part.added": "Preparing content…",
-  "response.reasoning_summary_part.added": "Reasoning…",
+  "response.queued": "**Queue** waiting for Codex slot",
+  "response.created": "**Codex** session opened",
+  "response.in_progress": "**Stream** events flowing",
+  "response.output_item.added": "Preparing output",
+  "response.content_part.added": "Preparing content",
+  "response.reasoning_summary_part.added": "**Reasoning** sketching next step",
   "response.reasoning_summary_text.delta": "",
   "response.reasoning_summary_text.done": "",
   "response.reasoning_summary_part.done": "",
   "response.reasoning_text.delta": "",
   "response.reasoning_text.done": "",
-  "response.file_search_call.in_progress": "Searching files…",
-  "response.file_search_call.searching": "Searching files…",
+  "response.file_search_call.in_progress": "**Search** scanning files",
+  "response.file_search_call.searching": "**Search** scanning files",
   "response.file_search_call.completed": "",
-  "response.web_search_call.in_progress": "Searching web…",
-  "response.web_search_call.searching": "Searching web…",
+  "response.web_search_call.in_progress": "**Search** querying web",
+  "response.web_search_call.searching": "**Search** querying web",
   "response.web_search_call.completed": "",
-  "response.code_interpreter_call.in_progress": "Running code…",
-  "response.code_interpreter_call.interpreting": "Running code…",
+  "response.code_interpreter_call.in_progress": "**Code** running interpreter",
+  "response.code_interpreter_call.interpreting": "**Code** running interpreter",
   "response.code_interpreter_call_code.delta": "",
   "response.code_interpreter_call_code.done": "",
   "response.code_interpreter_call.completed": "",
-  "response.mcp_call.in_progress": "Calling MCP tool…",
+  "response.mcp_call.in_progress": "**MCP** preparing tool call",
   "response.mcp_call.completed": "",
   "response.mcp_call.failed": "",
-  "response.mcp_list_tools.in_progress": "Listing MCP tools…",
+  "response.mcp_list_tools.in_progress": "**MCP** refreshing tool list",
   "response.mcp_list_tools.completed": "",
   "response.mcp_list_tools.failed": "",
   "response.mcp_call_arguments.delta": "",
   "response.mcp_call_arguments.done": "",
   "response.function_call_arguments.delta": "",
   "response.function_call_arguments.done": "",
-  "response.image_generation_call.in_progress": "Generating image…",
-  "response.image_generation_call.generating": "Generating image…",
+  "response.image_generation_call.in_progress": "**Image** preparing generation",
+  "response.image_generation_call.generating": "**Image** rendering pixels",
   "response.image_generation_call.completed": "",
 }
 
@@ -235,6 +235,7 @@ export function claudeStreamResponse(response: Response, request: ClaudeMessages
   let thinkingBlockOpen = false
   let thinkingStarted = false
   const thinkingSignature = `sig_${crypto.randomUUID().replace(/-/g, "").slice(0, 32)}`
+  const outputItems = new Map<string, CodexOutputItemState>()
 
   function clearHeartbeat() {
     if (!heartbeat) return
@@ -341,9 +342,9 @@ export function claudeStreamResponse(response: Response, request: ClaudeMessages
             return
           }
 
-          // Status label events — only send if label is non-empty
-          const label = UPSTREAM_THINKING_EVENTS[eventType]
-          if (label) sendThinkingDelta(label)
+          // Status label events — prefer concrete upstream payload details when present.
+          const label = dynamicThinkingLabel(eventType, data, outputItems) ?? UPSTREAM_THINKING_EVENTS[eventType]
+          if (label) sendThinkingDelta(formatThinkingLabel(label))
         }
 
         // ── Text / content helpers ──────────────────────────────────
@@ -471,6 +472,7 @@ export function claudeStreamResponse(response: Response, request: ClaudeMessages
               const data = parseSseJson(event)
               if (!data) return
               const eventType = typeof data.type === "string" ? data.type : ""
+              trackOutputItemState(eventType, data, outputItems)
 
               // ── Forward lifecycle / reasoning events into thinking ──
               if (thinkingBlockOpen && eventType in UPSTREAM_THINKING_EVENTS) {
@@ -702,23 +704,54 @@ export function claudeStreamResponse(response: Response, request: ClaudeMessages
   )
 }
 
-export function claudeCanonicalStreamResponse(response: Canonical_StreamResponse, request: ClaudeMessagesRequest) {
+export function claudeCanonicalStreamResponse(response: Canonical_StreamResponse, request: ClaudeMessagesRequest, options?: { heartbeatMs?: number; onCancel?: (reason: unknown) => void }) {
   const encoder = new TextEncoder()
   const messageId = response.id.replace(/^resp_/, "msg_")
   const model = response.model || request.model
+  const heartbeatMs = options?.heartbeatMs ?? 5000
+  let closed = false
+  let iterator: AsyncIterator<Canonical_Event> | undefined
+  let heartbeat: ReturnType<typeof setInterval> | undefined
   let started = false
   let textOpen = false
   let thinkingOpen = false
+  let thinkingSignature = ""
   let contentIndex = 0
   let outputTokens = 0
   let serverToolUse: { web_search_requests?: number; web_fetch_requests?: number } | undefined
   let stopReason = "end_turn"
 
+  function clearHeartbeat() {
+    if (!heartbeat) return
+    clearInterval(heartbeat)
+    heartbeat = undefined
+  }
+
+  function cancelIterator() {
+    const current = iterator
+    iterator = undefined
+    void current?.return?.().catch(() => undefined)
+  }
+
   return new Response(
     new ReadableStream({
       async start(controller) {
         function send(event: string, data: JsonObject) {
-          controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`))
+          if (closed) return
+          try {
+            controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`))
+          } catch {
+            closed = true
+            clearHeartbeat()
+            cancelIterator()
+          }
+        }
+
+        function closeController() {
+          if (closed) return
+          closed = true
+          clearHeartbeat()
+          controller.close()
         }
 
         function sendMessageStart() {
@@ -758,16 +791,24 @@ export function claudeCanonicalStreamResponse(response: Canonical_StreamResponse
 
         function startThinkingBlock() {
           if (thinkingOpen) return
+          stopTextBlock()
           thinkingOpen = true
           send("content_block_start", {
             type: "content_block_start",
             index: contentIndex,
-            content_block: { type: "thinking", thinking: "", signature: "" },
+            content_block: { type: "thinking", thinking: "", signature: thinkingSignature },
           })
         }
 
         function stopThinkingBlock() {
           if (!thinkingOpen) return
+          if (thinkingSignature) {
+            send("content_block_delta", {
+              type: "content_block_delta",
+              index: contentIndex,
+              delta: { type: "signature_delta", signature: thinkingSignature },
+            })
+          }
           send("content_block_stop", { type: "content_block_stop", index: contentIndex })
           thinkingOpen = false
           contentIndex += 1
@@ -797,9 +838,30 @@ export function claudeCanonicalStreamResponse(response: Canonical_StreamResponse
         sendMessageStart()
 
         try {
-          for await (const event of response.events) {
+          iterator = response.events[Symbol.asyncIterator]()
+          if (heartbeatMs > 0) {
+            heartbeat = setInterval(() => {
+              if (thinkingOpen) {
+                send("content_block_delta", {
+                  type: "content_block_delta",
+                  index: contentIndex,
+                  delta: { type: "thinking_delta", thinking: "" },
+                })
+              } else {
+                send("ping", { type: "ping" })
+              }
+            }, heartbeatMs)
+          }
+
+          while (true) {
+            const chunk = await iterator.next()
+            if (chunk.done) break
+            const event = chunk.value
             if (event.type === "message_start") continue
-            if (event.type === "thinking_signature") continue
+            if (event.type === "thinking_signature") {
+              thinkingSignature = event.signature
+              continue
+            }
             if (event.type === "thinking_delta") {
               startThinkingBlock()
               send("content_block_delta", {
@@ -878,7 +940,7 @@ export function claudeCanonicalStreamResponse(response: Canonical_StreamResponse
               stopThinkingBlock()
               stopTextBlock()
               send("error", JSON.parse(claudeStreamErrorEvent(event.message).split("data: ")[1].trim()))
-              controller.close()
+              closeController()
               return
             }
           }
@@ -894,11 +956,21 @@ export function claudeCanonicalStreamResponse(response: Canonical_StreamResponse
             },
           })
           send("message_stop", { type: "message_stop" })
-          controller.close()
+          closeController()
         } catch (error) {
           send("error", JSON.parse(claudeStreamErrorEvent(error instanceof Error ? error.message : String(error)).split("data: ")[1].trim()))
-          controller.close()
+          closeController()
+        } finally {
+          clearHeartbeat()
         }
+      },
+      cancel(reason) {
+        closed = true
+        clearHeartbeat()
+        options?.onCancel?.(reason)
+        const current = iterator
+        iterator = undefined
+        void current?.return?.({ type: "lifecycle", label: String(reason ?? "client disconnected") }).catch(() => undefined)
       },
     }),
     {
@@ -947,4 +1019,158 @@ function canonicalUsageToClaudeUsage(usage: Canonical_Response["usage"]) {
         }
       : {}),
   }
+}
+
+interface CodexOutputItemState {
+  type?: string
+  name?: string
+  arguments: string
+}
+
+function dynamicThinkingLabel(type: string, data: JsonObject, outputItems: Map<string, CodexOutputItemState>) {
+  if (type === "response.output_item.added") return outputItemAddedLabel(jsonObjectOrEmpty(data.item) as JsonObject)
+  if (type === "response.content_part.added") return contentPartAddedLabel(jsonObjectOrEmpty(data.part) as JsonObject)
+  if (type === "response.function_call_arguments.done") return functionCallArgumentsLabel(data, outputItems)
+  return undefined
+}
+
+function trackOutputItemState(type: string, data: JsonObject, outputItems: Map<string, CodexOutputItemState>) {
+  if (type === "response.output_item.added") {
+    const item = jsonObjectOrEmpty(data.item) as JsonObject
+    const entry: CodexOutputItemState = {
+      type: typeof item.type === "string" ? item.type : undefined,
+      name: typeof item.name === "string" ? item.name : undefined,
+      arguments: typeof item.arguments === "string" ? item.arguments : "",
+    }
+    for (const key of outputItemKeys(data, item)) outputItems.set(key, entry)
+    return
+  }
+
+  if (type === "response.function_call_arguments.delta" || type === "response.function_call_arguments.done") {
+    const item = jsonObjectOrEmpty(data.item) as JsonObject
+    const keys = outputItemKeys(data, item)
+    const entry = keys.map((key) => outputItems.get(key)).find(Boolean) ?? {
+      type: typeof item.type === "string" ? item.type : "function_call",
+      name: typeof item.name === "string" ? item.name : undefined,
+      arguments: "",
+    }
+    if (typeof item.name === "string") entry.name = item.name
+    if (typeof data.delta === "string") entry.arguments += data.delta
+    if (typeof data.arguments === "string") entry.arguments = data.arguments
+    if (typeof item.arguments === "string") entry.arguments = item.arguments
+    for (const key of keys) outputItems.set(key, entry)
+  }
+}
+
+function outputItemKeys(data: JsonObject, item: JsonObject) {
+  return [
+    data.item_id,
+    item.id,
+    item.call_id,
+    typeof item.call_id === "string" ? `call:${item.call_id}` : undefined,
+  ].filter((key, index, keys): key is string => typeof key === "string" && key.length > 0 && keys.indexOf(key) === index)
+}
+
+function functionCallArgumentsLabel(data: JsonObject, outputItems: Map<string, CodexOutputItemState>) {
+  const item = jsonObjectOrEmpty(data.item) as JsonObject
+  const entry = outputItemKeys(data, item).map((key) => outputItems.get(key)).find(Boolean)
+  const name = entry?.name ?? (typeof item.name === "string" ? item.name : "tool")
+  const args = typeof data.arguments === "string" ? data.arguments
+    : typeof item.arguments === "string" ? item.arguments
+    : entry?.arguments ?? ""
+  const summary = summarizeToolArguments(args, name)
+  return summary ? formatThinkingLabel(`**Tool request** \`${name}\`:\n${summary}`) : formatThinkingLabel(`**Tool** preparing \`${name}\``)
+}
+
+function outputItemAddedLabel(item: JsonObject) {
+  if (item.type === "function_call") {
+    const name = typeof item.name === "string" && item.name ? item.name : "tool"
+    return formatThinkingLabel(`**Tool** preparing \`${name}\``)
+  }
+  if (item.type === "mcp_call") {
+    const name = typeof item.name === "string" && item.name ? item.name : "tool"
+    return formatThinkingLabel(`**MCP** preparing \`${name}\``)
+  }
+  if (item.type === "mcp_list_tools") {
+    const server = typeof item.server_label === "string" && item.server_label ? item.server_label : "MCP"
+    return formatThinkingLabel(`**MCP** listing \`${server}\` tools`)
+  }
+  if (item.type === "web_search_call") return formatThinkingLabel("**Search** querying web")
+  if (item.type === "message") {
+    if (item.phase === "commentary") return formatThinkingLabel("**Commentary** drafting update")
+    if (item.phase === "analysis") return formatThinkingLabel("**Thinking** mapping next move")
+    return formatThinkingLabel("**Response** composing answer")
+  }
+  if (item.type === "reasoning") return formatThinkingLabel("**Reasoning** sketching next step")
+  return undefined
+}
+
+function contentPartAddedLabel(part: JsonObject) {
+  if (part.type === "output_text") return formatThinkingLabel("**Output** opening text stream")
+  if (part.type === "reasoning_text") return formatThinkingLabel("**Reasoning** streaming notes")
+  if (part.type === "refusal") return formatThinkingLabel("**Safety** preparing refusal")
+  return undefined
+}
+
+function summarizeToolArguments(argumentsJson: string, toolName: string) {
+  const parsed = parseJsonObject(argumentsJson)
+  const normalizedToolName = toolName.toLowerCase()
+
+  if (Array.isArray(parsed.todos)) {
+    return truncateLabel(
+      parsed.todos
+        .flatMap((todo) => {
+          if (!todo || typeof todo !== "object") return []
+          const item = todo as { content?: unknown; status?: unknown }
+          if (typeof item.content !== "string" || !item.content) return []
+          return [typeof item.status === "string" ? `[${item.status}] ${item.content}` : item.content]
+        })
+        .slice(0, 3)
+        .map((content) => `- ${content}`)
+        .join("\n"),
+    )
+  }
+
+  if (normalizedToolName === "bash" || normalizedToolName === "powershell") {
+    return summarizeFields(parsed, ["command", "description", "timeout", "workdir"])
+  }
+
+  const fieldSummary = summarizeFields(parsed, ["file_path", "path", "pattern", "query", "url", "prompt", "value", "workdir"])
+  if (fieldSummary) return fieldSummary
+
+  const keys = Object.keys(parsed)
+  if (keys.length) return summarizeFields(parsed, keys.slice(0, 4))
+  return truncateLabel(argumentsJson)
+}
+
+function summarizeFields(value: JsonObject, fields: string[]) {
+  return truncateLabel(
+    fields
+      .flatMap((field) => {
+        const fieldValue = value[field]
+        if (fieldValue === undefined || fieldValue === null) return []
+        if (typeof fieldValue === "string" || typeof fieldValue === "number" || typeof fieldValue === "boolean") {
+          return [`- **${field}**: ${formatFieldValue(fieldValue)}`]
+        }
+        if (Array.isArray(fieldValue)) return [`- **${field}**: ${fieldValue.length} item${fieldValue.length === 1 ? "" : "s"}`]
+        if (typeof fieldValue === "object") return [`- **${field}**: \`${JSON.stringify(fieldValue)}\``]
+        return []
+      })
+      .join("\n"),
+  )
+}
+
+function formatFieldValue(value: string | number | boolean) {
+  if (typeof value === "number" || typeof value === "boolean") return `\`${String(value)}\``
+  const escaped = value.replace(/`/g, "\\`")
+  return `\`${escaped}\``
+}
+
+function truncateLabel(value: string) {
+  const compact = value.replace(/[^\S\r\n]+/g, " ").replace(/\n{3,}/g, "\n\n").trim()
+  return compact.length > 600 ? `${compact.slice(0, 588)} [truncated]` : compact
+}
+
+function formatThinkingLabel(value: string) {
+  return `${value.trimEnd()}\n`
 }

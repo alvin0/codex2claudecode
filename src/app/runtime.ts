@@ -2,6 +2,7 @@ import { bootstrapRuntime } from "./bootstrap"
 import { LOG_BODY_PREVIEW_LIMIT } from "../core/constants"
 import { cors, responseHeaders } from "../core/http"
 import type { Upstream_Provider } from "../core/interfaces"
+import { createLogPreview } from "../core/log-preview"
 import { appendRequestLog, ensureRequestLogFile, requestLogFilePath } from "../core/request-logs"
 import type { HealthStatus, JsonObject, RequestLogEntry, RequestProxyLog, RuntimeOptions } from "../core/types"
 
@@ -40,7 +41,7 @@ export async function startRuntimeWithBootstrap(
         const started = Date.now()
         const url = new URL(request.url)
         const requestBody = logBody ? await readLoggedBody(request) : undefined
-        const headersPreview = interestingHeaders(request.headers)
+        const headersPreview = loggedHeaders(request.headers)
 
         if (!quiet) logRequestStart(requestId, request, url, requestBody)
 
@@ -272,7 +273,7 @@ export async function startRuntimeWithBootstrap(
               cors(
                 await matched.provider.handle(request, matched.descriptor, upstream, {
                   requestId,
-                  logBody: logBody && !quiet,
+                  logBody,
                   quiet,
                   onProxy: (entry) => {
                     proxy = entry
@@ -371,7 +372,7 @@ async function readLoggedBody(request: Request) {
 }
 
 function logRequestStart(id: string, request: Request, url: URL, bodyPreview?: string) {
-  const headers = interestingHeaders(request.headers)
+  const headers = loggedHeaders(request.headers)
   console.log(`[${id}] -> ${request.method} ${url.pathname}${url.search} ${JSON.stringify(headers)}`)
   if (bodyPreview) console.log(`[${id}] body ${bodyPreview}`)
 }
@@ -416,13 +417,19 @@ function isJsonObject(value: unknown): value is JsonObject {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value)
 }
 
-function interestingHeaders(headers: Headers) {
-  return Object.fromEntries(
-    ["anthropic-version", "anthropic-beta", "user-agent", "content-type", "accept"].flatMap((key) => {
-      const value = headers.get(key)
-      return value ? [[key, redactSecrets(value)] as const] : []
-    }),
-  )
+function loggedHeaders(headers: Headers) {
+  const entries: Array<[string, string]> = []
+  headers.forEach((value, key) => {
+    entries.push([key, redactHeaderValue(key, value)])
+  })
+  return Object.fromEntries(entries.sort(([left], [right]) => left.localeCompare(right)))
+}
+
+function redactHeaderValue(key: string, value: string) {
+  if (/^(authorization|proxy-authorization|x-api-key|api-key|anthropic-api-key|cookie|set-cookie)$/i.test(key)) {
+    return "[redacted]"
+  }
+  return redactSecrets(value)
 }
 
 function redactSecrets(text: string) {
@@ -441,15 +448,15 @@ function responseWithLoggedBody(
 ) {
   const reader = response.body.getReader()
   const decoder = new TextDecoder()
-  let preview = ""
+  const preview = createLogPreview()
   let completed = false
 
   async function complete(responseError?: string) {
     if (completed) return
     completed = true
     const tail = decoder.decode()
-    if (tail) preview = appendPreview(preview, tail)
-    await onComplete(preview || undefined, responseError)
+    preview.append(tail)
+    await onComplete(preview.text(), responseError)
   }
 
   const body = new ReadableStream<Uint8Array>({
@@ -462,15 +469,18 @@ function responseWithLoggedBody(
           return
         }
         controller.enqueue(chunk.value)
-        preview = appendPreview(preview, decoder.decode(chunk.value, { stream: true }))
+        preview.append(decoder.decode(chunk.value, { stream: true }))
       } catch (error) {
         await complete(error instanceof Error ? error.message : String(error))
         controller.error(error)
       }
     },
     async cancel(reason) {
-      await complete(`response cancelled: ${cancelReasonText(reason)}`)
-      await reader.cancel(reason)
+      try {
+        await reader.cancel(reason)
+      } finally {
+        await complete(`response cancelled: ${cancelReasonText(reason)}`)
+      }
     },
   })
 
@@ -479,11 +489,6 @@ function responseWithLoggedBody(
     statusText: response.statusText,
     headers: response.headers,
   })
-}
-
-function appendPreview(current: string, next: string) {
-  if (!next || current.length >= LOG_BODY_PREVIEW_LIMIT) return current
-  return `${current}${next}`.slice(0, LOG_BODY_PREVIEW_LIMIT)
 }
 
 function cancelReasonText(reason: unknown) {

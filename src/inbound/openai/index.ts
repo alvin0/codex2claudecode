@@ -2,6 +2,8 @@ import type { Canonical_ErrorResponse, Canonical_PassthroughResponse } from "../
 import type { Inbound_Provider, RequestHandlerContext, Route_Descriptor, UpstreamResult, Upstream_Provider } from "../../core/interfaces"
 import { responseHeaders } from "../../core/http"
 import { LOG_BODY_PREVIEW_LIMIT } from "../../core/constants"
+import { createLogPreview } from "../../core/log-preview"
+import type { RequestProxyLog } from "../../core/types"
 import { normalizeCanonicalRequest, normalizeRequestBody } from "./normalize"
 
 export class OpenAI_Inbound_Provider implements Inbound_Provider {
@@ -38,7 +40,7 @@ export class OpenAI_Inbound_Provider implements Inbound_Provider {
     const durationMs = Date.now() - started
 
     if (isCanonicalPassthrough(result)) {
-      context.onProxy?.({
+      const proxyLog: RequestProxyLog = {
         label: "Codex responses",
         method: "POST",
         target: "/v1/responses",
@@ -46,11 +48,16 @@ export class OpenAI_Inbound_Provider implements Inbound_Provider {
         durationMs,
         error: "-",
         requestBody,
-      })
-      return new Response(result.body, {
+      }
+      context.onProxy?.(proxyLog)
+      const response = new Response(result.body, {
         status: result.status,
         statusText: result.statusText,
         headers: responseHeaders(result.headers),
+      })
+      if (!response.body) return response
+      return responseWithLoggedBody(response as Response & { body: ReadableStream<Uint8Array> }, (responseBody) => {
+        proxyLog.responseBody = responseBody
       })
     }
 
@@ -63,6 +70,7 @@ export class OpenAI_Inbound_Provider implements Inbound_Provider {
         durationMs,
         error: previewText(result.body) || "-",
         requestBody,
+        responseBody: previewText(result.body) || undefined,
       })
       return new Response(result.body, {
         status: result.status,
@@ -91,4 +99,47 @@ function isCanonicalError(result: UpstreamResult): result is Canonical_ErrorResp
 
 function previewText(text: string) {
   return text.slice(0, LOG_BODY_PREVIEW_LIMIT)
+}
+
+function responseWithLoggedBody(response: Response & { body: ReadableStream<Uint8Array> }, onComplete: (responseBody?: string) => void) {
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  const preview = createLogPreview()
+  let completed = false
+
+  function complete() {
+    if (completed) return
+    completed = true
+    const tail = decoder.decode()
+    preview.append(tail)
+    onComplete(preview.text())
+  }
+
+  const body = new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      try {
+        const chunk = await reader.read()
+        if (chunk.done) {
+          complete()
+          controller.close()
+          return
+        }
+        controller.enqueue(chunk.value)
+        preview.append(decoder.decode(chunk.value, { stream: true }))
+      } catch (error) {
+        complete()
+        controller.error(error)
+      }
+    },
+    cancel(reason) {
+      complete()
+      return reader.cancel(reason)
+    },
+  })
+
+  return new Response(body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers: response.headers,
+  })
 }

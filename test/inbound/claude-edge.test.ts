@@ -5,8 +5,8 @@ import { Claude_Inbound_Provider } from "../../src/inbound/claude"
 import { claudeToCanonicalRequest } from "../../src/inbound/claude/convert"
 import { claudeErrorResponse, claudeStreamErrorEvent } from "../../src/inbound/claude/errors"
 import { Model_Catalog } from "../../src/inbound/claude/models"
-import { canonicalResponseToClaudeMessage, claudeCanonicalStreamResponse } from "../../src/inbound/claude/response"
-import { readSse } from "../helpers"
+import { canonicalResponseToClaudeMessage, claudeCanonicalStreamResponse, claudeStreamResponse } from "../../src/inbound/claude/response"
+import { readSse, sse } from "../helpers"
 
 describe("Claude → Canonical_Request edge cases", () => {
   test("minimal request with only model and messages gets default instructions", () => {
@@ -219,6 +219,40 @@ describe("Canonical_Response → Claude format edge cases", () => {
 })
 
 describe("Claude canonical stream edge cases", () => {
+  test("direct Codex stream forwards concrete lifecycle labels into thinking", async () => {
+    const response = claudeStreamResponse(
+      new Response(
+        sse([
+          { type: "response.created", response: { id: "resp_1", model: "gpt-5.4" } },
+          { type: "response.in_progress" },
+          { type: "response.output_item.added", item: { type: "message", phase: "commentary" } },
+          { type: "response.content_part.added", part: { type: "output_text", text: "" } },
+          { type: "response.output_item.added", item: { id: "fc_1", type: "function_call", call_id: "call_1", name: "TodoWrite" } },
+          { type: "response.function_call_arguments.delta", item_id: "fc_1", delta: "{\"todos\":[{\"content\":\"Re-read current staged status and diffs\"}," },
+          { type: "response.function_call_arguments.done", item_id: "fc_1", arguments: "{\"todos\":[{\"content\":\"Re-read current staged status and diffs\"},{\"content\":\"Verify previous findings against staged code\"}]}" },
+          { type: "response.output_item.added", item: { id: "fc_2", type: "function_call", call_id: "call_2", name: "Bash" } },
+          { type: "response.function_call_arguments.done", item_id: "fc_2", arguments: "{\"command\":\"git show :src/core/request-logs.ts\",\"description\":\"Show staged request log storage implementation\",\"timeout\":120000}" },
+          { type: "response.completed", response: { usage: { output_tokens: 0 }, output: [] } },
+        ]),
+      ),
+      { model: "gpt-5.4", messages: [], stream: true },
+    )
+
+    const events = await readSse(response)
+    const thinking = events
+      .flatMap((event) => (event.data.delta?.type === "thinking_delta" ? [event.data.delta.thinking] : []))
+      .join("")
+
+    expect(thinking).toContain("**Commentary** drafting update")
+    expect(thinking).toContain("**Output** opening text stream")
+    expect(thinking).toContain("**Tool** preparing `TodoWrite`")
+    expect(thinking).toContain("**Codex** session opened\n**Stream** events flowing\n**Commentary** drafting update")
+    expect(thinking).toContain("**Commentary** drafting update\n**Output** opening text stream\n**Tool** preparing `TodoWrite`\n**Tool request** `TodoWrite`:\n- Re-read current staged status and diffs\n- Verify previous findings against staged code\n")
+    expect(thinking).toContain("**Tool request** `Bash`:\n- **command**: `git show :src/core/request-logs.ts`\n- **description**: `Show staged request log storage implementation`\n- **timeout**: `120000`\n")
+    expect(thinking).not.toContain("Preparing output")
+    expect(thinking).not.toContain("Preparing content")
+  })
+
   test("empty event stream produces minimal SSE", async () => {
     const response = claudeCanonicalStreamResponse(
       {
@@ -481,8 +515,9 @@ describe("Claude_Inbound_Provider edge cases", () => {
   })
 
   test("streaming response from upstream is returned as SSE", async () => {
+    let capturedProxy: any
     const streamUpstream = {
-      proxy: () =>
+      proxy: (_request: unknown, options?: { onResponseBodyChunk?: (chunk: string) => void }) =>
         Promise.resolve({
           type: "canonical_stream" as const,
           status: 200,
@@ -490,6 +525,7 @@ describe("Claude_Inbound_Provider edge cases", () => {
           model: "gpt-5.4",
           events: {
             async *[Symbol.asyncIterator]() {
+              options?.onResponseBodyChunk?.('event: response.output_text.delta\ndata: {"type":"response.output_text.delta","delta":"hello"}\n\n')
               yield { type: "message_start", id: "resp_1", model: "gpt-5.4" } as const
               yield { type: "text_delta", delta: "hello" } as const
               yield { type: "usage", usage: { inputTokens: 1, outputTokens: 2 } } as const
@@ -505,12 +541,145 @@ describe("Claude_Inbound_Provider edge cases", () => {
       new Request("http://localhost/v1/messages", { method: "POST", body: JSON.stringify({ model: "gpt-5.4", messages: [{ role: "user", content: "hello" }], stream: true }) }),
       { path: "/v1/messages", method: "POST" },
       streamUpstream,
-      { requestId: "req_1", logBody: false, quiet: true },
+      { requestId: "req_1", logBody: false, quiet: true, onProxy: (entry) => { capturedProxy = entry } },
     )
 
     expect(response.headers.get("content-type")).toContain("text/event-stream")
     const events = await readSse(response)
     expect(events.length).toBeGreaterThan(0)
+    expect(capturedProxy.responseBody).toContain("response.output_text.delta")
+    expect(capturedProxy.responseBody).toContain('"delta":"hello"')
+  })
+
+  test("canonical stream is cancelled when Claude client disconnects", async () => {
+    let cancelled = false
+    const response = claudeCanonicalStreamResponse(
+      {
+        type: "canonical_stream",
+        status: 200,
+        id: "resp_1",
+        model: "gpt-5.4",
+        events: {
+          async *[Symbol.asyncIterator]() {
+            try {
+              yield { type: "message_start", id: "resp_1", model: "gpt-5.4" } as const
+              await new Promise(() => undefined)
+            } finally {
+              cancelled = true
+            }
+          },
+        },
+      },
+      { model: "gpt-5.4", messages: [], stream: true },
+    )
+
+    const reader = response.body!.getReader()
+    await reader.read()
+    await reader.cancel("client done")
+    await waitFor(() => cancelled)
+
+    expect(cancelled).toBe(true)
+  })
+
+  test("canonical stream emits heartbeat while upstream is idle", async () => {
+    const response = claudeCanonicalStreamResponse(
+      {
+        type: "canonical_stream",
+        status: 200,
+        id: "resp_1",
+        model: "gpt-5.4",
+        events: {
+          async *[Symbol.asyncIterator]() {
+            yield { type: "message_start", id: "resp_1", model: "gpt-5.4" } as const
+            yield { type: "thinking_delta", text: "Working" } as const
+            await new Promise(() => undefined)
+          },
+        },
+      },
+      { model: "gpt-5.4", messages: [], stream: true },
+      { heartbeatMs: 10 },
+    )
+
+    const reader = response.body!.getReader()
+    const decoder = new TextDecoder()
+    let seen = ""
+    for (let index = 0; index < 5 && !seen.includes("Working"); index += 1) {
+      const chunk = await reader.read()
+      expect(chunk.done).toBe(false)
+      seen += decoder.decode(chunk.value)
+    }
+
+    const heartbeat = await Promise.race([
+      reader.read(),
+      new Promise<{ timeout: true }>((resolve) => setTimeout(() => resolve({ timeout: true }), 200)),
+    ])
+    expect("timeout" in heartbeat).toBe(false)
+    if (!("timeout" in heartbeat)) {
+      expect(heartbeat.done).toBe(false)
+      expect(decoder.decode(heartbeat.value)).toContain("thinking_delta")
+    }
+
+    await reader.cancel("client done")
+  })
+
+  test("canonical stream forwards thinking signature", async () => {
+    const response = claudeCanonicalStreamResponse(
+      {
+        type: "canonical_stream",
+        status: 200,
+        id: "resp_1",
+        model: "gpt-5.4",
+        events: {
+          async *[Symbol.asyncIterator]() {
+            yield { type: "message_start", id: "resp_1", model: "gpt-5.4" } as const
+            yield { type: "thinking_signature", signature: "sig_test" } as const
+            yield { type: "thinking_delta", text: "Working" } as const
+            yield { type: "text_delta", delta: "done" } as const
+            yield { type: "message_stop", stopReason: "end_turn" } as const
+          },
+        },
+      },
+      { model: "gpt-5.4", messages: [], stream: true },
+      { heartbeatMs: 0 },
+    )
+
+    const events = await readSse(response)
+    expect(events.some((event) => event.data.content_block?.type === "thinking" && event.data.content_block.signature === "sig_test")).toBe(true)
+    expect(events.some((event) => event.data.delta?.type === "signature_delta" && event.data.delta.signature === "sig_test")).toBe(true)
+  })
+
+  test("canonical stream closes text before later thinking", async () => {
+    const response = claudeCanonicalStreamResponse(
+      {
+        type: "canonical_stream",
+        status: 200,
+        id: "resp_1",
+        model: "gpt-5.4",
+        events: {
+          async *[Symbol.asyncIterator]() {
+            yield { type: "message_start", id: "resp_1", model: "gpt-5.4" } as const
+            yield { type: "text_delta", delta: "hello" } as const
+            yield { type: "thinking_signature", signature: "sig_test" } as const
+            yield { type: "thinking_delta", text: "Preparing output" } as const
+            yield { type: "tool_call_done", callId: "call_1", name: "Bash", arguments: "{}" } as const
+            yield { type: "message_stop", stopReason: "tool_use" } as const
+          },
+        },
+      },
+      { model: "gpt-5.4", messages: [], stream: true },
+      { heartbeatMs: 0 },
+    )
+
+    const events = await readSse(response)
+    const textStart = events.findIndex((event) => event.data.content_block?.type === "text")
+    const textStop = events.findIndex((event, index) => index > textStart && event.data.type === "content_block_stop" && event.data.index === events[textStart].data.index)
+    const thinkingStart = events.findIndex((event) => event.data.content_block?.type === "thinking")
+    const toolStart = events.findIndex((event) => event.data.content_block?.type === "tool_use")
+
+    expect(textStart).toBeGreaterThan(-1)
+    expect(textStop).toBeGreaterThan(textStart)
+    expect(thinkingStart).toBeGreaterThan(textStop)
+    expect(toolStart).toBeGreaterThan(thinkingStart)
   })
 
   test("logBody: true captures request body preview", async () => {
@@ -568,6 +737,14 @@ describe("Claude error formatting edge cases", () => {
     expect(event).toContain("stream broke")
   })
 })
+
+async function waitFor(predicate: () => boolean) {
+  for (let index = 0; index < 50; index += 1) {
+    if (predicate()) return
+    await new Promise((resolve) => setTimeout(resolve, 5))
+  }
+  throw new Error("Timed out waiting for condition")
+}
 
 describe("Model_Catalog edge cases", () => {
   test("getModel returns undefined for unknown model", () => {

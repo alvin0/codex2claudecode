@@ -1,6 +1,7 @@
 import type { Canonical_ErrorResponse, Canonical_PassthroughResponse, Canonical_Response, Canonical_StreamResponse } from "../../core/canonical"
 import type { Inbound_Provider, RequestHandlerContext, Route_Descriptor, UpstreamResult, Upstream_Provider } from "../../core/interfaces"
 import { LOG_BODY_PREVIEW_LIMIT } from "../../core/constants"
+import { createLogPreview } from "../../core/log-preview"
 import type { RequestProxyLog } from "../../core/types"
 import { claudeToCanonicalRequest, countClaudeInputTokens } from "./convert"
 import { claudeErrorResponse } from "./errors"
@@ -84,11 +85,13 @@ export class Claude_Inbound_Provider implements Inbound_Provider {
 
     const requestBody = context.logBody ? previewText(JSON.stringify(canonicalRequest)) : undefined
     const started = Date.now()
+    const upstreamResponsePreview = createLogPreview()
     let result: UpstreamResult
     try {
       result = await upstream.proxy(canonicalRequest, {
         headers: request.headers,
         signal: request.signal,
+        onResponseBodyChunk: (chunk) => upstreamResponsePreview.append(chunk),
       })
     } catch (error) {
       return claudeErrorResponse(error instanceof Error ? error.message : String(error), 500)
@@ -104,11 +107,12 @@ export class Claude_Inbound_Provider implements Inbound_Provider {
         durationMs,
         error: previewText(result.body) || "-",
         requestBody,
+        responseBody: previewText(result.body) || undefined,
       } satisfies RequestProxyLog)
       return claudeErrorResponse(`Codex request failed: ${result.status} ${result.body}`, result.status)
     }
 
-    context.onProxy?.({
+    const proxyLog: RequestProxyLog = {
       label: "Codex responses",
       method: "POST",
       target: "/v1/responses",
@@ -116,10 +120,22 @@ export class Claude_Inbound_Provider implements Inbound_Provider {
       durationMs,
       error: "-",
       requestBody,
-    } satisfies RequestProxyLog)
+    }
+    context.onProxy?.(proxyLog)
 
-    if (isCanonicalStream(result)) return claudeCanonicalStreamResponse(result, body)
-    if (isCanonicalResponse(result)) return Response.json(await canonicalResponseToClaudeMessage(result, body))
+    if (isCanonicalStream(result)) {
+      return claudeCanonicalStreamResponse(withLoggedCanonicalStream(result, proxyLog, started, () => upstreamResponsePreview.text()), body, {
+        onCancel: (reason) => {
+          proxyLog.durationMs = Date.now() - started
+          proxyLog.error = `stream cancelled: ${reasonText(reason)}`
+          proxyLog.responseBody = upstreamResponsePreview.text()
+        },
+      })
+    }
+    if (isCanonicalResponse(result)) {
+      proxyLog.responseBody = upstreamResponsePreview.text()
+      return Response.json(await canonicalResponseToClaudeMessage(result, body))
+    }
     if (isCanonicalPassthrough(result)) return claudeErrorResponse("Unexpected passthrough response for Claude inbound provider", 500)
     return claudeErrorResponse("Unexpected upstream response", 500)
   }
@@ -129,6 +145,36 @@ export { handleClaudeCountTokens, handleClaudeMessages } from "./handlers"
 
 function previewText(text: string) {
   return text.slice(0, LOG_BODY_PREVIEW_LIMIT)
+}
+
+function withLoggedCanonicalStream(response: Canonical_StreamResponse, proxyLog: RequestProxyLog, started: number, responseBody: () => string | undefined): Canonical_StreamResponse {
+  async function* events() {
+    let completed = false
+    try {
+      for await (const event of response.events) {
+        yield event
+      }
+      completed = true
+    } catch (error) {
+      proxyLog.error = error instanceof Error ? error.message : String(error)
+      throw error
+    } finally {
+      proxyLog.durationMs = Date.now() - started
+      if (!completed && proxyLog.error === "-") proxyLog.error = "stream cancelled"
+      proxyLog.responseBody = responseBody()
+    }
+  }
+
+  return {
+    ...response,
+    events: events(),
+  }
+}
+
+function reasonText(reason: unknown) {
+  if (reason === undefined) return "client disconnected"
+  if (reason instanceof Error) return reason.message
+  return String(reason)
 }
 
 function isCanonicalError(result: UpstreamResult): result is Canonical_ErrorResponse {

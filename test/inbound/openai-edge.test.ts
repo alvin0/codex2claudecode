@@ -415,6 +415,39 @@ describe("OpenAI_Inbound_Provider edge cases", () => {
 
     expect(capturedProxy).toBeDefined()
     expect(capturedProxy.requestBody).toBeDefined()
+    expect(capturedProxy.responseBody).toBeUndefined()
+  })
+
+  test("captures passthrough response stream in proxy callback after consumption", async () => {
+    let capturedProxy: any
+    const provider = new OpenAI_Inbound_Provider()
+    const upstream = {
+      proxy: () =>
+        Promise.resolve({
+          type: "canonical_passthrough" as const,
+          status: 200,
+          statusText: "OK",
+          headers: new Headers(),
+          body: new ReadableStream<Uint8Array>({
+            start(controller) {
+              controller.enqueue(new TextEncoder().encode("data: one\n\n"))
+              controller.enqueue(new TextEncoder().encode("data: two\n\n"))
+              controller.close()
+            },
+          }),
+        }),
+      checkHealth: () => Promise.resolve({ ok: true }),
+    }
+
+    const response = await provider.handle(
+      new Request("http://localhost/v1/responses", { method: "POST", body: JSON.stringify({ model: "m", input: "hi" }) }),
+      { path: "/v1/responses", method: "POST" },
+      upstream,
+      { requestId: "req_1", logBody: true, quiet: true, onProxy: (entry) => { capturedProxy = entry } },
+    )
+
+    expect(await response.text()).toBe("data: one\n\ndata: two\n\n")
+    expect(capturedProxy.responseBody).toBe("data: one\n\ndata: two\n\n")
   })
 
   test("routes returns correct descriptors", () => {

@@ -3,6 +3,7 @@ export type JsonObject = Record<string, unknown>
 export interface RequestOptions {
   headers?: HeadersInit
   signal?: AbortSignal
+  onResponseBodyChunk?: (chunk: string) => void
 }
 
 export interface RequestProxyLog {
@@ -19,6 +20,7 @@ export interface RequestProxyLog {
 export interface RequestLogEntry {
   id: string
   state?: "pending" | "complete"
+  detailFile?: string
   at: string
   method: string
   path: string

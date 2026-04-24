@@ -5,7 +5,7 @@ import path from "node:path"
 
 import { LOG_BODY_PREVIEW_LIMIT } from "../src/core/constants"
 import { cors, responseHeaders } from "../src/core/http"
-import { requestLogFilePath } from "../src/core/request-logs"
+import { readRequestLogDetail, requestLogFilePath } from "../src/core/request-logs"
 import { startRuntime } from "../src/app/runtime"
 import { sse } from "./helpers"
 
@@ -236,9 +236,9 @@ describe("runtime server", () => {
     globalThis.fetch = mockFetch()
     const logs: any[] = []
     const auth = await authFile()
-    const server = await startRuntime({ authFile: auth, port: 0, healthIntervalMs: 0, logBody: true, onRequestLog: (entry) => logs.push(entry) })
+    const server = await startRuntime({ authFile: auth, port: 0, healthIntervalMs: 0, logBody: true, quiet: true, onRequestLog: (entry) => logs.push(entry) })
     const base = `http://${server.hostname}:${server.port}`
-    const longInput = "x".repeat(5000)
+    const longInput = "x".repeat(LOG_BODY_PREVIEW_LIMIT + 100)
     try {
       const response = await originalFetch(`${base}/v1/responses`, { method: "POST", body: JSON.stringify({ model: "m", input: longInput }) })
       expect(response.status).toBe(200)
@@ -248,16 +248,60 @@ describe("runtime server", () => {
       expect(entry.requestBody.length).toBe(LOG_BODY_PREVIEW_LIMIT)
       expect(entry.proxy?.requestBody).not.toContain(longInput)
       expect(entry.proxy?.requestBody.length).toBe(LOG_BODY_PREVIEW_LIMIT)
+      expect(entry.proxy?.responseBody).toContain("response.output_text.done")
+      expect(entry.proxy?.responseBody).toContain("ok")
       expect(entry.responseBody).toContain("response.output_text.done")
       expect(entry.responseBody).toContain("ok")
 
       const persisted = (await readFile(requestLogFilePath(auth), "utf8")).trim().split("\n").map((line: string) => JSON.parse(line))
-      expect(persisted[persisted.length - 1]).toMatchObject({
+      const persistedEntry = persisted[persisted.length - 1]
+      const persistedDetail = await readRequestLogDetail(auth, persistedEntry)
+      expect(persistedEntry).toMatchObject({
+        id: entry.id,
+        detailFile: expect.any(String),
+        proxy: expect.objectContaining({
+          status: 200,
+        }),
+      })
+      expect(persistedEntry.requestBody).toBeUndefined()
+      expect(persistedEntry.responseBody).toBeUndefined()
+      expect(persistedEntry.proxy.requestBody).toBeUndefined()
+      expect(persistedEntry.proxy.responseBody).toBeUndefined()
+      expect(persistedDetail).toMatchObject({
         id: entry.id,
         requestBody: entry.requestBody,
         responseBody: entry.responseBody,
-        proxy: expect.objectContaining({ requestBody: entry.proxy?.requestBody }),
+        proxy: expect.objectContaining({
+          requestBody: entry.proxy?.requestBody,
+          responseBody: entry.proxy?.responseBody,
+        }),
       })
+    } finally {
+      server.stop(true)
+    }
+  })
+
+  test("stores raw Codex proxy response body for Claude messages", async () => {
+    globalThis.fetch = mockFetch()
+    const logs: any[] = []
+    const auth = await authFile()
+    const server = await startRuntime({ authFile: auth, port: 0, healthIntervalMs: 0, logBody: true, quiet: true, onRequestLog: (entry) => logs.push(entry) })
+    const base = `http://${server.hostname}:${server.port}`
+    try {
+      const response = await originalFetch(`${base}/v1/messages`, { method: "POST", body: JSON.stringify({ model: "m", messages: [{ role: "user", content: "hi" }] }) })
+      expect(response.status).toBe(200)
+      expect(await response.text()).toContain("content_block")
+
+      const entry = logs[logs.length - 1]
+      expect(entry.path).toBe("/v1/messages")
+      expect(entry.responseBody).toContain("content_block")
+      expect(entry.proxy?.responseBody).toContain("response.output_text.done")
+      expect(entry.proxy?.responseBody).toContain('"text":"ok"')
+      expect(entry.proxy?.responseBody).not.toContain('"type":"text_done"')
+
+      const persisted = (await readFile(requestLogFilePath(auth), "utf8")).trim().split("\n").map((line: string) => JSON.parse(line))
+      const persistedDetail = await readRequestLogDetail(auth, persisted[persisted.length - 1])
+      expect(persistedDetail.proxy?.responseBody).toBe(entry.proxy?.responseBody)
     } finally {
       server.stop(true)
     }

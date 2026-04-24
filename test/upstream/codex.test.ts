@@ -222,4 +222,44 @@ describe("Codex upstream provider", () => {
       expect.arrayContaining(["message_start", "text_delta", "usage", "completion", "message_stop"]),
     )
   })
+
+  test("cancels upstream stream when canonical stream consumer stops", async () => {
+    let upstreamCancelled = false
+    const provider = new Codex_Upstream_Provider({
+      accessToken: "access",
+      refreshToken: "refresh",
+      fetch: (() =>
+        Promise.resolve(
+          new Response(
+            new ReadableStream<Uint8Array>({
+              start(controller) {
+                controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify({ type: "response.created", response: { id: "resp_1", model: "gpt-5.4" } })}\n\n`))
+              },
+              cancel() {
+                upstreamCancelled = true
+              },
+            }),
+          ),
+        )) as typeof fetch,
+    })
+
+    const result = await provider.proxy(canonicalRequest({ stream: true }))
+    expect(result.type).toBe("canonical_stream")
+    if (result.type !== "canonical_stream") return
+
+    const iterator = result.events[Symbol.asyncIterator]()
+    await iterator.next()
+    await iterator.return?.()
+    await waitFor(() => upstreamCancelled)
+
+    expect(upstreamCancelled).toBe(true)
+  })
 })
+
+async function waitFor(predicate: () => boolean) {
+  for (let index = 0; index < 50; index += 1) {
+    if (predicate()) return
+    await new Promise((resolve) => setTimeout(resolve, 5))
+  }
+  throw new Error("Timed out waiting for condition")
+}

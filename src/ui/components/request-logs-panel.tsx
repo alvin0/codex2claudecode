@@ -250,8 +250,10 @@ function buildDetailLines(log: RequestLogEntry) {
           { text: `${log.proxy.label} · ${log.proxy.method} ${log.proxy.target}`, color: "gray" },
           { text: `Proxy status: ${log.proxy.status} · ${log.proxy.durationMs}ms`, color: statusColor(log.proxy.status) },
           { text: `Proxy error: ${log.proxy.error}`, color: log.proxy.error === "-" ? "gray" : "red" },
-          { text: "Proxy body preview", color: "gray" },
+          { text: "Proxy request body preview", color: "gray" },
           ...blockLines(formatStructuredText(log.proxy.requestBody), log.proxy.requestBody ? "#aab3cf" : "gray"),
+          { text: "Proxy response body preview", color: "gray" },
+          ...blockLines(formatStructuredText(log.proxy.responseBody), log.proxy.responseBody ? "#aab3cf" : "gray"),
         ]
       : [{ text: "No upstream proxy for this request", color: "gray" }]),
   ]

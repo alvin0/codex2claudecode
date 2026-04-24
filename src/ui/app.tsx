@@ -7,7 +7,7 @@ import { CodexStandaloneClient } from "../upstream/codex/client"
 import { connectAccount, connectAccountFromCodexAuth, type ConnectAccountDraft } from "../upstream/codex/connect-account"
 import { packageInfo } from "../app/package-info"
 import { resolveAuthFile } from "../core/paths"
-import { clearRequestLogs, MAX_REQUEST_LOG_ENTRIES, readRecentRequestLogs } from "../core/request-logs"
+import { clearRequestLogs, MAX_REQUEST_LOG_ENTRIES, readRecentRequestLogs, readRequestLogDetail } from "../core/request-logs"
 import { startRuntime } from "../app/runtime"
 import type { RequestLogEntry } from "../core/types"
 import type { AuthFileData } from "../upstream/codex/types"
@@ -63,6 +63,7 @@ export function CodexCodeApp(props: { port?: number }) {
   >("home")
   const [selectorIndex, setSelectorIndex] = useState(0)
   const [requestLogs, setRequestLogs] = useState<RequestLogEntry[]>([])
+  const [requestLogDetails, setRequestLogDetails] = useState<Record<string, RequestLogEntry>>({})
   const [logsSelected, setLogsSelected] = useState(0)
   const [logsDetailOpen, setLogsDetailOpen] = useState(false)
   const [logsDetailScroll, setLogsDetailScroll] = useState(0)
@@ -83,6 +84,10 @@ export function CodexCodeApp(props: { port?: number }) {
   const [authRevision, setAuthRevision] = useState(0)
   const pkg = useMemo(() => packageInfo(), [])
   const activePort = runtime.status === "running" ? runtime.server.port : port
+  const visibleRequestLogs = useMemo(
+    () => requestLogs.map((log) => requestLogDetails[log.id] ?? log),
+    [requestLogDetails, requestLogs],
+  )
 
   const accounts = useMemo(() => (authData ? authDataToAccounts(authData) : []), [authData])
   const account = accounts[selected]
@@ -121,6 +126,7 @@ export function CodexCodeApp(props: { port?: number }) {
     let active = true
     let server: ReturnType<typeof Bun.serve> | undefined
     setRequestLogs([])
+    setRequestLogDetails({})
     setRuntime({ status: "starting" })
     startRuntime({
       authFile,
@@ -208,6 +214,25 @@ export function CodexCodeApp(props: { port?: number }) {
   }, [authFile, mode, authRevision, selected])
 
   useEffect(() => {
+    if (mode !== "logs" || !logsDetailOpen) return
+    const log = requestLogs[logsSelected]
+    if (!log || requestLogDetails[log.id]) return
+    let active = true
+    void readRequestLogDetail(authFile, log)
+      .then((detail) => {
+        if (!active) return
+        setRequestLogDetails((details) => ({ ...details, [detail.id]: detail }))
+      })
+      .catch((error) => {
+        if (!active) return
+        setLogsFileError(`Failed to read request detail: ${error instanceof Error ? error.message : String(error)}`)
+      })
+    return () => {
+      active = false
+    }
+  }, [authFile, logsDetailOpen, logsSelected, mode, requestLogDetails, requestLogs])
+
+  useEffect(() => {
     if (!account || loadError) return
     let active = true
     async function refresh() {
@@ -252,6 +277,7 @@ export function CodexCodeApp(props: { port?: number }) {
           void clearRequestLogs(authFile)
             .then(() => {
               setRequestLogs([])
+              setRequestLogDetails({})
               setLogsSelected(0)
               setLogsDetailOpen(false)
               setLogsDetailScroll(0)
@@ -278,7 +304,11 @@ export function CodexCodeApp(props: { port?: number }) {
       if (logsDetailOpen && input.toLowerCase() === "c") {
         const log = requestLogs[logsSelected]
         if (!log) return
-        void writeClipboard(formatRequestLogDetail(log))
+        void readRequestLogDetail(authFile, log)
+          .then((detail) => {
+            setRequestLogDetails((details) => ({ ...details, [detail.id]: detail }))
+            return writeClipboard(formatRequestLogDetail(detail))
+          })
           .then(() => {
             setLogsCopyStatus({ type: "success", message: `Copied request ${log.id} to clipboard` })
             setInputMessage(`Copied request ${log.id} to clipboard`)
@@ -291,7 +321,14 @@ export function CodexCodeApp(props: { port?: number }) {
         return
       }
       if (input.toLowerCase() === "l") {
-        void writeClipboard(formatAllRequestLogs(requestLogs))
+        void Promise.all(requestLogs.map((log) => readRequestLogDetail(authFile, log)))
+          .then((logs) => {
+            setRequestLogDetails((details) => ({
+              ...details,
+              ...Object.fromEntries(logs.map((log) => [log.id, log])),
+            }))
+            return writeClipboard(formatAllRequestLogs(logs))
+          })
           .then(() => {
             setLogsCopyStatus({ type: "success", message: `Copied ${requestLogs.length} log(s) to clipboard` })
             setInputMessage(`Copied ${requestLogs.length} log(s) to clipboard`)
@@ -673,7 +710,7 @@ export function CodexCodeApp(props: { port?: number }) {
         <>
           <CommandInput value={inputValue} message={inputMessage} selected={commandIndex} />
           <RequestLogsPanel
-            logs={requestLogs}
+            logs={visibleRequestLogs}
             selected={logsSelected}
             autoFollow={logsAutoFollow}
             detailOpen={logsDetailOpen}

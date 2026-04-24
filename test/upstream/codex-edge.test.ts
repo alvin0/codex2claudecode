@@ -218,9 +218,42 @@ describe("collectCodexResponse edge cases", () => {
 
     const thinking = response.content.find((block) => block.type === "thinking")
     expect(thinking).toBeDefined()
-    // Thinking includes lifecycle label "Initializing…" from response.created + actual thinking text
+    // Thinking includes lifecycle label "Initializing" from response.created + actual thinking text
     expect(thinking!.type === "thinking" && thinking.thinking).toContain("Thinking...")
     expect(thinking!.type === "thinking" && thinking.signature).toMatch(/^sig_/)
+  })
+
+  test("thinking lifecycle labels prefer concrete output item payload", async () => {
+    const response = await collectCodexResponse(
+      new Response(
+        sse([
+          { type: "response.created", response: { id: "resp_1", model: "gpt-5.4" } },
+          { type: "response.in_progress" },
+          { type: "response.output_item.added", item: { type: "message", phase: "commentary" } },
+          { type: "response.content_part.added", part: { type: "output_text", text: "" } },
+          { type: "response.output_item.added", item: { id: "fc_1", type: "function_call", call_id: "call_1", name: "TodoWrite" } },
+          { type: "response.function_call_arguments.delta", item_id: "fc_1", delta: "{\"todos\":[{\"content\":\"Re-read current staged status and diffs\"}," },
+          { type: "response.function_call_arguments.done", item_id: "fc_1", arguments: "{\"todos\":[{\"content\":\"Re-read current staged status and diffs\"},{\"content\":\"Verify previous findings against staged code\"}]}" },
+          { type: "response.output_item.added", item: { id: "fc_2", type: "function_call", call_id: "call_2", name: "Bash" } },
+          { type: "response.function_call_arguments.done", item_id: "fc_2", arguments: "{\"command\":\"git show :src/core/request-logs.ts\",\"description\":\"Show staged request log storage implementation\",\"timeout\":120000}" },
+          { type: "response.completed", response: { usage: { input_tokens: 0, output_tokens: 0 }, output: [] } },
+        ]),
+      ),
+      "fallback",
+    )
+
+    const thinking = response.content.find((block) => block.type === "thinking")
+    expect(thinking).toBeDefined()
+    if (thinking?.type === "thinking") {
+      expect(thinking.thinking).toContain("**Commentary** drafting update")
+      expect(thinking.thinking).toContain("**Output** opening text stream")
+      expect(thinking.thinking).toContain("**Tool** preparing `TodoWrite`")
+      expect(thinking.thinking).toContain("**Codex** session opened\n**Stream** events flowing\n**Commentary** drafting update")
+      expect(thinking.thinking).toContain("**Commentary** drafting update\n**Output** opening text stream\n**Tool** preparing `TodoWrite`\n**Tool request** `TodoWrite`:\n- Re-read current staged status and diffs\n- Verify previous findings against staged code\n")
+      expect(thinking.thinking).toContain("**Tool request** `Bash`:\n- **command**: `git show :src/core/request-logs.ts`\n- **description**: `Show staged request log storage implementation`\n- **timeout**: `120000`\n")
+      expect(thinking.thinking).not.toContain("Preparing output")
+      expect(thinking.thinking).not.toContain("Preparing content")
+    }
   })
 
   test("function_call without id falls back to fc_ prefix", async () => {
@@ -453,6 +486,33 @@ describe("streamCodexResponse edge cases", () => {
 
     expect(thinkingStart).toBeLessThan(thinkingStop)
     expect(thinkingStop).toBeLessThan(textStart)
+  })
+
+  test("text then later thinking produces correct block ordering", async () => {
+    const stream = streamCodexResponse(
+      new Response(
+        sse([
+          { type: "response.created", response: { id: "resp_1", model: "gpt-5.4" } },
+          { type: "response.output_text.delta", delta: "Answer" },
+          { type: "response.output_text.done", text: "Answer" },
+          { type: "response.output_item.added", item: { type: "function_call", call_id: "call_1", name: "Bash" } },
+          { type: "response.output_item.done", item: { type: "function_call", call_id: "call_1", name: "Bash", arguments: "{}" } },
+          { type: "response.completed", response: { usage: { input_tokens: 1, output_tokens: 2 }, output: [{ type: "message", content: [{ type: "output_text", text: "Answer" }] }, { type: "function_call", call_id: "call_1", name: "Bash", arguments: "{}" }] } },
+        ]),
+      ),
+      "fallback",
+    )
+
+    const events = []
+    for await (const event of stream.events) events.push(event)
+
+    const textStart = events.findIndex((event) => event.type === "content_block_start" && event.blockType === "text")
+    const textStop = events.findIndex((event, index) => index > textStart && event.type === "content_block_stop" && event.index === events[textStart].index)
+    const thinkingStart = events.findIndex((event, index) => index > textStart && event.type === "content_block_start" && event.blockType === "thinking")
+
+    expect(textStart).toBeGreaterThan(-1)
+    expect(textStop).toBeGreaterThan(textStart)
+    expect(thinkingStart).toBeGreaterThan(textStop)
   })
 })
 

@@ -1,4 +1,5 @@
 import { LOG_BODY_PREVIEW_LIMIT } from "../../core/constants"
+import { createLogPreview } from "../../core/log-preview"
 import type { CodexStandaloneClient } from "../../upstream/codex/client"
 import { normalizeReasoningBody } from "../../core/reasoning"
 import type { ClaudeMessagesRequest, JsonObject, RequestProxyLog } from "../types"
@@ -53,12 +54,13 @@ export async function handleClaudeMessages(
       durationMs,
       error: redactSecrets(text).slice(0, LOG_BODY_PREVIEW_LIMIT) || "-",
       requestBody,
+      responseBody: previewText(redactSecrets(text)) || undefined,
     })
     console.error(`Claude messages upstream error ${response.status}: ${text.slice(0, LOG_BODY_PREVIEW_LIMIT)}`)
     return claudeErrorResponse(`Codex request failed: ${response.status} ${text}`, response.status)
   }
 
-  options?.onProxy?.({
+  const proxyLog: RequestProxyLog = {
     label: "Codex responses",
     method: "POST",
     target: "/v1/responses",
@@ -66,7 +68,14 @@ export async function handleClaudeMessages(
     durationMs,
     error: "-",
     requestBody,
-  })
+  }
+  options?.onProxy?.(proxyLog)
+
+  if (response.body) {
+    response = responseWithLoggedBody(response as Response & { body: ReadableStream<Uint8Array> }, (responseBody) => {
+      proxyLog.responseBody = responseBody
+    })
+  }
 
   if (body.stream) return claudeStreamResponse(response, body, {
     onStreamError: (error) => {
@@ -113,6 +122,49 @@ function stringifyBody(body: JsonObject) {
 
 function previewText(text: string) {
   return text.slice(0, LOG_BODY_PREVIEW_LIMIT)
+}
+
+function responseWithLoggedBody(response: Response & { body: ReadableStream<Uint8Array> }, onComplete: (responseBody?: string) => void) {
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  const preview = createLogPreview()
+  let completed = false
+
+  function complete() {
+    if (completed) return
+    completed = true
+    const tail = decoder.decode()
+    preview.append(tail)
+    onComplete(preview.text())
+  }
+
+  const body = new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      try {
+        const chunk = await reader.read()
+        if (chunk.done) {
+          complete()
+          controller.close()
+          return
+        }
+        controller.enqueue(chunk.value)
+        preview.append(decoder.decode(chunk.value, { stream: true }))
+      } catch (error) {
+        complete()
+        controller.error(error)
+      }
+    },
+    cancel(reason) {
+      complete()
+      return reader.cancel(reason)
+    },
+  })
+
+  return new Response(body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers: response.headers,
+  })
 }
 
 function errorMessage(error: unknown) {
