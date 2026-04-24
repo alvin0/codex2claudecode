@@ -4,7 +4,6 @@ import { responseHeaders } from "../../core/http"
 import { LOG_BODY_PREVIEW_LIMIT } from "../../core/constants"
 import { createLogPreview } from "../../core/log-preview"
 import type { RequestProxyLog } from "../../core/types"
-import { readCodexFastModeConfig } from "./fast-mode"
 import { normalizeCanonicalRequest, normalizeRequestBody } from "./normalize"
 
 export class OpenAI_Inbound_Provider implements Inbound_Provider {
@@ -32,11 +31,9 @@ export class OpenAI_Inbound_Provider implements Inbound_Provider {
       )
     }
 
-    const fastMode = await readCodexFastModeConfig(context.authFile)
-    const normalizeOptions = fastMode.enabled ? { serviceTier: "fast" } : undefined
-    const requestBody = context.logBody ? previewText(JSON.stringify(normalizeRequestBody(route.path, body as Record<string, unknown>, normalizeOptions))) : undefined
+    const requestBody = context.logBody ? previewText(JSON.stringify(normalizeRequestBody(route.path, body as Record<string, unknown>))) : undefined
     const started = Date.now()
-    const result = await upstream.proxy(normalizeCanonicalRequest(route.path, body as Record<string, unknown>, normalizeOptions), {
+    const result = await upstream.proxy(normalizeCanonicalRequest(route.path, body as Record<string, unknown>), {
       headers: request.headers,
       signal: request.signal,
     })

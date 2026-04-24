@@ -2,15 +2,18 @@ import type { Canonical_ErrorResponse, Canonical_PassthroughResponse, Canonical_
 import { responseHeaders } from "../../core/http"
 import type { TokenCredentialProvider, UpstreamResult, Upstream_Provider } from "../../core/interfaces"
 import type { RequestOptions } from "../../core/types"
+import { readCodexFastModeConfig } from "./fast-mode"
 import { CodexStandaloneClient } from "./client"
 import type { CodexClientOptions, CodexClientTokens } from "./types"
 import { canonicalToCodexBody, canonicalToCodexInputTokensBody, collectCodexResponse, streamCodexResponse } from "./parse"
 
 export class Codex_Upstream_Provider implements Upstream_Provider, TokenCredentialProvider<CodexClientTokens> {
   private readonly client: CodexStandaloneClient
+  private readonly authFile?: string
 
-  constructor(options: CodexClientOptions | { client: CodexStandaloneClient }) {
+  constructor(options: CodexClientOptions | { client: CodexStandaloneClient; authFile?: string }) {
     this.client = "client" in options ? options.client : new CodexStandaloneClient(options)
+    this.authFile = "authFile" in options ? options.authFile : undefined
   }
 
   static async fromAuthFile(
@@ -19,11 +22,13 @@ export class Codex_Upstream_Provider implements Upstream_Provider, TokenCredenti
   ) {
     return new Codex_Upstream_Provider({
       client: await CodexStandaloneClient.fromAuthFile(path, options),
+      authFile: path,
     })
   }
 
   async proxy(request: Canonical_Request, options?: RequestOptions): Promise<UpstreamResult> {
-    const response = withLoggedResponseBody(await this.client.proxy(canonicalToCodexBody(request), options), options?.onResponseBodyChunk)
+    const body = await this.applyFastMode(canonicalToCodexBody(request))
+    const response = withLoggedResponseBody(await this.client.proxy(body, options), options?.onResponseBodyChunk)
     if (!response.ok) return toCanonicalError(response)
     if (request.passthrough) return toCanonicalPassthrough(response)
     if (request.stream) return streamCodexResponse(response, request.model)
@@ -52,6 +57,13 @@ export class Codex_Upstream_Provider implements Upstream_Provider, TokenCredenti
 
   get tokens() {
     return this.client.tokens
+  }
+
+  private async applyFastMode(body: Record<string, unknown>): Promise<Record<string, unknown>> {
+    if (body.service_tier) return body
+    const config = await readCodexFastModeConfig(this.authFile)
+    if (!config.enabled) return body
+    return { ...body, service_tier: "priority" }
   }
 }
 

@@ -4,9 +4,8 @@ export interface UiCommand {
 }
 
 export const UI_COMMANDS: UiCommand[] = [
-  { name: "/limits", description: "Show Codex account and model limits" },
   { name: "/logs", description: "Show recent runtime request logs" },
-  { name: "/codex-fast-mode", description: "Toggle service_tier fast for /v1/responses" },
+  { name: "/codex-fast-mode", description: "Toggle service_tier priority for /v1/responses" },
   { name: "/connect", description: "Add or update a Codex account" },
   { name: "/account", description: "Switch Codex account for this runtime" },
   { name: "/set-claude-env", description: "Edit and apply Claude Code environment exports" },

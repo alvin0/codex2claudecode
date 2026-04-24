@@ -4,7 +4,7 @@ import { tmpdir } from "node:os"
 import path from "node:path"
 
 import { OpenAI_Inbound_Provider } from "../../src/inbound/openai"
-import { codexConfigPath, writeCodexFastModeConfig } from "../../src/inbound/openai/fast-mode"
+import { codexConfigPath, writeCodexFastModeConfig } from "../../src/upstream/codex/fast-mode"
 import { normalizeCanonicalRequest, normalizeRequestBody } from "../../src/inbound/openai/normalize"
 
 const tempDirs: string[] = []
@@ -58,19 +58,6 @@ describe("OpenAI inbound normalization", () => {
       store: false,
       stream: true,
     })
-  })
-
-  test("adds service tier fast when requested for responses", () => {
-    expect(normalizeRequestBody("/v1/responses", { model: "gpt-5.4", input: "hello" }, { serviceTier: "fast" })).toMatchObject({
-      service_tier: "fast",
-      input: [{ role: "user", content: [{ type: "input_text", text: "hello" }] }],
-    })
-
-    expect(normalizeCanonicalRequest("/v1/responses", { model: "gpt-5.4", input: "hello" }, { serviceTier: "fast" }).metadata).toMatchObject({
-      serviceTier: "fast",
-    })
-
-    expect(normalizeRequestBody("/v1/chat/completions", { model: "gpt-5.4", messages: [] }, { serviceTier: "fast" }).service_tier).toBeUndefined()
   })
 
   test("property: randomized OpenAI requests become valid canonical requests", () => {
@@ -153,7 +140,7 @@ describe("OpenAI inbound provider", () => {
     expect(await invalid.json()).toEqual({ error: { message: expect.stringContaining("Invalid JSON") } })
   })
 
-  test("reads Codex fast mode from config file", async () => {
+  test("does not inject service tier at inbound level", async () => {
     const authFile = await tempAuthFile()
     await writeCodexFastModeConfig(authFile, { enabled: true })
     let capturedRequest: any
@@ -179,7 +166,7 @@ describe("OpenAI inbound provider", () => {
       { requestId: "req_fast", authFile, logBody: false, quiet: true },
     )
 
-    expect(capturedRequest.metadata.serviceTier).toBe("fast")
+    expect(capturedRequest.metadata.serviceTier).toBeUndefined()
   })
 
   test("stores Codex fast mode inside shared Codex config file", async () => {

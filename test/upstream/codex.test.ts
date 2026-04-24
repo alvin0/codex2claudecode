@@ -8,6 +8,7 @@ import { jwt, sse } from "../helpers"
 import { Codex_Upstream_Provider } from "../../src/upstream/codex"
 import { canonicalToCodexBody, collectCodexResponse } from "../../src/upstream/codex/parse"
 import type { Canonical_Request } from "../../src/core/canonical"
+import { writeCodexFastModeConfig } from "../../src/upstream/codex/fast-mode"
 
 const tempDirs: string[] = []
 
@@ -56,10 +57,9 @@ describe("Codex upstream translation", () => {
     })
   })
 
-  test("translates service tier metadata into Codex responses bodies", () => {
-    expect(canonicalToCodexBody(canonicalRequest({ metadata: { serviceTier: "fast" } }))).toMatchObject({
-      service_tier: "fast",
-    })
+  test("does not include service tier in body when metadata has no serviceTier", () => {
+    const body = canonicalToCodexBody(canonicalRequest({ metadata: { source: "claude" } }))
+    expect(body.service_tier).toBeUndefined()
   })
 
   test("property: translated bodies preserve structure across random canonical requests", () => {
@@ -259,6 +259,66 @@ describe("Codex upstream provider", () => {
     await waitFor(() => upstreamCancelled)
 
     expect(upstreamCancelled).toBe(true)
+  })
+
+  test("sends service_tier priority in proxy body when fast mode is enabled", async () => {
+    const file = await authFile()
+    await writeCodexFastModeConfig(file, { enabled: true })
+    let capturedBody: Record<string, unknown> | undefined
+    const provider = new Codex_Upstream_Provider({
+      client: await (async () => {
+        const { CodexStandaloneClient } = await import("../../src/upstream/codex/client")
+        return CodexStandaloneClient.fromAuthFile(file, {
+          fetch: ((url: string, init: RequestInit) => {
+            if (init?.method === "HEAD") return Promise.resolve(new Response(null, { status: 405 }))
+            if (typeof init?.body === "string") capturedBody = JSON.parse(init.body)
+            return Promise.resolve(
+              new Response(
+                sse([
+                  { type: "response.output_text.done", text: "ok" },
+                  { type: "response.completed", response: { usage: { input_tokens: 1, output_tokens: 2 } } },
+                ]),
+              ),
+            )
+          }) as typeof fetch,
+        })
+      })(),
+      authFile: file,
+    })
+
+    await provider.proxy(canonicalRequest())
+    expect(capturedBody).toBeDefined()
+    expect(capturedBody!.service_tier).toBe("priority")
+  })
+
+  test("does not add service_tier when fast mode is disabled", async () => {
+    const file = await authFile()
+    await writeCodexFastModeConfig(file, { enabled: false })
+    let capturedBody: Record<string, unknown> | undefined
+    const provider = new Codex_Upstream_Provider({
+      client: await (async () => {
+        const { CodexStandaloneClient } = await import("../../src/upstream/codex/client")
+        return CodexStandaloneClient.fromAuthFile(file, {
+          fetch: ((url: string, init: RequestInit) => {
+            if (init?.method === "HEAD") return Promise.resolve(new Response(null, { status: 405 }))
+            if (typeof init?.body === "string") capturedBody = JSON.parse(init.body)
+            return Promise.resolve(
+              new Response(
+                sse([
+                  { type: "response.output_text.done", text: "ok" },
+                  { type: "response.completed", response: { usage: { input_tokens: 1, output_tokens: 2 } } },
+                ]),
+              ),
+            )
+          }) as typeof fetch,
+        })
+      })(),
+      authFile: file,
+    })
+
+    await provider.proxy(canonicalRequest())
+    expect(capturedBody).toBeDefined()
+    expect(capturedBody!.service_tier).toBeUndefined()
   })
 })
 

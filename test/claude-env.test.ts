@@ -50,11 +50,11 @@ test("formats preview lines for Claude settings updates", async () => {
   const value = draft()
 
   expect(claudeEnvironmentExports(value, "http://127.0.0.1:8787")).toContain(`Target file: ${claudeSettingsPath()}`)
-  expect(claudeEnvironmentCommands(value, "http://127.0.0.1:8787", "posix")).toContain('env.ANTHROPIC_BASE_URL = "http://127.0.0.1:8787"')
-  expect(claudeEnvironmentPowerShellCommands(value, "http://127.0.0.1:8787")).toContain('env.ANTHROPIC_DEFAULT_OPUS_MODEL = "gpt-5.4"')
-  expect(claudeEnvironmentCommands(value, "http://127.0.0.1:8787", "posix")).toContain('env.ANTHROPIC_AUTH_TOKEN = "codex2claudecode"')
-  await expect(echoClaudeEnvironment(value, "http://127.0.0.1:8787", "posix")).resolves.toContain('env.ANTHROPIC_DEFAULT_HAIKU_MODEL = "gpt-5.4-mini"')
-  await expect(echoClaudeEnvironment(value, "http://127.0.0.1:8787", "posix")).resolves.toContain('env.CLAUDE_CODE_DISABLE_1M_CONTEXT = "1"')
+  expect(claudeEnvironmentCommands(value, "http://127.0.0.1:8787", "posix")).toContain('ANTHROPIC_BASE_URL = "http://127.0.0.1:8787"')
+  expect(claudeEnvironmentPowerShellCommands(value, "http://127.0.0.1:8787")).toContain('ANTHROPIC_DEFAULT_OPUS_MODEL = "gpt-5.4"')
+  expect(claudeEnvironmentCommands(value, "http://127.0.0.1:8787", "posix")).toContain('ANTHROPIC_AUTH_TOKEN = "codex2claudecode"')
+  await expect(echoClaudeEnvironment(value, "http://127.0.0.1:8787", "posix")).resolves.toContain('ANTHROPIC_DEFAULT_HAIKU_MODEL = "gpt-5.4-mini"')
+  await expect(echoClaudeEnvironment(value, "http://127.0.0.1:8787", "posix")).resolves.toContain('CLAUDE_CODE_DISABLE_1M_CONTEXT = "1"')
   await expect(runClaudeEnvironmentSet(value, "http://127.0.0.1:8787", "posix", { persist: false })).resolves.toContain("ANTHROPIC_BASE_URL=http://127.0.0.1:8787")
 })
 
@@ -62,17 +62,17 @@ test("formats unset preview lines for Claude settings env keys", async () => {
   const value = draft()
 
   expect(claudeEnvironmentUnsetCommands(value, "posix")).toEqual([
-    "env.ANTHROPIC_BASE_URL",
-    "env.ANTHROPIC_AUTH_TOKEN",
-    "env.ANTHROPIC_API_KEY",
-    "env.ANTHROPIC_MODEL",
-    "env.ANTHROPIC_DEFAULT_OPUS_MODEL",
-    "env.ANTHROPIC_DEFAULT_SONNET_MODEL",
-    "env.ANTHROPIC_DEFAULT_HAIKU_MODEL",
-    "env.CLAUDE_CODE_DISABLE_1M_CONTEXT",
-    "env.NODE_TLS_REJECT_UNAUTHORIZED",
+    "ANTHROPIC_BASE_URL",
+    "ANTHROPIC_AUTH_TOKEN",
+    "ANTHROPIC_API_KEY",
+    "ANTHROPIC_MODEL",
+    "ANTHROPIC_DEFAULT_OPUS_MODEL",
+    "ANTHROPIC_DEFAULT_SONNET_MODEL",
+    "ANTHROPIC_DEFAULT_HAIKU_MODEL",
+    "CLAUDE_CODE_DISABLE_1M_CONTEXT",
+    "NODE_TLS_REJECT_UNAUTHORIZED",
   ])
-  await expect(echoClaudeEnvironmentUnset(value, "posix")).resolves.toContain("env.ANTHROPIC_BASE_URL")
+  await expect(echoClaudeEnvironmentUnset(value, "posix")).resolves.toContain("ANTHROPIC_BASE_URL")
   await expect(runClaudeEnvironmentUnset(value, "posix", { persist: false })).resolves.toBe(`Updated ${claudeSettingsPath()} env object.`)
 })
 
@@ -197,7 +197,7 @@ test("shows configured extra env additions and deletions in previews", async () 
     unsetEnv: ["REMOVE_ME", "LEGACY_FLAG"],
   })
 
-  expect(claudeEnvironmentCommands(value, "http://127.0.0.1:8787", "posix")).toContain('env.CUSTOM_ENV = "custom-value"')
-  expect(claudeEnvironmentCommands(value, "http://127.0.0.1:8787", "posix")).toContain("delete env.LEGACY_FLAG")
+  expect(claudeEnvironmentCommands(value, "http://127.0.0.1:8787", "posix")).toContain('CUSTOM_ENV = "custom-value"')
+  expect(claudeEnvironmentCommands(value, "http://127.0.0.1:8787", "posix")).toContain("delete LEGACY_FLAG")
   await expect(runClaudeEnvironmentSet(value, "http://127.0.0.1:8787", "posix", { persist: false })).resolves.toContain("CUSTOM_ENV=custom-value")
 })

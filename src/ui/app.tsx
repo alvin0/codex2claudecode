@@ -2,7 +2,7 @@ import { Box, Text, useApp, useInput } from "ink"
 import { useEffect, useMemo, useState } from "react"
 
 import { readAccountInfoFile, refreshActiveAccountInfo, writeAccountInfoFile, writeActiveAccountInfo, type AccountInfo } from "../upstream/codex/account-info"
-import { readCodexFastModeConfig, writeCodexFastModeConfig } from "../inbound/openai/fast-mode"
+import { readCodexFastModeConfig, writeCodexFastModeConfig } from "../upstream/codex/fast-mode"
 import { readAuthFileData } from "../upstream/codex/auth"
 import { CodexStandaloneClient } from "../upstream/codex/client"
 import { connectAccount, connectAccountFromCodexAuth, type ConnectAccountDraft } from "../upstream/codex/connect-account"
@@ -19,18 +19,22 @@ import {
   defaultClaudeEnvironment,
   detectShell,
   CLAUDE_MODEL_ENV_KEYS,
+  ALL_EDITABLE_KEYS,
   readClaudeEnvironmentConfig,
+  readClaudeSettingsEnvAsDraft,
+  recommendedClaudeEnvironment,
   runClaudeEnvironmentSet,
   runClaudeEnvironmentUnset,
   writeClaudeEnvironmentConfig,
   type ClaudeSettingsScope,
   type ClaudeEnvironmentDraft,
 } from "./claude-env"
-import { filterCommands } from "./commands"
+import { UI_COMMANDS } from "./commands"
 import { writeClipboard } from "./clipboard"
 import { AccountInfoPanel } from "./components/account-info-panel"
 import { AccountSelector } from "./components/account-selector"
 import { ClaudeEnvironmentEditor } from "./components/claude-environment-editor"
+import { ClaudeEnvironmentPresetSelector, PRESET_OPTIONS } from "./components/claude-environment-preset-selector"
 import { ClaudeEnvironmentScopeSelector } from "./components/claude-environment-scope-selector"
 import { ClaudeEnvironmentUnsetConfirm } from "./components/claude-environment-unset-confirm"
 import { CommandInput } from "./components/command-input"
@@ -58,11 +62,10 @@ export function CodexCodeApp(props: { port?: number }) {
   const [limitGroups, setLimitGroups] = useState<LimitGroupView[]>([])
   const [limitsLoading, setLimitsLoading] = useState(false)
   const [limitsError, setLimitsError] = useState<string>()
-  const [inputValue, setInputValue] = useState("")
-  const [inputMessage, setInputMessage] = useState("Type / for commands")
+  const [inputMessage, setInputMessage] = useState("↑↓ select · enter confirm")
   const [commandIndex, setCommandIndex] = useState(0)
   const [mode, setMode] = useState<
-    "home" | "account-selector" | "logs" | "codex-fast-mode" | "claude-env-scope" | "claude-env-editor" | "claude-env-confirm" | "claude-env-unset-confirm" | "connect-source" | "connect-account"
+    "home" | "account-selector" | "logs" | "codex-fast-mode" | "claude-env-scope" | "claude-env-preset" | "claude-env-editor" | "claude-env-confirm" | "claude-env-unset-confirm" | "connect-source" | "connect-account"
   >("home")
   const [selectorIndex, setSelectorIndex] = useState(0)
   const [requestLogs, setRequestLogs] = useState<RequestLogEntry[]>([])
@@ -79,6 +82,7 @@ export function CodexCodeApp(props: { port?: number }) {
   const [claudeEnvDraft, setClaudeEnvDraft] = useState<ClaudeEnvironmentDraft>(() => defaultClaudeEnvironment())
   const [claudeEnvIndex, setClaudeEnvIndex] = useState(0)
   const [claudeEnvScopeIndex, setClaudeEnvScopeIndex] = useState(0)
+  const [claudeEnvPresetIndex, setClaudeEnvPresetIndex] = useState(0)
   const [claudeEnvAction, setClaudeEnvAction] = useState<"set" | "unset">("set")
   const [commandOutput, setCommandOutput] = useState<{ title: string; output: string }>()
   const shell = useMemo(() => detectShell(), [])
@@ -386,7 +390,7 @@ export function CodexCodeApp(props: { port?: number }) {
         return
       }
     }
-    if (mode === "home" && input === "q" && !inputValue) {
+    if (mode === "home" && input === "q") {
       if (runtime.status === "running") runtime.server.stop(true)
       app.exit()
       return
@@ -405,9 +409,8 @@ export function CodexCodeApp(props: { port?: number }) {
         setInputMessage("Type / for commands")
         return
       }
-      if (mode === "claude-env-scope" || mode === "claude-env-editor" || mode === "claude-env-confirm" || mode === "claude-env-unset-confirm") {
+      if (mode === "claude-env-scope" || mode === "claude-env-preset" || mode === "claude-env-editor" || mode === "claude-env-confirm" || mode === "claude-env-unset-confirm") {
         setMode("home")
-        setInputValue("")
         setCommandIndex(0)
         setInputMessage(mode === "claude-env-unset-confirm" ? "Claude environment unset cancelled" : "Claude environment edit cancelled")
         return
@@ -426,7 +429,6 @@ export function CodexCodeApp(props: { port?: number }) {
           return
         }
         setMode("home")
-        setInputValue("")
         setCommandIndex(0)
         setLogsCopyStatus(undefined)
         setLogsClearConfirm(false)
@@ -435,7 +437,6 @@ export function CodexCodeApp(props: { port?: number }) {
       }
       if (mode === "codex-fast-mode") {
         setMode("home")
-        setInputValue("")
         setCommandIndex(0)
         setCodexFastModeIndex(codexFastMode ? 0 : 1)
         setInputMessage("Codex fast mode unchanged")
@@ -443,14 +444,12 @@ export function CodexCodeApp(props: { port?: number }) {
       }
       if (mode === "account-selector") {
         setMode("home")
-        setInputValue("")
         setCommandIndex(0)
         setInputMessage("Account switch cancelled")
         return
       }
-      setInputValue("")
       setCommandIndex(0)
-      setInputMessage("Type / for commands")
+      setInputMessage("↑↓ select · enter confirm")
       return
     }
     if (key.return) {
@@ -491,7 +490,44 @@ export function CodexCodeApp(props: { port?: number }) {
         return
       }
       if (mode === "claude-env-scope") {
-        setMode(claudeEnvAction === "set" ? "claude-env-editor" : "claude-env-unset-confirm")
+        if (claudeEnvAction === "set") {
+          setClaudeEnvPresetIndex(0)
+          setMode("claude-env-preset")
+        } else {
+          setMode("claude-env-unset-confirm")
+        }
+        return
+      }
+      if (mode === "claude-env-preset") {
+        const preset = PRESET_OPTIONS[claudeEnvPresetIndex]
+        if (preset?.key === "recommend") {
+          setClaudeEnvDraft(recommendedClaudeEnvironment())
+          setClaudeEnvIndex(0)
+          setMode("claude-env-editor")
+          setInputMessage("Loaded recommended settings")
+        } else if (preset?.key === "latest") {
+          void readClaudeSettingsEnvAsDraft(claudeSettingsFile)
+            .then((draft) => {
+              setMode((current) => {
+                if (current !== "claude-env-preset") return current
+                setClaudeEnvDraft(draft)
+                setClaudeEnvIndex(0)
+                setInputMessage("Loaded latest settings from " + claudeSettingsTarget)
+                return "claude-env-editor"
+              })
+            })
+            .catch(() => {
+              setMode((current) => {
+                if (current !== "claude-env-preset") return current
+                setClaudeEnvIndex(0)
+                setInputMessage("Could not read settings file, using current draft")
+                return "claude-env-editor"
+              })
+            })
+        } else {
+          setClaudeEnvIndex(0)
+          setMode("claude-env-editor")
+        }
         return
       }
       if (mode === "claude-env-confirm") {
@@ -521,7 +557,6 @@ export function CodexCodeApp(props: { port?: number }) {
         const enabled = codexFastModeIndex === 0
         setCodexFastMode(enabled)
         setMode("home")
-        setInputValue("")
         setCommandIndex(0)
         setInputMessage(`Codex fast mode ${enabled ? "ON" : "OFF"}`)
         void writeCodexFastModeConfig(authFile, { enabled }).catch((error) =>
@@ -533,13 +568,11 @@ export function CodexCodeApp(props: { port?: number }) {
         setSelected(selectorIndex)
         if (authData) void writeActiveAccountInfo(authFile, authData, accounts[selectorIndex]?.key ?? "").catch(() => {})
         setMode("home")
-        setInputValue("")
         setCommandIndex(0)
         setInputMessage(`Switched to ${accounts[selectorIndex]?.name ?? "account"}`)
         return
       }
-      const commands = filterCommands(inputValue)
-      const command = commands[commandIndex] ?? commands[0]
+      const command = UI_COMMANDS[commandIndex]
       if (mode === "logs") {
         if (requestLogs.length) {
           setLogsDetailOpen((value) => {
@@ -551,12 +584,12 @@ export function CodexCodeApp(props: { port?: number }) {
         }
         return
       }
-      if (inputValue === "q" || command?.name === "/quit") {
+      if (command?.name === "/quit") {
         if (runtime.status === "running") runtime.server.stop(true)
         app.exit()
         return
       }
-      if (inputValue.startsWith("/") && command) {
+      if (command) {
         if (command.name === "/account") {
           setSelectorIndex(selected)
           setMode("account-selector")
@@ -570,7 +603,6 @@ export function CodexCodeApp(props: { port?: number }) {
           setLogsAutoFollow(true)
           setLogsSelected(Math.max(0, requestLogs.length - 1))
           setMode("logs")
-          setInputValue("")
           setCommandIndex(0)
           setInputMessage("Showing request logs")
           return
@@ -578,7 +610,6 @@ export function CodexCodeApp(props: { port?: number }) {
         if (command.name === "/codex-fast-mode") {
           setCodexFastModeIndex(codexFastMode ? 0 : 1)
           setMode("codex-fast-mode")
-          setInputValue("")
           setCommandIndex(0)
           setInputMessage("Select Codex fast mode")
           return
@@ -587,7 +618,6 @@ export function CodexCodeApp(props: { port?: number }) {
           setConnectSourceIndex(0)
           setConnectStep(0)
           setMode("connect-source")
-          setInputValue("")
           setCommandIndex(0)
           return
         }
@@ -599,7 +629,6 @@ export function CodexCodeApp(props: { port?: number }) {
           setClaudeEnvScopeIndex(0)
           setClaudeEnvAction("set")
           setMode("claude-env-scope")
-          setInputValue("")
           setCommandIndex(0)
           return
         }
@@ -610,12 +639,10 @@ export function CodexCodeApp(props: { port?: number }) {
           setClaudeEnvScopeIndex(0)
           setClaudeEnvAction("unset")
           setMode("claude-env-scope")
-          setInputValue("")
           setCommandIndex(0)
           return
         }
         setInputMessage(`${command.name} selected · implementation pending`)
-        setInputValue("")
         setCommandIndex(0)
       }
       return
@@ -629,8 +656,6 @@ export function CodexCodeApp(props: { port?: number }) {
         setClaudeEnvDraft((draft) => updateClaudeEnvDraft(draft, claudeEnvIndex, (value) => value.slice(0, -1)))
         return
       }
-      setInputValue((value) => value.slice(0, -1))
-      setCommandIndex(0)
       return
     }
     if (mode === "account-selector") {
@@ -684,6 +709,11 @@ export function CodexCodeApp(props: { port?: number }) {
       if (key.downArrow) setClaudeEnvScopeIndex((value) => (value + 1) % claudeEnvScopes.length)
       return
     }
+    if (mode === "claude-env-preset") {
+      if (key.upArrow) setClaudeEnvPresetIndex((value) => (value - 1 + PRESET_OPTIONS.length) % PRESET_OPTIONS.length)
+      if (key.downArrow) setClaudeEnvPresetIndex((value) => (value + 1) % PRESET_OPTIONS.length)
+      return
+    }
     if (mode === "claude-env-confirm") {
       if (input === "y") {
         setMode("home")
@@ -716,8 +746,8 @@ export function CodexCodeApp(props: { port?: number }) {
       return
     }
     if (mode === "claude-env-editor") {
-      if (key.upArrow) setClaudeEnvIndex((value) => (value - 1 + CLAUDE_MODEL_ENV_KEYS.length) % CLAUDE_MODEL_ENV_KEYS.length)
-      else if (key.downArrow) setClaudeEnvIndex((value) => (value + 1) % CLAUDE_MODEL_ENV_KEYS.length)
+      if (key.upArrow) setClaudeEnvIndex((value) => (value - 1 + ALL_EDITABLE_KEYS.length) % ALL_EDITABLE_KEYS.length)
+      else if (key.downArrow) setClaudeEnvIndex((value) => (value + 1) % ALL_EDITABLE_KEYS.length)
       else if (input && !key.leftArrow && !key.rightArrow) setClaudeEnvDraft((draft) => updateClaudeEnvDraft(draft, claudeEnvIndex, (value) => `${value}${input}`))
       return
     }
@@ -727,20 +757,15 @@ export function CodexCodeApp(props: { port?: number }) {
       }
       return
     }
-    if (inputValue.startsWith("/") && key.upArrow) {
-      const commands = filterCommands(inputValue)
-      if (commands.length) setCommandIndex((value) => (value - 1 + commands.length) % commands.length)
-      return
-    }
-    if (inputValue.startsWith("/") && key.downArrow) {
-      const commands = filterCommands(inputValue)
-      if (commands.length) setCommandIndex((value) => (value + 1) % commands.length)
-      return
-    }
-    if (input && !key.upArrow && !key.downArrow && !key.leftArrow && !key.rightArrow) {
-      setInputValue((value) => `${value}${input}`)
-      setCommandIndex(0)
-      return
+    if (mode === "home") {
+      if (key.upArrow) {
+        setCommandIndex((value) => (value - 1 + UI_COMMANDS.length) % UI_COMMANDS.length)
+        return
+      }
+      if (key.downArrow) {
+        setCommandIndex((value) => (value + 1) % UI_COMMANDS.length)
+        return
+      }
     }
   })
 
@@ -765,7 +790,7 @@ export function CodexCodeApp(props: { port?: number }) {
       {mode === "connect-source" && <ConnectSourceSelector selected={connectSourceIndex} saving={connectSaving} />}
       {mode === "logs" && (
         <>
-          <CommandInput value={inputValue} message={inputMessage} selected={commandIndex} />
+          <CommandInput selected={commandIndex} message={inputMessage} />
           <RequestLogsPanel
             logs={visibleRequestLogs}
             selected={logsSelected}
@@ -780,6 +805,8 @@ export function CodexCodeApp(props: { port?: number }) {
       )}
       {mode === "claude-env-scope" ? (
         <ClaudeEnvironmentScopeSelector selected={claudeEnvScopeIndex} action={claudeEnvAction} />
+      ) : mode === "claude-env-preset" ? (
+        <ClaudeEnvironmentPresetSelector selected={claudeEnvPresetIndex} settingsTarget={claudeSettingsTarget} />
       ) : (mode === "claude-env-editor" || mode === "claude-env-confirm") ? (
         <ClaudeEnvironmentEditor draft={claudeEnvDraft} selected={claudeEnvIndex} baseUrl={baseUrl(hostname, activePort)} confirm={mode === "claude-env-confirm"} shell={shell.kind === "unsupported" ? "posix" : shell.kind} settingsTarget={claudeSettingsTarget} />
       ) : mode === "claude-env-unset-confirm" ? (
@@ -787,7 +814,7 @@ export function CodexCodeApp(props: { port?: number }) {
       ) : mode === "connect-account" ? (
         <ConnectAccountWizard draft={connectDraft} step={connectStep} saving={connectSaving} />
       ) : (
-        mode === "home" && <CommandInput value={inputValue} message={inputMessage} selected={commandIndex} />
+        mode === "home" && <CommandInput selected={commandIndex} message={inputMessage} />
       )}
       {commandOutput && <CommandOutput title={commandOutput.title} output={commandOutput.output} />}
     </Box>
@@ -816,7 +843,7 @@ function updateConnectDraft(draft: ConnectAccountDraft, step: number, update: (v
 
 function CodexFastModeSelector(props: { selected: number; current: boolean }) {
   const options = [
-    { label: "on", description: 'Add service_tier: "fast" to /v1/responses' },
+    { label: "on", description: 'Add service_tier: "priority" to /v1/responses' },
     { label: "off", description: "Default request body" },
   ]
 
@@ -846,16 +873,28 @@ function CodexFastModeStatus(props: { enabled: boolean }) {
         <Text bold color="#a58a86">Codex fast: </Text>
         <Text bold color={props.enabled ? "#d97757" : "gray"}>{props.enabled ? "ON" : "OFF"}</Text>
       </Box>
-      <Text color="gray">{props.enabled ? "Responses tier: fast" : "Responses use default tier"}</Text>
+      {props.enabled && <Text color="gray">Responses tier: priority</Text>}
     </Box>
   )
 }
 
 function updateClaudeEnvDraft(draft: ClaudeEnvironmentDraft, index: number, update: (value: string) => string): ClaudeEnvironmentDraft {
-  const key = CLAUDE_MODEL_ENV_KEYS[index]
+  const key = ALL_EDITABLE_KEYS[index]
+  if (!key) return draft
+  // Model keys are top-level on the draft
+  if ((CLAUDE_MODEL_ENV_KEYS as readonly string[]).includes(key)) {
+    return {
+      ...draft,
+      [key]: update(draft[key as keyof ClaudeEnvironmentDraft] as string),
+    }
+  }
+  // Extra editable keys live in draft.extraEnv
   return {
     ...draft,
-    [key]: update(draft[key]),
+    extraEnv: {
+      ...draft.extraEnv,
+      [key]: update(draft.extraEnv[key] ?? ""),
+    },
   }
 }
 

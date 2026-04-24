@@ -2,11 +2,7 @@ import type { Canonical_Request } from "../../core/canonical"
 import { normalizeReasoningBody } from "../../core/reasoning"
 import type { JsonObject } from "../../core/types"
 
-export interface NormalizeRequestOptions {
-  serviceTier?: string
-}
-
-export function normalizeCanonicalRequest(pathname: string, body: JsonObject, options: NormalizeRequestOptions = {}): Canonical_Request {
+export function normalizeCanonicalRequest(pathname: string, body: JsonObject): Canonical_Request {
   const normalizedBody = normalizeReasoningBody(body)
 
   if (pathname === "/v1/chat/completions") {
@@ -27,7 +23,7 @@ export function normalizeCanonicalRequest(pathname: string, body: JsonObject, op
       reasoningEffort: extractReasoningEffort(normalizedBody),
       stream: normalizedBody.stream !== undefined ? Boolean(normalizedBody.stream) : true,
       passthrough: true,
-      metadata: { source: "openai", path: pathname, ...serviceTierMetadata(pathname, options) },
+      metadata: { source: "openai", path: pathname },
     }
   }
 
@@ -51,7 +47,7 @@ export function normalizeCanonicalRequest(pathname: string, body: JsonObject, op
       reasoningEffort: extractReasoningEffort(normalizedBody),
       stream: normalizedBody.stream !== undefined ? Boolean(normalizedBody.stream) : true,
       passthrough: true,
-      metadata: { source: "openai", path: pathname, ...serviceTierMetadata(pathname, options) },
+      metadata: { source: "openai", path: pathname },
     }
   }
 
@@ -65,13 +61,12 @@ export function normalizeCanonicalRequest(pathname: string, body: JsonObject, op
       : [],
     stream: normalizedBody.stream !== undefined ? Boolean(normalizedBody.stream) : true,
     passthrough: true,
-    metadata: { source: "openai", path: pathname, ...serviceTierMetadata(pathname, options) },
+    metadata: { source: "openai", path: pathname },
   }
 }
 
-export function normalizeRequestBody(pathname: string, body: JsonObject, options: NormalizeRequestOptions = {}): JsonObject {
+export function normalizeRequestBody(pathname: string, body: JsonObject): JsonObject {
   const normalizedBody = normalizeReasoningBody(body)
-  const serviceTier = pathname === "/v1/responses" ? options.serviceTier : undefined
 
   if (pathname === "/v1/chat/completions") {
     const messages = Array.isArray(normalizedBody.messages) ? normalizedBody.messages : []
@@ -93,7 +88,6 @@ export function normalizeRequestBody(pathname: string, body: JsonObject, options
   if (pathname === "/v1/responses" && typeof normalizedBody.input === "string") {
     return {
       ...normalizedBody,
-      ...(serviceTier && { service_tier: serviceTier }),
       instructions: normalizedBody.instructions ?? "You are a helpful assistant.",
       store: false,
       stream: true,
@@ -106,17 +100,13 @@ export function normalizeRequestBody(pathname: string, body: JsonObject, options
     }
   }
 
-  return { ...normalizedBody, ...(serviceTier && { service_tier: serviceTier }), store: normalizedBody.store ?? false, stream: normalizedBody.stream ?? true }
+  return { ...normalizedBody, store: normalizedBody.store ?? false, stream: normalizedBody.stream ?? true }
 }
 
 function extractTextFormat(value: unknown) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return undefined
   const item = value as { format?: unknown }
   return item.format && typeof item.format === "object" && !Array.isArray(item.format) ? (item.format as JsonObject) : undefined
-}
-
-function serviceTierMetadata(pathname: string, options: NormalizeRequestOptions) {
-  return pathname === "/v1/responses" && options.serviceTier ? { serviceTier: options.serviceTier } : {}
 }
 
 function extractReasoningEffort(body: JsonObject) {
