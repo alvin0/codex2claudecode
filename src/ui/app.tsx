@@ -1,15 +1,17 @@
-import { Box, Text, useApp, useInput } from "ink"
+import { Box, Text, useApp, useInput, useStdout } from "ink"
 import { useEffect, useMemo, useState } from "react"
 
-import { readAccountInfoFile, refreshActiveAccountInfo, writeAccountInfoFile, writeActiveAccountInfo, type AccountInfo } from "../account-info"
-import { readAuthFileData } from "../auth"
-import { CodexStandaloneClient } from "../client"
-import { connectAccount, connectAccountFromCodexAuth, type ConnectAccountDraft } from "../connect-account"
-import { packageInfo } from "../package-info"
-import { resolveAuthFile } from "../paths"
-import { clearRequestLogs, MAX_REQUEST_LOG_ENTRIES, readRecentRequestLogs } from "../request-logs"
-import { startRuntime } from "../runtime"
-import type { AuthFileData, RequestLogEntry } from "../types"
+import { readAccountInfoFile, refreshActiveAccountInfo, writeAccountInfoFile, writeActiveAccountInfo, type AccountInfo } from "../upstream/codex/account-info"
+import { readCodexFastModeConfig, writeCodexFastModeConfig } from "../upstream/codex/fast-mode"
+import { readAuthFileData } from "../upstream/codex/auth"
+import { CodexStandaloneClient } from "../upstream/codex/client"
+import { connectAccount, connectAccountFromCodexAuth, type ConnectAccountDraft } from "../upstream/codex/connect-account"
+import { packageInfo } from "../app/package-info"
+import { resolveAuthFile } from "../core/paths"
+import { clearRequestLogs, MAX_REQUEST_LOG_ENTRIES, readRecentRequestLogs, readRequestLogDetail } from "../core/request-logs"
+import { startRuntime } from "../app/runtime"
+import type { RequestLogEntry } from "../core/types"
+import type { AuthFileData } from "../upstream/codex/types"
 import { authDataToAccounts, selectedAccountIndex } from "./accounts"
 import {
   claudeSettingsPathForScope,
@@ -17,18 +19,22 @@ import {
   defaultClaudeEnvironment,
   detectShell,
   CLAUDE_MODEL_ENV_KEYS,
+  ALL_EDITABLE_KEYS,
   readClaudeEnvironmentConfig,
+  readClaudeSettingsEnvAsDraft,
+  recommendedClaudeEnvironment,
   runClaudeEnvironmentSet,
   runClaudeEnvironmentUnset,
   writeClaudeEnvironmentConfig,
   type ClaudeSettingsScope,
   type ClaudeEnvironmentDraft,
 } from "./claude-env"
-import { filterCommands } from "./commands"
+import { UI_COMMANDS } from "./commands"
 import { writeClipboard } from "./clipboard"
 import { AccountInfoPanel } from "./components/account-info-panel"
 import { AccountSelector } from "./components/account-selector"
 import { ClaudeEnvironmentEditor } from "./components/claude-environment-editor"
+import { ClaudeEnvironmentPresetSelector, PRESET_OPTIONS } from "./components/claude-environment-preset-selector"
 import { ClaudeEnvironmentScopeSelector } from "./components/claude-environment-scope-selector"
 import { ClaudeEnvironmentUnsetConfirm } from "./components/claude-environment-unset-confirm"
 import { CommandInput } from "./components/command-input"
@@ -41,8 +47,11 @@ import { WelcomePanel } from "./components/welcome-panel"
 import { usageToView, type LimitGroupView } from "./limits"
 import type { RuntimeState } from "./types"
 
+const LIMITS_REFRESH_INTERVAL_MS = 5 * 60_000
+
 export function CodexCodeApp(props: { port?: number }) {
   const app = useApp()
+  const { stdout } = useStdout()
   const authFile = resolveAuthFile(process.env.CODEX_AUTH_FILE)
   const hostname = process.env.HOST ?? "127.0.0.1"
   const port = props.port ?? Number(process.env.PORT || 8787)
@@ -54,14 +63,14 @@ export function CodexCodeApp(props: { port?: number }) {
   const [limitGroups, setLimitGroups] = useState<LimitGroupView[]>([])
   const [limitsLoading, setLimitsLoading] = useState(false)
   const [limitsError, setLimitsError] = useState<string>()
-  const [inputValue, setInputValue] = useState("")
-  const [inputMessage, setInputMessage] = useState("Type / for commands")
+  const [inputMessage, setInputMessage] = useState("↑↓ select · enter confirm")
   const [commandIndex, setCommandIndex] = useState(0)
   const [mode, setMode] = useState<
-    "home" | "account-selector" | "logs" | "claude-env-scope" | "claude-env-editor" | "claude-env-confirm" | "claude-env-unset-confirm" | "connect-source" | "connect-account"
+    "home" | "account-selector" | "logs" | "codex-fast-mode" | "claude-env-scope" | "claude-env-preset" | "claude-env-editor" | "claude-env-confirm" | "claude-env-unset-confirm" | "connect-source" | "connect-account"
   >("home")
   const [selectorIndex, setSelectorIndex] = useState(0)
   const [requestLogs, setRequestLogs] = useState<RequestLogEntry[]>([])
+  const [requestLogDetails, setRequestLogDetails] = useState<Record<string, RequestLogEntry>>({})
   const [logsSelected, setLogsSelected] = useState(0)
   const [logsDetailOpen, setLogsDetailOpen] = useState(false)
   const [logsDetailScroll, setLogsDetailScroll] = useState(0)
@@ -69,9 +78,12 @@ export function CodexCodeApp(props: { port?: number }) {
   const [logsClearConfirm, setLogsClearConfirm] = useState(false)
   const [logsFileError, setLogsFileError] = useState<string>()
   const [logsAutoFollow, setLogsAutoFollow] = useState(true)
+  const [codexFastMode, setCodexFastMode] = useState(false)
+  const [codexFastModeIndex, setCodexFastModeIndex] = useState(1)
   const [claudeEnvDraft, setClaudeEnvDraft] = useState<ClaudeEnvironmentDraft>(() => defaultClaudeEnvironment())
   const [claudeEnvIndex, setClaudeEnvIndex] = useState(0)
   const [claudeEnvScopeIndex, setClaudeEnvScopeIndex] = useState(0)
+  const [claudeEnvPresetIndex, setClaudeEnvPresetIndex] = useState(0)
   const [claudeEnvAction, setClaudeEnvAction] = useState<"set" | "unset">("set")
   const [commandOutput, setCommandOutput] = useState<{ title: string; output: string }>()
   const shell = useMemo(() => detectShell(), [])
@@ -82,6 +94,17 @@ export function CodexCodeApp(props: { port?: number }) {
   const [authRevision, setAuthRevision] = useState(0)
   const pkg = useMemo(() => packageInfo(), [])
   const activePort = runtime.status === "running" ? runtime.server.port : port
+  const terminalColumns = stdout.columns ?? 120
+  const contentWidth = Math.max(40, terminalColumns - 2)
+  const dashboardCompact = contentWidth < 106
+  const dashboardInnerWidth = Math.max(32, contentWidth - 4)
+  const headerText = `v${pkg.version} - Author: ${pkg.author}`
+  const headerTextWidth = Math.max(12, Math.min(headerText.length, contentWidth - 8))
+  const headerRuleWidth = Math.max(0, contentWidth - headerTextWidth - 5)
+  const visibleRequestLogs = useMemo(
+    () => requestLogs.map((log) => requestLogDetails[log.id] ?? log),
+    [requestLogDetails, requestLogs],
+  )
 
   const accounts = useMemo(() => (authData ? authDataToAccounts(authData) : []), [authData])
   const account = accounts[selected]
@@ -95,6 +118,24 @@ export function CodexCodeApp(props: { port?: number }) {
     const timer = setTimeout(() => setLogsCopyStatus(undefined), 2000)
     return () => clearTimeout(timer)
   }, [logsCopyStatus])
+
+  useEffect(() => {
+    let active = true
+    void readCodexFastModeConfig(authFile)
+      .then((config) => {
+        if (!active) return
+        setCodexFastMode(config.enabled)
+        setCodexFastModeIndex(config.enabled ? 0 : 1)
+      })
+      .catch(() => {
+        if (!active) return
+        setCodexFastMode(false)
+        setCodexFastModeIndex(1)
+      })
+    return () => {
+      active = false
+    }
+  }, [authFile])
 
   useEffect(() => {
     let active = true
@@ -120,6 +161,7 @@ export function CodexCodeApp(props: { port?: number }) {
     let active = true
     let server: ReturnType<typeof Bun.serve> | undefined
     setRequestLogs([])
+    setRequestLogDetails({})
     setRuntime({ status: "starting" })
     startRuntime({
       authFile,
@@ -207,6 +249,25 @@ export function CodexCodeApp(props: { port?: number }) {
   }, [authFile, mode, authRevision, selected])
 
   useEffect(() => {
+    if (mode !== "logs" || !logsDetailOpen) return
+    const log = requestLogs[logsSelected]
+    if (!log || requestLogDetails[log.id]) return
+    let active = true
+    void readRequestLogDetail(authFile, log)
+      .then((detail) => {
+        if (!active) return
+        setRequestLogDetails((details) => ({ ...details, [detail.id]: detail }))
+      })
+      .catch((error) => {
+        if (!active) return
+        setLogsFileError(`Failed to read request detail: ${error instanceof Error ? error.message : String(error)}`)
+      })
+    return () => {
+      active = false
+    }
+  }, [authFile, logsDetailOpen, logsSelected, mode, requestLogDetails, requestLogs])
+
+  useEffect(() => {
     if (!account || loadError) return
     let active = true
     async function refresh() {
@@ -232,7 +293,7 @@ export function CodexCodeApp(props: { port?: number }) {
       }
     }
     void refresh()
-    const timer = setInterval(() => void refresh(), 60_000)
+    const timer = setInterval(() => void refresh(), LIMITS_REFRESH_INTERVAL_MS)
     return () => {
       active = false
       clearInterval(timer)
@@ -251,6 +312,7 @@ export function CodexCodeApp(props: { port?: number }) {
           void clearRequestLogs(authFile)
             .then(() => {
               setRequestLogs([])
+              setRequestLogDetails({})
               setLogsSelected(0)
               setLogsDetailOpen(false)
               setLogsDetailScroll(0)
@@ -277,7 +339,11 @@ export function CodexCodeApp(props: { port?: number }) {
       if (logsDetailOpen && input.toLowerCase() === "c") {
         const log = requestLogs[logsSelected]
         if (!log) return
-        void writeClipboard(formatRequestLogDetail(log))
+        void readRequestLogDetail(authFile, log)
+          .then((detail) => {
+            setRequestLogDetails((details) => ({ ...details, [detail.id]: detail }))
+            return writeClipboard(formatRequestLogDetail(detail))
+          })
           .then(() => {
             setLogsCopyStatus({ type: "success", message: `Copied request ${log.id} to clipboard` })
             setInputMessage(`Copied request ${log.id} to clipboard`)
@@ -290,7 +356,14 @@ export function CodexCodeApp(props: { port?: number }) {
         return
       }
       if (input.toLowerCase() === "l") {
-        void writeClipboard(formatAllRequestLogs(requestLogs))
+        void Promise.all(requestLogs.map((log) => readRequestLogDetail(authFile, log)))
+          .then((logs) => {
+            setRequestLogDetails((details) => ({
+              ...details,
+              ...Object.fromEntries(logs.map((log) => [log.id, log])),
+            }))
+            return writeClipboard(formatAllRequestLogs(logs))
+          })
           .then(() => {
             setLogsCopyStatus({ type: "success", message: `Copied ${requestLogs.length} log(s) to clipboard` })
             setInputMessage(`Copied ${requestLogs.length} log(s) to clipboard`)
@@ -325,7 +398,7 @@ export function CodexCodeApp(props: { port?: number }) {
         return
       }
     }
-    if (mode === "home" && input === "q" && !inputValue) {
+    if (mode === "home" && input === "q") {
       if (runtime.status === "running") runtime.server.stop(true)
       app.exit()
       return
@@ -344,9 +417,8 @@ export function CodexCodeApp(props: { port?: number }) {
         setInputMessage("Type / for commands")
         return
       }
-      if (mode === "claude-env-scope" || mode === "claude-env-editor" || mode === "claude-env-confirm" || mode === "claude-env-unset-confirm") {
+      if (mode === "claude-env-scope" || mode === "claude-env-preset" || mode === "claude-env-editor" || mode === "claude-env-confirm" || mode === "claude-env-unset-confirm") {
         setMode("home")
-        setInputValue("")
         setCommandIndex(0)
         setInputMessage(mode === "claude-env-unset-confirm" ? "Claude environment unset cancelled" : "Claude environment edit cancelled")
         return
@@ -365,23 +437,27 @@ export function CodexCodeApp(props: { port?: number }) {
           return
         }
         setMode("home")
-        setInputValue("")
         setCommandIndex(0)
         setLogsCopyStatus(undefined)
         setLogsClearConfirm(false)
         setInputMessage("Closed request logs")
         return
       }
+      if (mode === "codex-fast-mode") {
+        setMode("home")
+        setCommandIndex(0)
+        setCodexFastModeIndex(codexFastMode ? 0 : 1)
+        setInputMessage("Codex fast mode unchanged")
+        return
+      }
       if (mode === "account-selector") {
         setMode("home")
-        setInputValue("")
         setCommandIndex(0)
         setInputMessage("Account switch cancelled")
         return
       }
-      setInputValue("")
       setCommandIndex(0)
-      setInputMessage("Type / for commands")
+      setInputMessage("↑↓ select · enter confirm")
       return
     }
     if (key.return) {
@@ -422,7 +498,44 @@ export function CodexCodeApp(props: { port?: number }) {
         return
       }
       if (mode === "claude-env-scope") {
-        setMode(claudeEnvAction === "set" ? "claude-env-editor" : "claude-env-unset-confirm")
+        if (claudeEnvAction === "set") {
+          setClaudeEnvPresetIndex(0)
+          setMode("claude-env-preset")
+        } else {
+          setMode("claude-env-unset-confirm")
+        }
+        return
+      }
+      if (mode === "claude-env-preset") {
+        const preset = PRESET_OPTIONS[claudeEnvPresetIndex]
+        if (preset?.key === "recommend") {
+          setClaudeEnvDraft(recommendedClaudeEnvironment())
+          setClaudeEnvIndex(0)
+          setMode("claude-env-editor")
+          setInputMessage("Loaded recommended settings")
+        } else if (preset?.key === "latest") {
+          void readClaudeSettingsEnvAsDraft(claudeSettingsFile)
+            .then((draft) => {
+              setMode((current) => {
+                if (current !== "claude-env-preset") return current
+                setClaudeEnvDraft(draft)
+                setClaudeEnvIndex(0)
+                setInputMessage("Loaded latest settings from " + claudeSettingsTarget)
+                return "claude-env-editor"
+              })
+            })
+            .catch(() => {
+              setMode((current) => {
+                if (current !== "claude-env-preset") return current
+                setClaudeEnvIndex(0)
+                setInputMessage("Could not read settings file, using current draft")
+                return "claude-env-editor"
+              })
+            })
+        } else {
+          setClaudeEnvIndex(0)
+          setMode("claude-env-editor")
+        }
         return
       }
       if (mode === "claude-env-confirm") {
@@ -448,17 +561,26 @@ export function CodexCodeApp(props: { port?: number }) {
         setMode("claude-env-confirm")
         return
       }
+      if (mode === "codex-fast-mode") {
+        const enabled = codexFastModeIndex === 0
+        setCodexFastMode(enabled)
+        setMode("home")
+        setCommandIndex(0)
+        setInputMessage(`Codex fast mode ${enabled ? "ON" : "OFF"}`)
+        void writeCodexFastModeConfig(authFile, { enabled }).catch((error) =>
+          setInputMessage(`Codex fast mode save failed: ${error instanceof Error ? error.message : String(error)}`),
+        )
+        return
+      }
       if (mode === "account-selector") {
         setSelected(selectorIndex)
         if (authData) void writeActiveAccountInfo(authFile, authData, accounts[selectorIndex]?.key ?? "").catch(() => {})
         setMode("home")
-        setInputValue("")
         setCommandIndex(0)
         setInputMessage(`Switched to ${accounts[selectorIndex]?.name ?? "account"}`)
         return
       }
-      const commands = filterCommands(inputValue)
-      const command = commands[commandIndex] ?? commands[0]
+      const command = UI_COMMANDS[commandIndex]
       if (mode === "logs") {
         if (requestLogs.length) {
           setLogsDetailOpen((value) => {
@@ -470,12 +592,12 @@ export function CodexCodeApp(props: { port?: number }) {
         }
         return
       }
-      if (inputValue === "q" || command?.name === "/quit") {
+      if (command?.name === "/quit") {
         if (runtime.status === "running") runtime.server.stop(true)
         app.exit()
         return
       }
-      if (inputValue.startsWith("/") && command) {
+      if (command) {
         if (command.name === "/account") {
           setSelectorIndex(selected)
           setMode("account-selector")
@@ -489,16 +611,21 @@ export function CodexCodeApp(props: { port?: number }) {
           setLogsAutoFollow(true)
           setLogsSelected(Math.max(0, requestLogs.length - 1))
           setMode("logs")
-          setInputValue("")
           setCommandIndex(0)
           setInputMessage("Showing request logs")
+          return
+        }
+        if (command.name === "/codex-fast-mode") {
+          setCodexFastModeIndex(codexFastMode ? 0 : 1)
+          setMode("codex-fast-mode")
+          setCommandIndex(0)
+          setInputMessage("Select Codex fast mode")
           return
         }
         if (command.name === "/connect") {
           setConnectSourceIndex(0)
           setConnectStep(0)
           setMode("connect-source")
-          setInputValue("")
           setCommandIndex(0)
           return
         }
@@ -510,7 +637,6 @@ export function CodexCodeApp(props: { port?: number }) {
           setClaudeEnvScopeIndex(0)
           setClaudeEnvAction("set")
           setMode("claude-env-scope")
-          setInputValue("")
           setCommandIndex(0)
           return
         }
@@ -521,12 +647,10 @@ export function CodexCodeApp(props: { port?: number }) {
           setClaudeEnvScopeIndex(0)
           setClaudeEnvAction("unset")
           setMode("claude-env-scope")
-          setInputValue("")
           setCommandIndex(0)
           return
         }
         setInputMessage(`${command.name} selected · implementation pending`)
-        setInputValue("")
         setCommandIndex(0)
       }
       return
@@ -540,13 +664,15 @@ export function CodexCodeApp(props: { port?: number }) {
         setClaudeEnvDraft((draft) => updateClaudeEnvDraft(draft, claudeEnvIndex, (value) => value.slice(0, -1)))
         return
       }
-      setInputValue((value) => value.slice(0, -1))
-      setCommandIndex(0)
       return
     }
     if (mode === "account-selector") {
       if (key.upArrow && accounts.length) setSelectorIndex((value) => (value - 1 + accounts.length) % accounts.length)
       if (key.downArrow && accounts.length) setSelectorIndex((value) => (value + 1) % accounts.length)
+      return
+    }
+    if (mode === "codex-fast-mode") {
+      if (key.upArrow || key.downArrow) setCodexFastModeIndex((value) => (value + 1) % 2)
       return
     }
     if (mode === "connect-source") {
@@ -591,6 +717,11 @@ export function CodexCodeApp(props: { port?: number }) {
       if (key.downArrow) setClaudeEnvScopeIndex((value) => (value + 1) % claudeEnvScopes.length)
       return
     }
+    if (mode === "claude-env-preset") {
+      if (key.upArrow) setClaudeEnvPresetIndex((value) => (value - 1 + PRESET_OPTIONS.length) % PRESET_OPTIONS.length)
+      if (key.downArrow) setClaudeEnvPresetIndex((value) => (value + 1) % PRESET_OPTIONS.length)
+      return
+    }
     if (mode === "claude-env-confirm") {
       if (input === "y") {
         setMode("home")
@@ -623,8 +754,8 @@ export function CodexCodeApp(props: { port?: number }) {
       return
     }
     if (mode === "claude-env-editor") {
-      if (key.upArrow) setClaudeEnvIndex((value) => (value - 1 + CLAUDE_MODEL_ENV_KEYS.length) % CLAUDE_MODEL_ENV_KEYS.length)
-      else if (key.downArrow) setClaudeEnvIndex((value) => (value + 1) % CLAUDE_MODEL_ENV_KEYS.length)
+      if (key.upArrow) setClaudeEnvIndex((value) => (value - 1 + ALL_EDITABLE_KEYS.length) % ALL_EDITABLE_KEYS.length)
+      else if (key.downArrow) setClaudeEnvIndex((value) => (value + 1) % ALL_EDITABLE_KEYS.length)
       else if (input && !key.leftArrow && !key.rightArrow) setClaudeEnvDraft((draft) => updateClaudeEnvDraft(draft, claudeEnvIndex, (value) => `${value}${input}`))
       return
     }
@@ -634,66 +765,63 @@ export function CodexCodeApp(props: { port?: number }) {
       }
       return
     }
-    if (inputValue.startsWith("/") && key.upArrow) {
-      const commands = filterCommands(inputValue)
-      if (commands.length) setCommandIndex((value) => (value - 1 + commands.length) % commands.length)
-      return
-    }
-    if (inputValue.startsWith("/") && key.downArrow) {
-      const commands = filterCommands(inputValue)
-      if (commands.length) setCommandIndex((value) => (value + 1) % commands.length)
-      return
-    }
-    if (input && !key.upArrow && !key.downArrow && !key.leftArrow && !key.rightArrow) {
-      setInputValue((value) => `${value}${input}`)
-      setCommandIndex(0)
-      return
+    if (mode === "home") {
+      if (key.upArrow) {
+        setCommandIndex((value) => (value - 1 + UI_COMMANDS.length) % UI_COMMANDS.length)
+        return
+      }
+      if (key.downArrow) {
+        setCommandIndex((value) => (value + 1) % UI_COMMANDS.length)
+        return
+      }
     }
   })
 
   return (
     <Box flexDirection="column" paddingX={1} paddingY={1}>
-      <Box marginLeft={1}>
+      <Box marginLeft={1} width={Math.max(1, contentWidth - 1)}>
         <Text color="#d97757">─── </Text>
-        <Text color="#aab3cf">v{pkg.version} - Author: {pkg.author} </Text>
-        <Text color="#d97757">────────────────────────────────────────</Text>
+        <Box width={headerTextWidth}>
+          <Text color="#aab3cf" wrap="truncate-end">{headerText}</Text>
+        </Box>
+        <Text color="#d97757">{"─".repeat(headerRuleWidth)}</Text>
       </Box>
-      <Box borderStyle="round" borderColor="#d97757" minHeight={18}>
-        <WelcomePanel hostname={hostname} port={activePort} />
-        <Box width={1} borderStyle="single" borderColor="#7f4f45" />
-        <Box flexGrow={1} flexDirection="column" paddingX={2} paddingY={1}>
+      <Box borderStyle="round" borderColor="#d97757" minHeight={dashboardCompact ? undefined : 13} width={contentWidth} flexDirection={dashboardCompact ? "column" : "row"}>
+        <WelcomePanel hostname={hostname} port={activePort} compact={dashboardCompact} width={dashboardCompact ? dashboardInnerWidth : 42} />
+        {dashboardCompact ? (
+          <Text color="#7f4f45">{"─".repeat(dashboardInnerWidth)}</Text>
+        ) : (
+          <Box width={1} borderStyle="single" borderColor="#7f4f45" />
+        )}
+        <Box flexGrow={1} flexDirection="column" paddingX={dashboardCompact ? 1 : 2} marginTop={dashboardCompact ? 1 : 0} width={dashboardCompact ? dashboardInnerWidth : undefined}>
           <AccountInfoPanel account={account} info={activeAccountInfo} />
-          <LimitsPanel limitGroups={limitGroups} loading={limitsLoading} error={limitsError} />
+          <CodexFastModeStatus enabled={codexFastMode} />
+          <LimitsPanel limitGroups={limitGroups} loading={limitsLoading} error={limitsError} compact={dashboardCompact} width={dashboardInnerWidth} />
         </Box>
       </Box>
+      {mode === "home" && <CommandInput selected={commandIndex} message={inputMessage} />}
       {mode === "account-selector" && <AccountSelector accounts={accounts} selected={selectorIndex} />}
+      {mode === "codex-fast-mode" && <CodexFastModeSelector selected={codexFastModeIndex} current={codexFastMode} />}
       {mode === "connect-source" && <ConnectSourceSelector selected={connectSourceIndex} saving={connectSaving} />}
+      {mode === "connect-account" && <ConnectAccountWizard draft={connectDraft} step={connectStep} saving={connectSaving} />}
       {mode === "logs" && (
-        <>
-          <CommandInput value={inputValue} message={inputMessage} selected={commandIndex} />
-          <RequestLogsPanel
-            logs={requestLogs}
-            selected={logsSelected}
-            autoFollow={logsAutoFollow}
-            detailOpen={logsDetailOpen}
-            detailScroll={logsDetailScroll}
-            copyStatus={logsCopyStatus}
-            clearConfirm={logsClearConfirm}
-            fileError={logsFileError}
-          />
-        </>
+        <RequestLogsPanel
+          logs={visibleRequestLogs}
+          selected={logsSelected}
+          autoFollow={logsAutoFollow}
+          detailOpen={logsDetailOpen}
+          detailScroll={logsDetailScroll}
+          copyStatus={logsCopyStatus}
+          clearConfirm={logsClearConfirm}
+          fileError={logsFileError}
+        />
       )}
-      {mode === "claude-env-scope" ? (
-        <ClaudeEnvironmentScopeSelector selected={claudeEnvScopeIndex} action={claudeEnvAction} />
-      ) : (mode === "claude-env-editor" || mode === "claude-env-confirm") ? (
+      {mode === "claude-env-scope" && <ClaudeEnvironmentScopeSelector selected={claudeEnvScopeIndex} action={claudeEnvAction} />}
+      {mode === "claude-env-preset" && <ClaudeEnvironmentPresetSelector selected={claudeEnvPresetIndex} settingsTarget={claudeSettingsTarget} />}
+      {(mode === "claude-env-editor" || mode === "claude-env-confirm") && (
         <ClaudeEnvironmentEditor draft={claudeEnvDraft} selected={claudeEnvIndex} baseUrl={baseUrl(hostname, activePort)} confirm={mode === "claude-env-confirm"} shell={shell.kind === "unsupported" ? "posix" : shell.kind} settingsTarget={claudeSettingsTarget} />
-      ) : mode === "claude-env-unset-confirm" ? (
-        <ClaudeEnvironmentUnsetConfirm draft={claudeEnvDraft} shell={shell.kind === "unsupported" ? "posix" : shell.kind} settingsTarget={claudeSettingsTarget} />
-      ) : mode === "connect-account" ? (
-        <ConnectAccountWizard draft={connectDraft} step={connectStep} saving={connectSaving} />
-      ) : (
-        mode === "home" && <CommandInput value={inputValue} message={inputMessage} selected={commandIndex} />
       )}
+      {mode === "claude-env-unset-confirm" && <ClaudeEnvironmentUnsetConfirm draft={claudeEnvDraft} shell={shell.kind === "unsupported" ? "posix" : shell.kind} settingsTarget={claudeSettingsTarget} />}
       {commandOutput && <CommandOutput title={commandOutput.title} output={commandOutput.output} />}
     </Box>
   )
@@ -719,11 +847,60 @@ function updateConnectDraft(draft: ConnectAccountDraft, step: number, update: (v
   }
 }
 
+function CodexFastModeSelector(props: { selected: number; current: boolean }) {
+  const options = [
+    { label: "on", description: 'Add service_tier: "priority" to /v1/responses' },
+    { label: "off", description: "Default request body" },
+  ]
+
+  return (
+    <Box borderStyle="round" borderColor="#7f4f45" flexDirection="column" paddingX={2} paddingY={1}>
+      <Text bold color="#d97757">Codex fast mode</Text>
+      <Text color="gray">Current: {props.current ? "on" : "off"}</Text>
+      {options.map((option, index) => (
+        <Box key={option.label}>
+          <Box width={3}>
+            <Text color={props.selected === index ? "#d97757" : "gray"}>{props.selected === index ? ">" : " "}</Text>
+          </Box>
+          <Box width={8}>
+            <Text bold={props.selected === index}>{option.label}</Text>
+          </Box>
+          <Text color="#aab3cf">{option.description}</Text>
+        </Box>
+      ))}
+    </Box>
+  )
+}
+
+function CodexFastModeStatus(props: { enabled: boolean }) {
+  return (
+    <Box marginTop={1} flexDirection="column">
+      <Box>
+        <Text bold color="#a58a86">Codex fast: </Text>
+        <Text bold color={props.enabled ? "#d97757" : "gray"}>{props.enabled ? "ON" : "OFF"}</Text>
+      </Box>
+      {props.enabled && <Text color="gray" wrap="truncate-end">Responses tier: priority</Text>}
+    </Box>
+  )
+}
+
 function updateClaudeEnvDraft(draft: ClaudeEnvironmentDraft, index: number, update: (value: string) => string): ClaudeEnvironmentDraft {
-  const key = CLAUDE_MODEL_ENV_KEYS[index]
+  const key = ALL_EDITABLE_KEYS[index]
+  if (!key) return draft
+  // Model keys are top-level on the draft
+  if ((CLAUDE_MODEL_ENV_KEYS as readonly string[]).includes(key)) {
+    return {
+      ...draft,
+      [key]: update(draft[key as keyof ClaudeEnvironmentDraft] as string),
+    }
+  }
+  // Extra editable keys live in draft.extraEnv
   return {
     ...draft,
-    [key]: update(draft[key]),
+    extraEnv: {
+      ...draft.extraEnv,
+      [key]: update(draft.extraEnv[key] ?? ""),
+    },
   }
 }
 

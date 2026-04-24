@@ -1,4 +1,4 @@
-import type { AccountInfo } from "../account-info"
+import type { AccountInfo } from "../upstream/codex/account-info"
 
 export interface LimitRowView {
   label: string

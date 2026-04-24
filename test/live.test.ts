@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 
-import { CodexStandaloneClient } from "../src/client"
+import { CodexStandaloneClient } from "../src/upstream/codex/client"
 
 describe("live Codex smoke test", () => {
   test("streams a simple response using auth-codex.json", async () => {

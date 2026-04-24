@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
 
-import { CodexStandaloneClient } from "../src/client"
+import { CodexStandaloneClient } from "../src/upstream/codex/client"
 import { jwt, sse } from "./helpers"
 
 const tempDirs: string[] = []
@@ -263,6 +263,36 @@ describe("CodexStandaloneClient", () => {
     await expect(client.chatCompletions({ model: "gpt-5.4", messages: [] })).resolves.toEqual({ ok: true })
     await expect(client.chatCompletionsStream({ model: "gpt-5.4", messages: [] })).resolves.toBeInstanceOf(ReadableStream)
     expect(bodies[2]).toMatchObject({ stream: true })
+  })
+
+  test("uses OpenAI API key for input token counts when configured", async () => {
+    let captured: { url?: string; authorization?: string; originator?: string | null; accountId?: string | null; body?: unknown } = {}
+    const client = new CodexStandaloneClient({
+      accessToken: "codex-token",
+      refreshToken: "r",
+      accountId: "acct",
+      openAiApiKey: "platform-key",
+      fetch: ((url, init) => {
+        const headers = new Headers(init?.headers)
+        captured = {
+          url: String(url),
+          authorization: headers.get("authorization") ?? undefined,
+          originator: headers.get("originator"),
+          accountId: headers.get("ChatGPT-Account-Id"),
+          body: JSON.parse(String(init?.body ?? "{}")),
+        }
+        return Promise.resolve(Response.json({ object: "response.input_tokens", input_tokens: 7 }))
+      }) as typeof fetch,
+    })
+
+    const response = await client.inputTokens({ model: "gpt-5.4", input: "hi" })
+
+    expect(await response.json()).toEqual({ object: "response.input_tokens", input_tokens: 7 })
+    expect(captured.url).toBe("https://api.openai.com/v1/responses/input_tokens")
+    expect(captured.authorization).toBe("Bearer platform-key")
+    expect(captured.originator).toBeNull()
+    expect(captured.accountId).toBeNull()
+    expect(captured.body).toMatchObject({ model: "gpt-5.4", input: "hi" })
   })
 
   test("supports usage, environments, health success, auth rejection, and health failures", async () => {

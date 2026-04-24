@@ -1,19 +1,19 @@
 import { describe, expect, test } from "bun:test"
 import { countTokens, encodeChat } from "gpt-tokenizer"
 
-import { claudeToResponsesBody, countClaudeInputTokens } from "../src/claude/convert"
-import { claudeErrorResponse } from "../src/claude/errors"
-import { handleClaudeCountTokens, handleClaudeMessages } from "../src/claude/handlers"
-import { collectClaudeMessage, claudeStreamResponse } from "../src/claude/response"
-import { consumeCodexSse, parseJsonObject, parseSseJson } from "../src/claude/sse"
+import { claudeToResponsesBody, countClaudeInputTokens } from "../src/inbound/claude/convert"
+import { claudeErrorResponse } from "../src/inbound/claude/errors"
+import { handleClaudeCountTokens, handleClaudeMessages } from "../src/inbound/claude/handlers"
+import { collectClaudeMessage, claudeStreamResponse } from "../src/inbound/claude/response"
+import { consumeCodexSse, parseJsonObject, parseSseJson } from "../src/core/sse"
 import {
   claudeWebResultHasContent,
   codexMessageContentToClaudeBlocks,
   codexOutputItemsToClaudeContent as codexWebOutputItemsToClaudeContent,
   codexWebCallToClaudeBlocks,
   countCodexWebCalls,
-} from "../src/claude/web"
-import { countClaudeServerToolCalls, codexOutputItemsToClaudeContent } from "../src/claude/server-tools"
+} from "../src/inbound/claude/web"
+import { countClaudeServerToolCalls, codexOutputItemsToClaudeContent } from "../src/inbound/claude/server-tools"
 import { readSse, sse } from "./helpers"
 
 function responseFromEvents(events: unknown[]) {

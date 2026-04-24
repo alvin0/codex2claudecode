@@ -1,10 +1,39 @@
-import React from "react"
-import { Box, Text } from "ink"
+import React, { useEffect, useState } from "react"
+import { Box, Text, useStdout } from "ink"
 
-import type { RequestLogEntry } from "../../types"
+import type { RequestLogEntry } from "../../core/types"
 
 const LOG_HEIGHT = 15
 const DETAIL_HEIGHT = 16
+
+const COL_NUM = 4
+const COL_ICON = 3
+const COL_ID = 10
+const COL_TIME = 10
+const COL_METHOD = 7
+const COL_PATH = 30
+const COL_CLIENT = 8
+const COL_PROXY = 8
+const COL_DURATION = 10
+const COL_SUMMARY = 48
+const FIXED_TABLE_WIDTH = COL_NUM + COL_ICON + COL_ID + COL_TIME + COL_METHOD + COL_CLIENT + COL_PROXY + COL_DURATION
+const DEFAULT_TABLE_WIDTH = FIXED_TABLE_WIDTH + COL_PATH + COL_SUMMARY
+const MIN_TABLE_WIDTH = 44
+const TABLE_GUTTER = 6
+const LOADING_FRAMES = ["|", "/", "-", "\\"]
+const LONG_SHORTCUTS = "↑/↓ select · Enter details · f follow · l copy · x clear · Esc close"
+const SHORT_SHORTCUTS = "↑/↓ select · Enter · f/l/x · Esc"
+
+interface TableLayout {
+  width: number
+  pathWidth: number
+  summaryWidth: number
+  showId: boolean
+  showTime: boolean
+  showProxy: boolean
+  showDuration: boolean
+  shortcuts: string
+}
 
 export function RequestLogsPanel(props: {
   logs: RequestLogEntry[]
@@ -16,6 +45,8 @@ export function RequestLogsPanel(props: {
   clearConfirm?: boolean
   fileError?: string
 }) {
+  const { stdout } = useStdout()
+  const table = tableLayout(stdout.columns)
   const selected = Math.max(0, Math.min(props.selected, Math.max(0, props.logs.length - 1)))
   const start = Math.min(Math.max(0, selected - LOG_HEIGHT + 1), Math.max(0, props.logs.length - LOG_HEIGHT))
   const rows = props.logs.slice(start, start + LOG_HEIGHT)
@@ -25,46 +56,26 @@ export function RequestLogsPanel(props: {
 
   const pendingCount = props.logs.filter((l) => l.state === "pending").length
   const errorCount = props.logs.filter((l) => l.error !== "-" || (l.proxy?.error !== undefined && l.proxy.error !== "-")).length
+  const loadingFrame = useSpinner(pendingCount > 0)
+  const now = useNow(pendingCount > 0)
 
   return (
     <Box flexDirection="column" marginTop={1}>
-      <Text color="#aab3cf">────────────────────────────────────────────────────────────────────────────</Text>
-      <Box marginTop={1}>
+      <Text color="#aab3cf">{"─".repeat(table.width)}</Text>
+      <Box width={table.width} flexDirection="column" alignItems="center" marginTop={1}>
         <Text bold color="#c7d2fe">Request logs</Text>
-        <Text color="gray">  ↑/↓ select · Enter details · f follow · l copy · x clear · Esc close</Text>
-        {props.autoFollow && <Text color="#22c55e"> ● FOLLOW</Text>}
+        <Box>
+          <Text color="gray" wrap="truncate-end">{table.shortcuts}</Text>
+          {props.autoFollow && <Text color="#22c55e"> ● FOLLOW</Text>}
+        </Box>
       </Box>
       {props.clearConfirm && <Text color="yellow">Clear all request logs? y confirm · n/Esc cancel</Text>}
       {props.fileError && <Text color="red">⚠ {props.fileError}</Text>}
       {props.copyStatus && <Text color={props.copyStatus.type === "success" ? "green" : "red"}>{props.copyStatus.message}</Text>}
       <Box marginTop={1}>
-        <Box width={5}>
-          <Text color="#6b7280">#</Text>
-        </Box>
-        <Box width={10}>
-          <Text color="#6b7280">Id</Text>
-        </Box>
-        <Box width={10}>
-          <Text color="#6b7280">Time</Text>
-        </Box>
-        <Box width={7}>
-          <Text color="#6b7280">Method</Text>
-        </Box>
-        <Box width={30}>
-          <Text color="#6b7280">Path</Text>
-        </Box>
-        <Box width={8}>
-          <Text color="#6b7280">Client</Text>
-        </Box>
-        <Box width={8}>
-          <Text color="#6b7280">Proxy</Text>
-        </Box>
-        <Box width={10}>
-          <Text color="#6b7280">Duration</Text>
-        </Box>
-        <Text color="#6b7280">Summary</Text>
+        <Text color="#6b7280" wrap="truncate-end">{tableHeader(table)}</Text>
       </Box>
-      <Text color="#374151">{"─".repeat(90)}</Text>
+      <Text color="#374151">{"─".repeat(table.width)}</Text>
       {hasMoreAbove && <Text color="gray">   ↑ {start} more above</Text>}
       {rows.length ? (
         rows.map((log, index) => {
@@ -75,6 +86,9 @@ export function RequestLogsPanel(props: {
               log={log}
               index={globalIndex + 1}
               selected={globalIndex === selected}
+              table={table}
+              loadingFrame={loadingFrame}
+              now={now}
             />
           )
         })
@@ -82,13 +96,13 @@ export function RequestLogsPanel(props: {
         <Text color="gray">  No requests yet</Text>
       )}
       {hasMoreBelow && <Text color="gray">   ↓ {props.logs.length - start - LOG_HEIGHT} more below</Text>}
-      <Text color="#374151">{"─".repeat(90)}</Text>
+      <Text color="#374151">{"─".repeat(table.width)}</Text>
       <Box>
         <Text color="#6b7280">Total: </Text>
         <Text color="#aab3cf">{props.logs.length}</Text>
         {pendingCount > 0 && (
           <>
-            <Text color="#6b7280">  ⏳ Pending: </Text>
+            <Text color="#6b7280">  {loadingFrame} Pending: </Text>
             <Text color="yellow">{pendingCount}</Text>
           </>
         )}
@@ -110,44 +124,35 @@ export function RequestLogsPanel(props: {
   )
 }
 
-function LogRow(props: { log: RequestLogEntry; index: number; selected: boolean }) {
+function LogRow(props: { log: RequestLogEntry; index: number; selected: boolean; table: TableLayout; loadingFrame: string; now: number }) {
   const pending = props.log.state === "pending"
   const isNew = pending
 
+  const numStr = String(props.index).padStart(3, " ")
+  const iconStr = props.selected ? `>${pending ? props.loadingFrame : " "}` : isNew ? ` ${props.loadingFrame}` : "  "
+  const idStr = props.log.id
+  const timeStr = new Date(props.log.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false })
+  const methodStr = props.log.method
+  const pathStr = truncate(props.log.path, props.table.pathWidth)
+  const clientStr = pending ? "..." : String(props.log.status)
+  const proxyStr = props.log.proxy ? String(props.log.proxy.status) : pending ? "..." : "-"
+  const durationMs = pending ? elapsedDurationMs(props.log.at, props.now) : props.log.durationMs
+  const durationStr = formatDuration(durationMs)
+  const summaryStr = summaryText(props.log, props.loadingFrame)
+  const summaryTruncated = truncate(summaryStr, props.table.summaryWidth)
+
   return (
-    <Box>
-      <Box width={5}>
-        <Text color={props.selected ? "#d97757" : "#4b5563"}>{String(props.index).padStart(3, " ")} </Text>
-      </Box>
-      <Box width={2}>
-        <Text color={props.selected ? "#d97757" : isNew ? "#facc15" : "gray"}>{props.selected ? "›" : isNew ? "⏳" : " "}</Text>
-      </Box>
-      <Box width={10}>
-        <Text color={props.selected ? "#d97757" : isNew ? "#facc15" : "gray"}>{props.log.id}</Text>
-      </Box>
-      <Box width={10}>
-        <Text color={isNew ? "#facc15" : "#aab3cf"}>
-          {new Date(props.log.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false })}
-        </Text>
-      </Box>
-      <Box width={7}>
-        <Text color={isNew ? "#facc15" : undefined}>{props.log.method}</Text>
-      </Box>
-      <Box width={30}>
-        <Text color={isNew ? "#facc15" : "#aab3cf"}>{truncate(props.log.path, 28)}</Text>
-      </Box>
-      <Box width={8}>
-        <Text color={pending ? "yellow" : statusColor(props.log.status)}>{pending ? "···" : props.log.status}</Text>
-      </Box>
-      <Box width={8}>
-        <Text color={props.log.proxy ? statusColor(props.log.proxy.status) : "gray"}>
-          {props.log.proxy?.status ?? (pending ? "···" : "–")}
-        </Text>
-      </Box>
-      <Box width={10}>
-        <Text color={pending ? "yellow" : durationColor(props.log.durationMs)}>{pending ? "···" : formatDuration(props.log.durationMs)}</Text>
-      </Box>
-      <Text color={summaryColor(props.log)}>{truncate(summaryText(props.log), 48)}</Text>
+    <Box width={props.table.width}>
+      <Text color={props.selected ? "#d97757" : "#4b5563"} wrap="truncate-end">{col(numStr, COL_NUM)}</Text>
+      <Text color={props.selected ? "#d97757" : isNew ? "#facc15" : "gray"} wrap="truncate-end">{col(iconStr, COL_ICON)}</Text>
+      {props.table.showId && <Text color={props.selected ? "#d97757" : isNew ? "#facc15" : "gray"} wrap="truncate-end">{col(idStr, COL_ID)}</Text>}
+      {props.table.showTime && <Text color={isNew ? "#facc15" : "#aab3cf"} wrap="truncate-end">{col(timeStr, COL_TIME)}</Text>}
+      <Text color={isNew ? "#facc15" : undefined} wrap="truncate-end">{col(methodStr, COL_METHOD)}</Text>
+      <Text color={isNew ? "#facc15" : "#aab3cf"} wrap="truncate-end">{col(pathStr, props.table.pathWidth)}</Text>
+      <Text color={pending ? "yellow" : statusColor(props.log.status)} wrap="truncate-end">{col(clientStr, COL_CLIENT)}</Text>
+      {props.table.showProxy && <Text color={props.log.proxy ? statusColor(props.log.proxy.status) : "gray"} wrap="truncate-end">{col(proxyStr, COL_PROXY)}</Text>}
+      {props.table.showDuration && <Text color={durationColor(durationMs)} wrap="truncate-end">{col(durationStr, COL_DURATION)}</Text>}
+      <Text color={summaryColor(props.log)} wrap="truncate-end">{col(summaryTruncated, props.table.summaryWidth)}</Text>
     </Box>
   )
 }
@@ -184,8 +189,115 @@ function LogDetailDialog(props: { log: RequestLogEntry; scroll: number }) {
   )
 }
 
+/** Pad or truncate a string to exactly `width` visible columns. */
+function col(value: string, width: number): string {
+  if (width <= 1) return truncate(value, width)
+  const contentWidth = width - 1
+  const content = truncate(value, contentWidth)
+  return content + " ".repeat(width - content.length)
+}
+
 function truncate(value: string, width: number) {
-  return value.length > width ? `${value.slice(0, width - 1)}…` : value
+  if (value.length <= width) return value
+  if (width <= 1) return value.slice(0, width)
+  return `${value.slice(0, width - 1)}…`
+}
+
+function tableLayout(columns?: number): TableLayout {
+  const availableWidth = Math.max(MIN_TABLE_WIDTH, (columns ?? DEFAULT_TABLE_WIDTH + TABLE_GUTTER) - TABLE_GUTTER)
+  const full = availableWidth >= 98
+  const medium = availableWidth >= 76
+  const showId = full
+  const showTime = full || medium
+  const showProxy = full
+  const showDuration = full || medium
+  const fixedWidth =
+    COL_NUM +
+    COL_ICON +
+    COL_METHOD +
+    COL_CLIENT +
+    (showId ? COL_ID : 0) +
+    (showTime ? COL_TIME : 0) +
+    (showProxy ? COL_PROXY : 0) +
+    (showDuration ? COL_DURATION : 0)
+  const flexibleWidth = Math.max(12, availableWidth - fixedWidth)
+  const minPathWidth = full ? 18 : medium ? 16 : 10
+  const minSummaryWidth = full ? 20 : medium ? 16 : 8
+  let pathWidth: number
+  let summaryWidth: number
+
+  if (flexibleWidth < minPathWidth + minSummaryWidth) {
+    pathWidth = Math.max(6, Math.floor(flexibleWidth * 0.55))
+    summaryWidth = Math.max(6, flexibleWidth - pathWidth)
+  } else {
+    pathWidth = Math.max(minPathWidth, Math.min(COL_PATH, Math.floor(flexibleWidth * (full ? 0.52 : 0.48))))
+    summaryWidth = flexibleWidth - pathWidth
+    if (summaryWidth < minSummaryWidth) {
+      summaryWidth = minSummaryWidth
+      pathWidth = flexibleWidth - summaryWidth
+    }
+    if (summaryWidth > COL_SUMMARY) {
+      pathWidth = Math.min(COL_PATH, pathWidth + summaryWidth - COL_SUMMARY)
+      summaryWidth = COL_SUMMARY
+    }
+  }
+  const width = fixedWidth + pathWidth + summaryWidth
+
+  return {
+    pathWidth,
+    summaryWidth,
+    width,
+    showId,
+    showTime,
+    showProxy,
+    showDuration,
+    shortcuts: width < 72 ? SHORT_SHORTCUTS : LONG_SHORTCUTS,
+  }
+}
+
+function tableHeader(table: TableLayout) {
+  return [
+    col("  #", COL_NUM),
+    col("", COL_ICON),
+    table.showId ? col("Id", COL_ID) : "",
+    table.showTime ? col("Time", COL_TIME) : "",
+    col("Method", COL_METHOD),
+    col("Path", table.pathWidth),
+    col("Client", COL_CLIENT),
+    table.showProxy ? col("Proxy", COL_PROXY) : "",
+    table.showDuration ? col("Duration", COL_DURATION) : "",
+    col("Summary", table.summaryWidth),
+  ].join("")
+}
+
+function useSpinner(active?: boolean) {
+  const [index, setIndex] = useState(0)
+
+  useEffect(() => {
+    if (!active) {
+      setIndex(0)
+      return
+    }
+    const timer = setInterval(() => {
+      setIndex((value) => (value + 1) % LOADING_FRAMES.length)
+    }, 120)
+    return () => clearInterval(timer)
+  }, [active])
+
+  return active ? LOADING_FRAMES[index] : " "
+}
+
+function useNow(active?: boolean) {
+  const [now, setNow] = useState(() => Date.now())
+
+  useEffect(() => {
+    if (!active) return
+    setNow(Date.now())
+    const timer = setInterval(() => setNow(Date.now()), 250)
+    return () => clearInterval(timer)
+  }, [active])
+
+  return now
 }
 
 /** Color-code duration: green < 1s, yellow 1-5s, red > 5s */
@@ -201,8 +313,14 @@ function formatDuration(ms: number): string {
   return `${(ms / 1000).toFixed(1)}s`
 }
 
-function summaryText(log: RequestLogEntry) {
-  if (log.state === "pending") return "⏳ in process"
+function elapsedDurationMs(startedAt: string, now: number) {
+  const startedAtMs = new Date(startedAt).getTime()
+  if (!Number.isFinite(startedAtMs)) return 0
+  return Math.max(0, now - startedAtMs)
+}
+
+function summaryText(log: RequestLogEntry, loadingFrame = " ") {
+  if (log.state === "pending") return `${loadingFrame} in process`
   if (log.proxy && log.proxy.error !== "-") return `proxy: ${log.proxy.error}`
   if (log.error !== "-") return log.error
   if (log.proxy) return `${log.proxy.label} ${log.proxy.status}`
@@ -250,8 +368,10 @@ function buildDetailLines(log: RequestLogEntry) {
           { text: `${log.proxy.label} · ${log.proxy.method} ${log.proxy.target}`, color: "gray" },
           { text: `Proxy status: ${log.proxy.status} · ${log.proxy.durationMs}ms`, color: statusColor(log.proxy.status) },
           { text: `Proxy error: ${log.proxy.error}`, color: log.proxy.error === "-" ? "gray" : "red" },
-          { text: "Proxy body preview", color: "gray" },
+          { text: "Proxy request body preview", color: "gray" },
           ...blockLines(formatStructuredText(log.proxy.requestBody), log.proxy.requestBody ? "#aab3cf" : "gray"),
+          { text: "Proxy response body preview", color: "gray" },
+          ...blockLines(formatStructuredText(log.proxy.responseBody), log.proxy.responseBody ? "#aab3cf" : "gray"),
         ]
       : [{ text: "No upstream proxy for this request", color: "gray" }]),
   ]

@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
 
-import { connectAccount, connectAccountFromCodexAuth } from "../src/connect-account"
+import { connectAccount, connectAccountFromCodexAuth } from "../src/upstream/codex/connect-account"
 import { jwt } from "./helpers"
 
 const tempDirs: string[] = []

@@ -3,3 +3,4 @@ node_modules
 .claude-env.json
 auth-codex.json
 *.tgz
+.omx

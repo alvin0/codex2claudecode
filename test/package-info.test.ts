@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test"
 
 import pkg from "../package.json"
-import { packageInfo } from "../src/package-info"
+import { packageInfo } from "../src/app/package-info"
 
 test("reads package metadata for UI header", () => {
   expect(packageInfo()).toMatchObject({

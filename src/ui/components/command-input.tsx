@@ -1,39 +1,35 @@
 import React from "react"
 import { Box, Text, useStdout } from "ink"
 
-import { filterCommands } from "../commands"
+import { UI_COMMANDS } from "../commands"
 
-export function CommandInput(props: { value: string; message?: string; selected: number }) {
+export function CommandInput(props: { selected: number; message?: string }) {
   const { stdout } = useStdout()
-  const isCommand = props.value.startsWith("/")
-  const commands = isCommand ? filterCommands(props.value) : []
+  const commands = UI_COMMANDS
   const commandWidth = Math.max(22, ...commands.map((command) => command.name.length + 4))
   const descriptionWidth = Math.max(20, (stdout.columns ?? 100) - commandWidth - 6)
 
   return (
     <Box flexDirection="column" marginTop={1}>
-      <Box borderStyle="single" borderColor={isCommand ? "#aab3cf" : "gray"} paddingX={1}>
-        <Text bold>{"> "}</Text>
-        <Text>{props.value}</Text>
-        <Text inverse> </Text>
-      </Box>
-      {isCommand && (
-        <Box flexDirection="column" paddingX={1}>
-          {commands.map((command) => (
-            <Box key={command.name}>
-              <Box width={commandWidth}>
-                <Text color={commands[props.selected]?.name === command.name ? "#d97757" : "#aab3cf"}>
-                  {commands[props.selected]?.name === command.name ? "› " : "  "}
-                  {command.name}
-                </Text>
-              </Box>
-              <Text color={commands[props.selected]?.name === command.name ? "white" : "gray"}>{truncate(command.description, descriptionWidth)}</Text>
+      <Box flexDirection="column" paddingX={1}>
+        {commands.map((command, index) => (
+          <Box key={command.name}>
+            <Box width={commandWidth}>
+              <Text color={props.selected === index ? "#d97757" : "#aab3cf"}>
+                {props.selected === index ? "› " : "  "}
+                {command.name}
+              </Text>
             </Box>
-          ))}
-          {!commands.length && <Text color="gray">No matching commands</Text>}
+            <Text color={props.selected === index ? "white" : "gray"}>{truncate(command.description, descriptionWidth)}</Text>
+          </Box>
+        ))}
+      </Box>
+      {props.message && (
+        <Box flexDirection="column" marginTop={0}>
+          <Text color="#7f4f45">{"─".repeat(Math.min(60, stdout.columns ?? 60))}</Text>
+          <Text color="#d97757">{"⚡ "}{props.message}</Text>
         </Box>
       )}
-      {props.message && !isCommand && <Text color="gray">{props.message}</Text>}
     </Box>
   )
 }

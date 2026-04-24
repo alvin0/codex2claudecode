@@ -3,8 +3,17 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
 
-import { appendRequestLog, clearRequestLogs, ensureRequestLogFile, MAX_REQUEST_LOG_ENTRIES, readRecentRequestLogs, requestLogFilePath } from "../src/request-logs"
-import type { RequestLogEntry } from "../src/types"
+import {
+  appendRequestLog,
+  clearRequestLogs,
+  ensureRequestLogFile,
+  MAX_REQUEST_LOG_ENTRIES,
+  readRecentRequestLogs,
+  readRequestLogDetail,
+  requestLogDetailFilePath,
+  requestLogFilePath,
+} from "../src/core/request-logs"
+import type { RequestLogEntry } from "../src/core/types"
 
 const tempDirs: string[] = []
 
@@ -46,6 +55,14 @@ test("appends request logs to request-logs-recent.ndjson", async () => {
     id: "req-1",
     at: entry.at,
     path: "/v1/responses",
+  })
+  expect(JSON.parse((await readFile(requestLogDetailFilePath(file, entry.id), "utf8")).trim())).toMatchObject({
+    id: "req-1",
+    requestBody: '{"input":"hi"}',
+  })
+  expect(await readRequestLogDetail(file, (await readRecentRequestLogs(file))[0])).toMatchObject({
+    id: "req-1",
+    requestBody: '{"input":"hi"}',
   })
 })
 
@@ -97,6 +114,8 @@ test("keeps only the newest 100 request logs", async () => {
   expect(logs).toHaveLength(MAX_REQUEST_LOG_ENTRIES)
   expect(logs[0]).toMatchObject({ id: "req-6" })
   expect(logs[MAX_REQUEST_LOG_ENTRIES - 1]).toMatchObject({ id: "req-105" })
+  await expect(readFile(requestLogDetailFilePath(file, "req-1"), "utf8")).rejects.toThrow()
+  await expect(readFile(requestLogDetailFilePath(file, "req-105"), "utf8")).resolves.toContain('"req-105"')
 })
 
 test("clears request log storage", async () => {
@@ -107,6 +126,7 @@ test("clears request log storage", async () => {
 
   await expect(readRecentRequestLogs(file)).resolves.toEqual([])
   await expect(readFile(requestLogFilePath(file), "utf8")).rejects.toThrow()
+  await expect(readFile(requestLogDetailFilePath(file, "req-1"), "utf8")).rejects.toThrow()
 
   await appendRequestLog(file, logEntry({ id: "req-2" }))
 
