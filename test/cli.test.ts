@@ -7,7 +7,11 @@ test("parses port flags", () => {
   expect(parseCliOptions(["--port", "8785"])).toEqual({ port: 8785 })
   expect(parseCliOptions(["--port=8784"])).toEqual({ port: 8784 })
   expect(parseCliOptions([])).toEqual({})
+  expect(parseCliOptions(["--unknown"])).toEqual({})
+  expect(parseCliOptions()).toEqual({})
   expect(() => parseCliOptions(["--port", "bad"])).toThrow("Invalid port")
+  expect(() => parseCliOptions(["--port", "0"])).toThrow("Invalid port")
+  expect(() => parseCliOptions(["--port", "70000"])).toThrow("Invalid port")
 })
 
 test("npm launcher explains Bun and npm fallback when both are unavailable", async () => {

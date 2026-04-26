@@ -49,7 +49,7 @@
     "check": "bun run typecheck && bun run build",
     "prepublishOnly": "bun run build",
     "test": "bun test test/*.test.ts --test-name-pattern='^(?!.*live Codex smoke test)'",
-    "coverage": "bun test test/*.test.ts --test-name-pattern='^(?!.*live Codex smoke test)' --coverage --coverage-reporter=text",
+    "coverage": "bunx --bun vitest run --config vitest.config.ts --coverage --coverage.provider=istanbul",
     "test:live": "CODEX_AUTH_FILE=auth-codex.json bun test test/live.test.ts",
     "test:kiro:api": "bun scripts/kiro-api-smoke.ts"
   },
@@ -62,7 +62,9 @@
   "devDependencies": {
     "@types/bun": "^1.3.13",
     "@types/react": "^19.2.14",
+    "@vitest/coverage-istanbul": "4.1.5",
     "fast-check": "^4.7.0",
-    "typescript": "^6.0.3"
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.5"
   }
 }

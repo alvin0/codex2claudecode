@@ -1,6 +1,7 @@
 # codex2claudecode
 
 [![Publish to npm](https://github.com/alvin0/codex2claudecode/actions/workflows/publish.yml/badge.svg)](https://github.com/alvin0/codex2claudecode/actions/workflows/publish.yml)
+[![CI](https://github.com/alvin0/codex2claudecode/actions/workflows/ci.yml/badge.svg)](https://github.com/alvin0/codex2claudecode/actions/workflows/ci.yml)
 [![npm version](https://img.shields.io/npm/v/codex2claudecode.svg)](https://www.npmjs.com/package/codex2claudecode)
 
 Run OpenAI Codex/ChatGPT account credentials behind a local Claude-compatible API for Claude Code.
@@ -310,8 +311,23 @@ bun run check
 PASS - typecheck + Bun bundle
 
 bun run test
-PASS - 515 pass, 1 filtered out, 0 fail
+PASS - deterministic suites pass
 ```
+
+Current `bun run coverage` uses Vitest + Istanbul to report all key coverage metrics:
+
+```sh
+bun run coverage
+```
+
+Latest tracked metrics:
+
+| Metric | Value |
+| --- | --- |
+| Statements | 100% |
+| Branches | 100% |
+| Functions | 100% |
+| Lines | 100% |
 
 Live smoke test using `auth-codex.json`:
 
@@ -329,12 +345,20 @@ npm pack --dry-run
 npm publish --access public --provenance
 ```
 
+CI matrix workflow also runs `bun run test` and `bun run coverage` on:
+
+```text
+Bun 1.3.13
+Bun latest
+```
+
 ## CI Evidence
 
 GitHub Actions workflow:
 
 ```text
 https://github.com/alvin0/codex2claudecode/actions/workflows/publish.yml
+https://github.com/alvin0/codex2claudecode/actions/workflows/ci.yml
 ```
 
 Every publish run uploads an artifact named `npm-publish-evidence` containing:
@@ -347,6 +371,8 @@ npm-pack.log
 
 Use those artifacts as release evidence that the package was built, tested, and dry-packed before publishing.
 
+The CI workflow also uploads `test.log` and `coverage.log` for each Bun version matrix run.
+
 ## License
 
 MIT. See [LICENSE](./LICENSE).
@@ -355,7 +381,7 @@ MIT. See [LICENSE](./LICENSE).
 
 - `auth-codex.json` and `kiro-state.json` contain secrets. Do not commit them.
 - `.account-info.json` and `.claude-env.json` do not contain OAuth tokens, but may contain email/account metadata.
-- Bun currently reports line/function coverage. Branch coverage is covered by deterministic tests but is not reported by Bun text/lcov output.
+- `bun run coverage` reports line, branch, function and statement coverage.
 
 ## Author
 

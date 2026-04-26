@@ -5,9 +5,14 @@ interface PackageJson {
   author?: string
 }
 
+const DEFAULT_PACKAGE_INFO: Required<PackageJson> = {
+  version: "0.0.0",
+  author: "unknown",
+}
+
 export function packageInfo(): Required<PackageJson> {
   return {
-    version: pkg.version ?? "0.0.0",
-    author: pkg.author ?? "unknown",
+    ...DEFAULT_PACKAGE_INFO,
+    ...pkg,
   }
 }
