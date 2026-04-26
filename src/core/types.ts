@@ -35,6 +35,8 @@ export interface RequestLogEntry {
   proxy?: RequestProxyLog
 }
 
+export type RequestLogMode = "sync" | "async" | "off"
+
 export interface RuntimeOptions {
   authFile?: string
   authAccount?: string
@@ -43,6 +45,7 @@ export interface RuntimeOptions {
   healthIntervalMs?: number
   healthTimeoutMs?: number
   logBody?: boolean
+  requestLogMode?: RequestLogMode | (() => RequestLogMode)
   quiet?: boolean
   onRequestLogStart?: (entry: RequestLogEntry) => void
   onRequestLog?: (entry: RequestLogEntry) => void

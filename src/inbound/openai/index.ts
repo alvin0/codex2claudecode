@@ -69,23 +69,24 @@ export class OpenAI_Inbound_Provider implements Inbound_Provider {
       if (validationError) return openAIErrorResponse(validationError, 400, "invalid_request_error")
     }
 
-    const requestBody = context.logBody ? previewText(JSON.stringify(normalizeRequestBody(route.path, wireBody))) : undefined
-    const upstreamRequestPreview = createLogPreview()
-    const upstreamResponsePreview = createLogPreview()
+    const shouldCaptureProxyBody = context.logBody && context.onProxy !== undefined
+    const requestBody = shouldCaptureProxyBody ? previewText(JSON.stringify(normalizeRequestBody(route.path, wireBody))) : undefined
+    const upstreamRequestPreview = shouldCaptureProxyBody && !this.passthrough ? createLogPreview() : undefined
+    const upstreamResponsePreview = shouldCaptureProxyBody && !this.passthrough ? createLogPreview() : undefined
     const started = Date.now()
     const result = await upstream.proxy(normalizeCanonicalRequest(route.path, wireBody, { passthrough: this.passthrough }), {
       headers: request.headers,
       signal: request.signal,
-      ...(context.logBody && !this.passthrough ? {
+      ...(upstreamRequestPreview && upstreamResponsePreview ? {
         onRequestBody: (nextBody) => upstreamRequestPreview.append(nextBody),
         onResponseBodyChunk: (chunk) => upstreamResponsePreview.append(chunk),
       } : {}),
     })
     const durationMs = Date.now() - started
-    const proxyRequestBody = upstreamRequestPreview.text() || requestBody
+    const proxyRequestBody = upstreamRequestPreview?.text() || requestBody
 
     if (isCanonicalPassthrough(result)) {
-      const proxyLog: RequestProxyLog = {
+      const proxyLog: RequestProxyLog | undefined = context.onProxy ? {
         label: this.upstreamLogLabel,
         method: "POST",
         target: this.upstreamTarget,
@@ -93,21 +94,21 @@ export class OpenAI_Inbound_Provider implements Inbound_Provider {
         durationMs,
         error: "-",
         requestBody: proxyRequestBody,
-      }
-      context.onProxy?.(proxyLog)
+      } : undefined
+      if (proxyLog) context.onProxy?.(proxyLog)
       const response = new Response(passthroughBodyInit(result.body), {
         status: result.status,
         statusText: result.statusText,
         headers: responseHeaders(result.headers),
       })
-      if (!response.body) return response
+      if (!response.body || !shouldCaptureProxyBody || !proxyLog) return response
       return responseWithLoggedBody(response as Response & { body: ReadableStream<Uint8Array> }, (responseBody) => {
         proxyLog.responseBody = responseBody
       })
     }
 
     if (isCanonicalError(result)) {
-      const proxyLog = {
+      const proxyLog = context.onProxy ? {
         label: this.upstreamLogLabel,
         method: "POST",
         target: this.upstreamTarget,
@@ -115,9 +116,9 @@ export class OpenAI_Inbound_Provider implements Inbound_Provider {
         durationMs,
         error: previewText(result.body) || "-",
         requestBody: proxyRequestBody,
-        responseBody: previewText(result.body) || undefined,
-      } satisfies RequestProxyLog
-      context.onProxy?.(proxyLog)
+        responseBody: shouldCaptureProxyBody ? previewText(result.body) || undefined : undefined,
+      } satisfies RequestProxyLog : undefined
+      if (proxyLog) context.onProxy?.(proxyLog)
       if (!this.passthrough) {
         return openAIErrorResponse(result.body, result.status, "upstream_error", result.headers)
       }
@@ -130,22 +131,24 @@ export class OpenAI_Inbound_Provider implements Inbound_Provider {
     if (isCanonicalResponse(result)) {
       if (this.passthrough) return unexpectedNonPassthroughResponse()
       const response = openAICanonicalResponse(result, route.path, wireBody)
-      context.onProxy?.({
-        label: this.upstreamLogLabel,
-        method: "POST",
-        target: this.upstreamTarget,
-        status: 200,
-        durationMs,
-        error: "-",
-        requestBody: proxyRequestBody,
-        responseBody: upstreamResponsePreview.text() || undefined,
-      })
+      if (context.onProxy) {
+        context.onProxy({
+          label: this.upstreamLogLabel,
+          method: "POST",
+          target: this.upstreamTarget,
+          status: 200,
+          durationMs,
+          error: "-",
+          requestBody: proxyRequestBody,
+          responseBody: shouldCaptureProxyBody ? upstreamResponsePreview?.text() || undefined : undefined,
+        })
+      }
       return response
     }
 
     if (isCanonicalStream(result)) {
       if (this.passthrough) return unexpectedNonPassthroughResponse()
-      const proxyLog: RequestProxyLog = {
+      const proxyLog: RequestProxyLog | undefined = context.onProxy ? {
         label: this.upstreamLogLabel,
         method: "POST",
         target: this.upstreamTarget,
@@ -153,13 +156,13 @@ export class OpenAI_Inbound_Provider implements Inbound_Provider {
         durationMs,
         error: "-",
         requestBody: proxyRequestBody,
-        responseBody: upstreamResponsePreview.text() || undefined,
-      }
-      context.onProxy?.(proxyLog)
+        responseBody: shouldCaptureProxyBody ? upstreamResponsePreview?.text() || undefined : undefined,
+      } : undefined
+      if (proxyLog) context.onProxy?.(proxyLog)
       const response = openAICanonicalStreamResponse(result, route.path, wireBody)
-      if (!response.body) return response
+      if (!response.body || !shouldCaptureProxyBody || !proxyLog) return response
       return responseWithLoggedBody(response as Response & { body: ReadableStream<Uint8Array> }, (responseBody) => {
-        proxyLog.responseBody = upstreamResponsePreview.text() || responseBody
+        proxyLog.responseBody = upstreamResponsePreview?.text() || responseBody
       })
     }
 

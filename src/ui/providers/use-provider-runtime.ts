@@ -4,7 +4,7 @@ import { bootstrapRuntime } from "../../app/bootstrap"
 import { writeProviderConfig } from "../../app/provider-config"
 import { startRuntimeWithBootstrap } from "../../app/runtime"
 import type { Upstream_Provider } from "../../core/interfaces"
-import type { RequestLogEntry } from "../../core/types"
+import type { RequestLogEntry, RequestLogMode } from "../../core/types"
 import { buildProviderInfo } from "../provider-info"
 import type { ProviderInfo, ProviderMode, RuntimeState } from "../types"
 import { fallbackProviderInfo, nextProviderDefinition, providerDefinition, resolveInitialProviderMode } from "./registry"
@@ -16,6 +16,7 @@ interface UseProviderRuntimeOptions {
   authRevision: number
   loadError?: string
   onMessage: (message: string) => void
+  requestLogMode?: () => RequestLogMode
   onRequestLogsReset: () => void
   onRequestLogStart: (entry: RequestLogEntry) => void
   onRequestLog: (entry: RequestLogEntry) => void
@@ -33,6 +34,7 @@ export function useProviderRuntime(options: UseProviderRuntimeOptions) {
     authRevision,
     loadError,
     onMessage,
+    requestLogMode,
     onRequestLogsReset,
     onRequestLogStart,
     onRequestLog,
@@ -95,6 +97,7 @@ export function useProviderRuntime(options: UseProviderRuntimeOptions) {
             hostname,
             port,
             logBody: process.env.LOG_BODY !== "0",
+            requestLogMode,
             quiet: true,
             onRequestLogStart,
             onRequestLog,
@@ -148,6 +151,7 @@ export function useProviderRuntime(options: UseProviderRuntimeOptions) {
     hostname,
     loadError,
     onMessage,
+    requestLogMode,
     onRequestLog,
     onRequestLogStart,
     onRequestLogsReset,

@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
 import { packageInfo } from "../app/package-info"
 import { clearRequestLogs, MAX_REQUEST_LOG_ENTRIES, readRecentRequestLogs, readRequestLogDetail } from "../core/request-logs"
-import type { RequestLogEntry } from "../core/types"
+import type { RequestLogEntry, RequestLogMode } from "../core/types"
 import {
   claudeSettingsPathForScope,
   claudeSettingsScopeLabel,
@@ -83,6 +83,8 @@ export function CodexCodeApp(props: { port?: number }) {
   const [logsClearConfirm, setLogsClearConfirm] = useState(false)
   const [logsFileError, setLogsFileError] = useState<string>()
   const [logsAutoFollow, setLogsAutoFollow] = useState(true)
+  const [logsCaptureMode, setLogsCaptureMode] = useState<Exclude<RequestLogMode, "off">>(() => initialLogsCaptureMode())
+  const requestLogModeRef = useRef<RequestLogMode>("off")
   const [claudeEnvDraft, setClaudeEnvDraft] = useState<ClaudeEnvironmentDraft>(() => defaultClaudeEnvironment())
   const [claudeEnvIndex, setClaudeEnvIndex] = useState(0)
   const [claudeEnvScopeIndex, setClaudeEnvScopeIndex] = useState(0)
@@ -123,6 +125,7 @@ export function CodexCodeApp(props: { port?: number }) {
       return updated
     })
   }, [])
+  const resolveRequestLogMode = useCallback(() => requestLogModeRef.current, [])
   const providerRuntime = useProviderRuntime({
     hostname,
     port,
@@ -130,6 +133,7 @@ export function CodexCodeApp(props: { port?: number }) {
     authRevision,
     loadError,
     onMessage: setInputMessage,
+    requestLogMode: resolveRequestLogMode,
     onRequestLogsReset: resetRuntimeLogs,
     onRequestLogStart: appendRuntimeLog,
     onRequestLog: appendRuntimeLog,
@@ -197,6 +201,10 @@ export function CodexCodeApp(props: { port?: number }) {
   const claudeEnvScope = claudeEnvScopes[claudeEnvScopeIndex] ?? "user"
   const claudeSettingsFile = claudeSettingsPathForScope(claudeEnvScope)
   const claudeSettingsTarget = claudeSettingsScopeLabel(claudeEnvScope)
+
+  useEffect(() => {
+    requestLogModeRef.current = mode === "logs" ? logsCaptureMode : "off"
+  }, [logsCaptureMode, mode])
 
   useEffect(() => {
     setCommandIndex((value) => Math.min(value, Math.max(0, commands.length - 1)))
@@ -396,6 +404,15 @@ export function CodexCodeApp(props: { port?: number }) {
         })
         return
       }
+      if (input.toLowerCase() === "d") {
+        setLogsCaptureMode((value) => {
+          const next = value === "sync" ? "async" : "sync"
+          requestLogModeRef.current = next
+          setInputMessage(next === "sync" ? "Request logs SYNC — writes complete before responses finish" : "Request logs ASYNC — writes happen in the background")
+          return next
+        })
+        return
+      }
     }
     if (mode === "home" && input === "q") {
       if (runtime.status === "running") runtime.server.stop(true)
@@ -442,6 +459,7 @@ export function CodexCodeApp(props: { port?: number }) {
           return
         }
         setMode("home")
+        requestLogModeRef.current = "off"
         setCommandIndex(0)
         setLogsCopyStatus(undefined)
         setLogsClearConfirm(false)
@@ -643,6 +661,7 @@ export function CodexCodeApp(props: { port?: number }) {
           return
         }
         if (command.name === "/logs") {
+          requestLogModeRef.current = logsCaptureMode
           setLogsDetailOpen(false)
           setLogsDetailScroll(0)
           setLogsCopyStatus(undefined)
@@ -878,6 +897,7 @@ export function CodexCodeApp(props: { port?: number }) {
           copyStatus={logsCopyStatus}
           clearConfirm={logsClearConfirm}
           fileError={logsFileError}
+          requestLogMode={logsCaptureMode}
         />
       )}
       {mode === "claude-env-scope" && <ClaudeEnvironmentScopeSelector selected={claudeEnvScopeIndex} action={claudeEnvAction} />}
@@ -933,6 +953,11 @@ function updateClaudeEnvDraft(draft: ClaudeEnvironmentDraft, index: number, upda
 
 function baseUrl(hostname: string, port: number) {
   return `http://${hostname}:${port}`
+}
+
+function initialLogsCaptureMode(): Exclude<RequestLogMode, "off"> {
+  const mode = process.env.REQUEST_LOG_MODE?.trim().toLowerCase()
+  return mode === "sync" || mode === "live" || mode === "immediate" || mode === "1" ? "sync" : "async"
 }
 
 function mergeRequestLogs(storedLogs: RequestLogEntry[], currentLogs: RequestLogEntry[]) {

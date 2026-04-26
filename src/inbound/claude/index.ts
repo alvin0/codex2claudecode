@@ -90,18 +90,21 @@ export class Claude_Inbound_Provider implements Inbound_Provider {
       return claudeErrorResponse(error instanceof Error ? error.message : String(error), 400)
     }
 
-    let requestBody = context.logBody ? previewText(JSON.stringify(canonicalRequest)) : undefined
+    const shouldCaptureProxyBody = context.logBody && context.onProxy !== undefined
+    let requestBody = shouldCaptureProxyBody ? previewText(JSON.stringify(canonicalRequest)) : undefined
     const started = Date.now()
-    const upstreamResponsePreview = createLogPreview()
+    const upstreamResponsePreview = shouldCaptureProxyBody ? createLogPreview() : undefined
     let result: UpstreamResult
     try {
       result = await upstream.proxy(canonicalRequest, {
         headers: request.headers,
         signal: request.signal,
-        onRequestBody: (body) => {
-          if (context.logBody) requestBody = previewText(body)
-        },
-        onResponseBodyChunk: (chunk) => upstreamResponsePreview.append(chunk),
+        ...(upstreamResponsePreview ? {
+          onRequestBody: (body) => {
+            requestBody = previewText(body)
+          },
+          onResponseBodyChunk: (chunk) => upstreamResponsePreview.append(chunk),
+        } : {}),
       })
     } catch (error) {
       return claudeErrorResponse(error instanceof Error ? error.message : String(error), 500)
@@ -109,20 +112,22 @@ export class Claude_Inbound_Provider implements Inbound_Provider {
     const durationMs = Date.now() - started
 
     if (isCanonicalError(result)) {
-      context.onProxy?.({
-        label: this.upstreamLogLabel,
-        method: "POST",
-        target: "upstream",
-        status: result.status,
-        durationMs,
-        error: previewText(result.body) || "-",
-        requestBody,
-        responseBody: previewText(result.body) || undefined,
-      } satisfies RequestProxyLog)
+      if (context.onProxy) {
+        context.onProxy({
+          label: this.upstreamLogLabel,
+          method: "POST",
+          target: "upstream",
+          status: result.status,
+          durationMs,
+          error: previewText(result.body) || "-",
+          requestBody,
+          responseBody: shouldCaptureProxyBody ? previewText(result.body) || undefined : undefined,
+        } satisfies RequestProxyLog)
+      }
       return claudeErrorResponse(`Upstream request failed: ${result.status} ${result.body}`, result.status)
     }
 
-    const proxyLog: RequestProxyLog = {
+    const proxyLog: RequestProxyLog | undefined = context.onProxy ? {
       label: this.upstreamLogLabel,
       method: "POST",
       target: "upstream",
@@ -130,20 +135,21 @@ export class Claude_Inbound_Provider implements Inbound_Provider {
       durationMs,
       error: "-",
       requestBody,
-    }
-    context.onProxy?.(proxyLog)
+    } : undefined
+    if (proxyLog) context.onProxy?.(proxyLog)
 
     if (isCanonicalStream(result)) {
-      return claudeCanonicalStreamResponse(withLoggedCanonicalStream(result, proxyLog, started, () => upstreamResponsePreview.text()), body, {
+      if (!proxyLog) return claudeCanonicalStreamResponse(result, body)
+      return claudeCanonicalStreamResponse(withLoggedCanonicalStream(result, proxyLog, started, upstreamResponsePreview ? () => upstreamResponsePreview.text() : undefined), body, {
         onCancel: (reason) => {
           proxyLog.durationMs = Date.now() - started
           proxyLog.error = `stream cancelled: ${reasonText(reason)}`
-          proxyLog.responseBody = upstreamResponsePreview.text()
+          if (upstreamResponsePreview) proxyLog.responseBody = upstreamResponsePreview.text()
         },
       })
     }
     if (isCanonicalResponse(result)) {
-      proxyLog.responseBody = upstreamResponsePreview.text()
+      if (proxyLog && upstreamResponsePreview) proxyLog.responseBody = upstreamResponsePreview.text()
       return Response.json(await canonicalResponseToClaudeMessage(result, body))
     }
     if (isCanonicalPassthrough(result)) return claudeErrorResponse("Unexpected passthrough response for Claude inbound provider", 500)
@@ -169,7 +175,8 @@ export class Claude_Inbound_Provider implements Inbound_Provider {
 
     if (!upstream.inputTokens) return localCountTokensResponse(body)
 
-    const requestBody = context.logBody ? previewText(JSON.stringify(canonicalRequest)) : undefined
+    const shouldCaptureProxyBody = context.logBody && context.onProxy !== undefined
+    const requestBody = shouldCaptureProxyBody ? previewText(JSON.stringify(canonicalRequest)) : undefined
     const started = Date.now()
     let response: Response
     try {
@@ -184,31 +191,35 @@ export class Claude_Inbound_Provider implements Inbound_Provider {
 
     if (!response.ok) {
       const text = await response.text()
-      context.onProxy?.({
-        label: this.inputTokensLogLabel,
-        method: "POST",
-        target: "/v1/responses/input_tokens",
-        status: response.status,
-        durationMs,
-        error: previewText(text) || "-",
-        requestBody,
-        responseBody: previewText(text) || undefined,
-      })
+      if (context.onProxy) {
+        context.onProxy({
+          label: this.inputTokensLogLabel,
+          method: "POST",
+          target: "/v1/responses/input_tokens",
+          status: response.status,
+          durationMs,
+          error: previewText(text) || "-",
+          requestBody,
+          responseBody: shouldCaptureProxyBody ? previewText(text) || undefined : undefined,
+        })
+      }
       if (response.status === 401 || response.status === 403) return localCountTokensResponse(body)
       return claudeErrorResponse(`Upstream input token count failed: ${response.status} ${text}`, response.status)
     }
 
     const text = await response.text()
-    context.onProxy?.({
-      label: this.inputTokensLogLabel,
-      method: "POST",
-      target: "/v1/responses/input_tokens",
-      status: response.status,
-      durationMs,
-      error: "-",
-      requestBody,
-      responseBody: previewText(text) || undefined,
-    })
+    if (context.onProxy) {
+      context.onProxy({
+        label: this.inputTokensLogLabel,
+        method: "POST",
+        target: "/v1/responses/input_tokens",
+        status: response.status,
+        durationMs,
+        error: "-",
+        requestBody,
+        responseBody: shouldCaptureProxyBody ? previewText(text) || undefined : undefined,
+      })
+    }
 
     let parsed: unknown
     try {
@@ -234,7 +245,7 @@ function localCountTokensResponse(body: ClaudeMessagesRequest) {
   return Response.json({ input_tokens: countClaudeInputTokens(body) })
 }
 
-function withLoggedCanonicalStream(response: Canonical_StreamResponse, proxyLog: RequestProxyLog, started: number, responseBody: () => string | undefined): Canonical_StreamResponse {
+function withLoggedCanonicalStream(response: Canonical_StreamResponse, proxyLog: RequestProxyLog, started: number, responseBody?: () => string | undefined): Canonical_StreamResponse {
   async function* events() {
     let completed = false
     try {
@@ -248,7 +259,7 @@ function withLoggedCanonicalStream(response: Canonical_StreamResponse, proxyLog:
     } finally {
       proxyLog.durationMs = Date.now() - started
       if (!completed && proxyLog.error === "-") proxyLog.error = "stream cancelled"
-      proxyLog.responseBody = responseBody()
+      if (responseBody) proxyLog.responseBody = responseBody()
     }
   }
 

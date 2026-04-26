@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test"
 import { LOG_BODY_PREVIEW_LIMIT } from "../src/core/constants"
 import { cors, responseHeaders } from "../src/core/http"
 import { readRequestLogDetail, requestLogFilePath } from "../src/core/request-logs"
+import type { RequestLogMode } from "../src/core/types"
 import { mkdir, mkdtemp, path, readFile, rm, tmpdir, writeFile } from "./helpers"
 import { startRuntime } from "../src/app/runtime"
 import { sse } from "./helpers"
@@ -155,7 +156,7 @@ describe("runtime server", () => {
           }),
           expect.objectContaining({ method: "GET", path: "/usage", status: 200, proxy: expect.objectContaining({ status: 200, target: "/usage" }) }),
           expect.objectContaining({ method: "POST", path: "/v1/messages", status: 200, proxy: expect.objectContaining({ status: 200, target: "upstream" }) }),
-          expect.objectContaining({ method: "POST", path: "/v1/unknown", status: 404, error: "Not found", requestHeaders: expect.any(Object) }),
+          expect.objectContaining({ method: "POST", path: "/v1/unknown", status: 404, error: "HTTP 404", requestHeaders: expect.any(Object) }),
         ]),
       )
     } finally {
@@ -226,7 +227,7 @@ describe("runtime server", () => {
   test("logs Claude endpoint error messages", async () => {
     globalThis.fetch = mockFetch()
     const logs: any[] = []
-    const server = await startRuntime({ authFile: await authFile(), port: 0, healthIntervalMs: 0, logBody: false, onRequestLog: (entry) => logs.push(entry) })
+    const server = await startRuntime({ authFile: await authFile(), port: 0, healthIntervalMs: 0, logBody: true, onRequestLog: (entry) => logs.push(entry) })
     const base = `http://${server.hostname}:${server.port}`
     try {
       const invalid = await originalFetch(`${base}/v1/messages`, { method: "POST", body: "{" })
@@ -284,6 +285,284 @@ describe("runtime server", () => {
       await response.text()
     } finally {
       Request.prototype.clone = originalClone
+      server.stop(true)
+    }
+  })
+
+  test("skips request log persistence and callbacks in off mode", async () => {
+    globalThis.fetch = mockFetch()
+    const auth = await authFile()
+    const startedLogs: any[] = []
+    const completedLogs: any[] = []
+    const server = await startRuntime({
+      authFile: auth,
+      port: 0,
+      healthIntervalMs: 0,
+      logBody: true,
+      quiet: true,
+      requestLogMode: "off",
+      onRequestLogStart: (entry) => startedLogs.push(entry),
+      onRequestLog: (entry) => completedLogs.push(entry),
+    })
+    const base = `http://${server.hostname}:${server.port}`
+    try {
+      const response = await originalFetch(`${base}/v1/responses`, { method: "POST", body: JSON.stringify({ model: "m", input: "hi" }) })
+      expect(response.status).toBe(200)
+      await response.text()
+      expect(startedLogs).toEqual([])
+      expect(completedLogs).toEqual([])
+      await expect(readFile(requestLogFilePath(auth), "utf8")).rejects.toThrow()
+    } finally {
+      server.stop(true)
+    }
+  })
+
+  test("persists request logs in async mode after returning callbacks", async () => {
+    globalThis.fetch = mockFetch()
+    const auth = await authFile()
+    const logs: any[] = []
+    const server = await startRuntime({
+      authFile: auth,
+      port: 0,
+      healthIntervalMs: 0,
+      logBody: false,
+      quiet: true,
+      requestLogMode: "async",
+      onRequestLog: (entry) => logs.push(entry),
+    })
+    const base = `http://${server.hostname}:${server.port}`
+    try {
+      const response = await originalFetch(`${base}/v1/responses`, { method: "POST", body: JSON.stringify({ model: "m", input: "hi" }) })
+      expect(response.status).toBe(200)
+      await response.text()
+      expect(logs).toEqual([expect.objectContaining({ path: "/v1/responses", status: 200 })])
+      await waitForAsync(async () => {
+        try {
+          return (await readFile(requestLogFilePath(auth), "utf8")).includes('"/v1/responses"')
+        } catch {
+          return false
+        }
+      })
+    } finally {
+      server.stop(true)
+    }
+  })
+
+  test("reads dynamic request log mode for each request", async () => {
+    globalThis.fetch = mockFetch()
+    const auth = await authFile()
+    const logs: any[] = []
+    let mode: RequestLogMode = "off"
+    const server = await startRuntime({
+      authFile: auth,
+      port: 0,
+      healthIntervalMs: 0,
+      logBody: true,
+      quiet: true,
+      requestLogMode: () => mode,
+      onRequestLog: (entry) => logs.push(entry),
+    })
+    const base = `http://${server.hostname}:${server.port}`
+    try {
+      const skipped = await originalFetch(`${base}/v1/responses`, { method: "POST", body: JSON.stringify({ model: "m", input: "skip" }) })
+      expect(skipped.status).toBe(200)
+      await skipped.text()
+      expect(logs).toEqual([])
+      await expect(readFile(requestLogFilePath(auth), "utf8")).rejects.toThrow()
+
+      mode = "async"
+      const captured = await originalFetch(`${base}/v1/responses`, { method: "POST", body: JSON.stringify({ model: "m", input: "capture" }) })
+      expect(captured.status).toBe(200)
+      await captured.text()
+      expect(logs).toEqual([expect.objectContaining({ path: "/v1/responses", status: 200 })])
+      await waitForAsync(async () => {
+        try {
+          const persisted = await readFile(requestLogFilePath(auth), "utf8")
+          const entries = persisted.trim().split("\n").map((line: string) => JSON.parse(line))
+          if (entries.length !== 1 || entries[0]?.path !== "/v1/responses") return false
+          const detail = await readRequestLogDetail(auth, entries[0])
+          return detail.requestBody?.includes('"capture"') === true && detail.requestBody?.includes('"skip"') === false
+        } catch {
+          return false
+        }
+      })
+    } finally {
+      server.stop(true)
+    }
+  })
+
+  test("request log resolver and callback failures do not fail proxied requests", async () => {
+    globalThis.fetch = mockFetch()
+    const auth = await authFile()
+    const server = await startRuntime({
+      authFile: auth,
+      port: 0,
+      healthIntervalMs: 0,
+      logBody: false,
+      quiet: true,
+      requestLogMode: () => {
+        throw new Error("mode exploded")
+      },
+      onRequestLogStart: () => {
+        throw new Error("start exploded")
+      },
+      onRequestLog: () => {
+        throw new Error("complete exploded")
+      },
+    })
+    const base = `http://${server.hostname}:${server.port}`
+    try {
+      const response = await originalFetch(`${base}/v1/responses`, { method: "POST", body: JSON.stringify({ model: "m", input: "hi" }) })
+      expect(response.status).toBe(200)
+      await response.text()
+      await expect(readFile(requestLogFilePath(auth), "utf8")).resolves.toContain('"/v1/responses"')
+    } finally {
+      server.stop(true)
+    }
+  })
+
+  test("async request log callback rejections do not fail proxied requests", async () => {
+    globalThis.fetch = mockFetch()
+    const auth = await authFile()
+    const server = await startRuntime({
+      authFile: auth,
+      port: 0,
+      healthIntervalMs: 0,
+      logBody: false,
+      quiet: true,
+      requestLogMode: "async",
+      onRequestLogStart: () => Promise.reject(new Error("async start exploded")) as unknown as void,
+      onRequestLog: () => Promise.reject(new Error("async complete exploded")) as unknown as void,
+    })
+    const base = `http://${server.hostname}:${server.port}`
+    try {
+      const response = await originalFetch(`${base}/v1/responses`, { method: "POST", body: JSON.stringify({ model: "m", input: "hi" }) })
+      expect(response.status).toBe(200)
+      await response.text()
+      await waitForAsync(async () => {
+        try {
+          return (await readFile(requestLogFilePath(auth), "utf8")).includes('"/v1/responses"')
+        } catch {
+          return false
+        }
+      })
+    } finally {
+      server.stop(true)
+    }
+  })
+
+  test("does not capture client or proxy bodies when body logging is disabled", async () => {
+    globalThis.fetch = mockFetch()
+    const logs: any[] = []
+    const server = await startRuntime({
+      authFile: await authFile(),
+      port: 0,
+      healthIntervalMs: 0,
+      logBody: false,
+      quiet: true,
+      requestLogMode: "sync",
+      onRequestLog: (entry) => logs.push(entry),
+    })
+    const base = `http://${server.hostname}:${server.port}`
+    try {
+      const response = await originalFetch(`${base}/v1/responses`, { method: "POST", body: JSON.stringify({ model: "m", input: "hi" }) })
+      expect(response.status).toBe(200)
+      await response.text()
+      const claudeResponse = await originalFetch(`${base}/v1/messages`, { method: "POST", body: JSON.stringify({ model: "m", messages: [{ role: "user", content: "hi" }] }) })
+      expect(claudeResponse.status).toBe(200)
+      await claudeResponse.text()
+      const countTokensResponse = await originalFetch(`${base}/v1/messages/count_tokens`, { method: "POST", body: JSON.stringify({ model: "m", messages: [{ role: "user", content: "hi" }] }) })
+      expect(countTokensResponse.status).toBe(200)
+      await countTokensResponse.text()
+      expect(logs).toHaveLength(3)
+      expect(logs).toEqual(expect.arrayContaining([
+        expect.objectContaining({ path: "/v1/responses", status: 200 }),
+        expect.objectContaining({ path: "/v1/messages", status: 200 }),
+        expect.objectContaining({ path: "/v1/messages/count_tokens", status: 200 }),
+      ]))
+      for (const log of logs) {
+        expect(log.requestBody).toBeUndefined()
+        expect(log.responseBody).toBeUndefined()
+        expect(log.proxy?.requestBody).toBeUndefined()
+        expect(log.proxy?.responseBody).toBeUndefined()
+      }
+    } finally {
+      server.stop(true)
+    }
+  })
+
+  test("does not read local error response bodies when body logging is disabled", async () => {
+    globalThis.fetch = mockFetch()
+    const originalClone = Response.prototype.clone
+    let cloneCalls = 0
+    Response.prototype.clone = function clone(this: Response) {
+      cloneCalls += 1
+      return originalClone.call(this)
+    }
+    const logs: any[] = []
+    const server = await startRuntime({
+      authFile: await authFile(),
+      port: 0,
+      healthIntervalMs: 0,
+      logBody: false,
+      quiet: true,
+      requestLogMode: "sync",
+      onRequestLog: (entry) => logs.push(entry),
+    })
+    const base = `http://${server.hostname}:${server.port}`
+    try {
+      const response = await originalFetch(`${base}/v1/unknown`, { method: "POST" })
+      expect(response.status).toBe(404)
+      await response.text()
+      expect(cloneCalls).toBe(0)
+      expect(logs).toEqual([expect.objectContaining({
+        path: "/v1/unknown",
+        status: 404,
+        requestBody: undefined,
+        responseBody: undefined,
+      })])
+      expect(logs[0].error).toBeString()
+      expect(logs[0].error).not.toContain("Not found")
+    } finally {
+      Response.prototype.clone = originalClone
+      server.stop(true)
+    }
+  })
+
+  test("does not read optional proxy error bodies when body logging is disabled", async () => {
+    globalThis.fetch = rejectingFetch()
+    const originalClone = Response.prototype.clone
+    let cloneCalls = 0
+    Response.prototype.clone = function clone(this: Response) {
+      cloneCalls += 1
+      return originalClone.call(this)
+    }
+    const logs: any[] = []
+    const server = await startRuntime({
+      authFile: await authFile(),
+      port: 0,
+      healthIntervalMs: 0,
+      logBody: false,
+      quiet: true,
+      requestLogMode: "sync",
+      onRequestLog: (entry) => logs.push(entry),
+    })
+    const base = `http://${server.hostname}:${server.port}`
+    try {
+      const response = await originalFetch(`${base}/usage`)
+      expect(response.status).toBe(500)
+      expect(await response.json()).toEqual({ error: { message: "usage down" } })
+      expect(cloneCalls).toBe(0)
+      expect(logs).toEqual([expect.objectContaining({
+        path: "/usage",
+        status: 500,
+        error: "HTTP 500",
+        proxy: expect.objectContaining({ error: "HTTP 500" }),
+        requestBody: undefined,
+        responseBody: undefined,
+      })])
+    } finally {
+      Response.prototype.clone = originalClone
       server.stop(true)
     }
   })
@@ -455,6 +734,14 @@ describe("runtime server", () => {
 async function waitFor(predicate: () => boolean) {
   for (let index = 0; index < 50; index += 1) {
     if (predicate()) return
+    await new Promise((resolve) => setTimeout(resolve, 5))
+  }
+  throw new Error("Timed out waiting for condition")
+}
+
+async function waitForAsync(predicate: () => Promise<boolean>) {
+  for (let index = 0; index < 50; index += 1) {
+    if (await predicate()) return
     await new Promise((resolve) => setTimeout(resolve, 5))
   }
   throw new Error("Timed out waiting for condition")

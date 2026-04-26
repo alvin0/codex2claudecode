@@ -1,11 +1,11 @@
 import { bootstrapRuntime } from "./bootstrap"
 import { LOG_BODY_PREVIEW_LIMIT } from "../core/constants"
 import { cors, responseHeaders } from "../core/http"
-import type { Upstream_Provider } from "../core/interfaces"
+import type { Route_Descriptor, Upstream_Provider } from "../core/interfaces"
 import { createLogPreview } from "../core/log-preview"
 import { appendRequestLog, ensureRequestLogFile, requestLogFilePath, requestLogModel } from "../core/request-logs"
 import type { Provider_Registry } from "../core/registry"
-import type { HealthStatus, JsonObject, RequestLogEntry, RequestProxyLog, RuntimeOptions } from "../core/types"
+import type { HealthStatus, JsonObject, RequestLogEntry, RequestLogMode, RequestProxyLog, RuntimeOptions } from "../core/types"
 
 type RuntimeBootstrap = (options?: RuntimeOptions) => Promise<{
   authFile: string
@@ -27,14 +27,17 @@ export async function startRuntimeWithBootstrap(
   const healthIntervalMs = options?.healthIntervalMs ?? Number(process.env.HEALTH_INTERVAL_MS || 30_000)
   const healthTimeoutMs = options?.healthTimeoutMs ?? Number(process.env.HEALTH_TIMEOUT_MS || 5000)
   const logBody = options?.logBody ?? process.env.LOG_BODY !== "0"
+  const requestLogMode = requestLogModeResolver(options?.requestLogMode ?? process.env.REQUEST_LOG_MODE)
   const quiet = options?.quiet ?? false
   const onRequestLogStart = options?.onRequestLogStart
   const onRequestLog = options?.onRequestLog
   const { authFile, authAccount, registry, upstream } = await bootstrap(options)
   const routes = registry.listRoutes()
-  await ensureRequestLogFile(authFile).catch((error) => {
-    if (!quiet) warnRequestLogError(authFile, error)
-  })
+  if (requestLogMode() !== "off") {
+    await ensureRequestLogFile(authFile).catch((error) => {
+      if (!quiet) warnRequestLogError(authFile, error)
+    })
+  }
   const health = createHealthMonitor(upstream, healthIntervalMs, healthTimeoutMs, quiet)
 
   health.start()
@@ -45,14 +48,19 @@ export async function startRuntimeWithBootstrap(
       Bun.serve({
         hostname,
         port,
-        async fetch(request) {
-        const requestId = crypto.randomUUID().slice(0, 8)
+        async fetch(request, bunServer) {
         const started = Date.now()
         const url = new URL(request.url)
-        const requestBody = logBody ? await readLoggedBody(request) : undefined
-        const headersPreview = loggedHeaders(request.headers)
+        const matched = registry.match(request.method, url.pathname, request.headers)
+        if (matched && isV1ApiRoute(matched.descriptor, url.pathname)) disableIdleTimeout(bunServer, request, quiet)
+        const requestLogModeForRequest = requestLogMode()
+        const logBodyForRequest = requestLogModeForRequest !== "off" && logBody
+        const requestId = crypto.randomUUID().slice(0, 8)
+        const requestBody = logBodyForRequest ? await readLoggedBody(request) : undefined
+        let headersPreview: Record<string, string> | undefined
+        const requestHeadersPreview = () => headersPreview ??= loggedHeaders(request.headers)
 
-        if (!quiet) logRequestStart(requestId, request, url, requestBody)
+        if (!quiet) logRequestStart(requestId, request, url, requestBody, requestHeadersPreview())
 
         async function requestLog(
           response: Response,
@@ -69,9 +77,9 @@ export async function startRuntimeWithBootstrap(
             path: `${url.pathname}${url.search}`,
             status: response.status,
             durationMs,
-            error: error ?? (response.status >= 400 && responseBody !== undefined ? responseErrorText(responseBody) : await responseErrorMessage(response)),
+            error: error ?? await requestLogError(response, responseBody, logBodyForRequest),
             model: requestLogModel({ requestBody, proxy }),
-            requestHeaders: headersPreview,
+            requestHeaders: requestHeadersPreview(),
             requestBody,
             responseBody,
             proxy,
@@ -89,29 +97,45 @@ export async function startRuntimeWithBootstrap(
             durationMs: 0,
             error: "-",
             model: requestLogModel({ requestBody }),
-            requestHeaders: headersPreview,
+            requestHeaders: requestHeadersPreview(),
             requestBody,
           }
         }
 
         async function emitRequestLog(response: Response, durationMs: number, error?: string, proxy?: RequestProxyLog, responseBody?: string) {
+          if (requestLogModeForRequest === "off") return
           const entry = await requestLog(response, durationMs, error, proxy, responseBody)
-          try {
-            await appendRequestLog(authFile, entry)
-          } catch (logError) {
-            // Always warn about log write failures regardless of quiet mode so
-            // the caller's onRequestLog callback can surface the error in the UI.
-            warnRequestLogError(authFile, logError)
-            // Request logging must not change runtime responses or prevent
-            // the in-memory callback from firing.
+          const persist = async () => {
+            try {
+              await appendRequestLog(authFile, entry)
+            } catch (logError) {
+              // Always warn about log write failures regardless of quiet mode so
+              // the caller's onRequestLog callback can surface the error in the UI.
+              warnRequestLogError(authFile, logError)
+              // Request logging must not change runtime responses or prevent
+              // the in-memory callback from firing.
+            }
           }
-          onRequestLog?.(entry)
+
+          if (requestLogModeForRequest === "sync") {
+            await persist()
+            notifyRequestLog(onRequestLog, entry, quiet)
+            return
+          }
+
+          notifyRequestLog(onRequestLog, entry, quiet)
+          void persist()
         }
 
-        onRequestLogStart?.(pendingRequestLog())
+        if (requestLogModeForRequest !== "off") notifyRequestLog(onRequestLogStart, pendingRequestLog(), quiet)
 
         async function finish(response: Response, proxy?: RequestProxyLog) {
-          if (!logBody || request.method === "HEAD" || response.body === null || response.body === undefined) {
+          if (requestLogModeForRequest === "off") {
+            const durationMs = Date.now() - started
+            if (!quiet) logResponseEnd(requestId, request, url, response, durationMs)
+            return response
+          }
+          if (!logBodyForRequest || request.method === "HEAD" || response.body === null || response.body === undefined) {
             const durationMs = Date.now() - started
             if (!quiet) logResponseEnd(requestId, request, url, response, durationMs)
             await emitRequestLog(response, durationMs, undefined, proxy)
@@ -155,6 +179,7 @@ export async function startRuntimeWithBootstrap(
                   health_interval_ms: healthIntervalMs,
                   health_timeout_ms: healthTimeoutMs,
                   log_body: logBody,
+                  request_log_mode: requestLogModeForRequest,
                 },
                 endpoints: runtimeEndpoints(routes, upstream),
                 registered_routes: routes,
@@ -244,7 +269,10 @@ export async function startRuntimeWithBootstrap(
           if (!upstream.usage) {
             return finish(cors(Response.json({ error: { message: "Not implemented" } }, { status: 501 })))
           }
-          const proxy = await proxyRequestLog("Upstream usage", "GET", "/usage", () => upstream.usage!({ headers: request.headers, signal: request.signal }))
+          if (requestLogModeForRequest === "off") {
+            return finish(cors(await proxyUpstream(() => upstream.usage!({ headers: request.headers, signal: request.signal }))))
+          }
+          const proxy = await proxyRequestLog("Upstream usage", "GET", "/usage", () => upstream.usage!({ headers: request.headers, signal: request.signal }), logBodyForRequest)
           return finish(
             cors(proxy.response),
             proxy.entry,
@@ -258,15 +286,18 @@ export async function startRuntimeWithBootstrap(
           if (!upstream.environments) {
             return finish(cors(Response.json({ error: { message: "Not implemented" } }, { status: 501 })))
           }
+          if (requestLogModeForRequest === "off") {
+            return finish(cors(await proxyUpstream(() => upstream.environments!({ headers: request.headers, signal: request.signal }))))
+          }
           const proxy = await proxyRequestLog("Upstream environments", "GET", "/environments", () =>
             upstream.environments!({ headers: request.headers, signal: request.signal }),
+            logBodyForRequest,
           )
           return finish(
             cors(proxy.response),
             proxy.entry,
           )
         }
-        const matched = registry.match(request.method, url.pathname, request.headers)
         if (matched) {
           let proxy: RequestProxyLog | undefined
           try {
@@ -275,9 +306,9 @@ export async function startRuntimeWithBootstrap(
                 await matched.provider.handle(request, matched.descriptor, upstream, {
                   requestId,
                   authFile,
-                  logBody,
+                  logBody: logBodyForRequest,
                   quiet,
-                  onProxy: (entry) => {
+                  onProxy: requestLogModeForRequest === "off" ? undefined : (entry) => {
                     proxy = entry
                   },
                 }),
@@ -326,6 +357,7 @@ export async function startRuntimeWithBootstrap(
     console.log(`Test connection:  http://${server.hostname}:${server.port}/test-connection`)
     console.log(`Health interval:  ${healthIntervalMs}ms`)
     console.log(`Log body:         ${logBody ? "enabled" : "disabled"}${logBody ? " (set LOG_BODY=0 to disable)" : ""}`)
+    console.log(`Request logs:     ${requestLogMode()}${typeof options?.requestLogMode === "function" ? " (dynamic)" : ""}`)
     console.log(`Auth file:        ${authFile}`)
     if (authAccount) console.log(`Auth account:     ${authAccount}`)
     for (const route of routes) {
@@ -380,6 +412,84 @@ function hasRoute(routes: Array<{ method: string; path: string }>, method: strin
   return routes.some((route) => route.method === method && route.path === path)
 }
 
+function disableIdleTimeout(
+  bunServer: Pick<ReturnType<typeof Bun.serve>, "timeout">,
+  request: Request,
+  quiet: boolean,
+) {
+  try {
+    bunServer.timeout(request, 0)
+  } catch (error) {
+    if (!quiet) console.warn(`Unable to disable Bun idle timeout: ${errorMessage(error)}`)
+  }
+}
+
+function isV1ApiRoute(route: Route_Descriptor, pathname: string) {
+  return hasPathSegment(route.basePath, "v1") || startsWithV1Path(normalizeRouteSegment(route.path)) || startsWithV1Path(stripRouteBase(pathname, route.basePath))
+}
+
+function hasPathSegment(pathname: string | undefined, segment: string) {
+  return (pathname ?? "").split("/").includes(segment)
+}
+
+function stripRouteBase(pathname: string, basePath: string | undefined) {
+  const normalizedBase = normalizeRouteSegment(basePath)
+  if (!normalizedBase || normalizedBase === "/") return pathname
+  if (pathname === normalizedBase) return "/"
+  if (pathname.startsWith(`${normalizedBase}/`)) return pathname.slice(normalizedBase.length)
+  return pathname
+}
+
+function normalizeRouteSegment(pathname: string | undefined) {
+  if (!pathname || pathname === "/") return ""
+  return `/${pathname.replace(/^\/+|\/+$/g, "")}`
+}
+
+function startsWithV1Path(pathname: string) {
+  return pathname === "/v1" || pathname.startsWith("/v1/")
+}
+
+function requestLogModeResolver(input: RuntimeOptions["requestLogMode"] | string | undefined): () => RequestLogMode {
+  if (typeof input === "function") {
+    return () => {
+      try {
+        return normalizeRequestLogMode(input())
+      } catch {
+        return "sync"
+      }
+    }
+  }
+  return () => normalizeRequestLogMode(input)
+}
+
+function normalizeRequestLogMode(value: unknown): RequestLogMode {
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase()
+    if (normalized === "sync" || normalized === "async" || normalized === "off") return normalized
+    if (normalized === "deferred" || normalized === "background") return "async"
+    if (normalized === "none" || normalized === "disabled" || normalized === "0") return "off"
+    if (normalized === "live" || normalized === "immediate" || normalized === "1") return "sync"
+  }
+  return "sync"
+}
+
+function notifyRequestLog(callback: ((entry: RequestLogEntry) => void) | undefined, entry: RequestLogEntry, quiet: boolean) {
+  try {
+    const result = callback?.(entry) as unknown
+    if (isPromiseLike(result)) {
+      void result.then(undefined, (error) => {
+        if (!quiet) console.warn(`Request log callback failed: ${errorMessage(error)}`)
+      })
+    }
+  } catch (error) {
+    if (!quiet) console.warn(`Request log callback failed: ${errorMessage(error)}`)
+  }
+}
+
+function isPromiseLike(value: unknown): value is PromiseLike<unknown> {
+  return typeof value === "object" && value !== null && typeof (value as { then?: unknown }).then === "function"
+}
+
 async function readLoggedBody(request: Request) {
   if (request.method === "GET" || request.method === "HEAD" || request.method === "OPTIONS") return
   try {
@@ -391,8 +501,7 @@ async function readLoggedBody(request: Request) {
   }
 }
 
-function logRequestStart(id: string, request: Request, url: URL, bodyPreview?: string) {
-  const headers = loggedHeaders(request.headers)
+function logRequestStart(id: string, request: Request, url: URL, bodyPreview: string | undefined, headers: Record<string, string>) {
   console.log(`[${id}] -> ${request.method} ${url.pathname}${url.search} ${JSON.stringify(headers)}`)
   if (bodyPreview) console.log(`[${id}] body ${bodyPreview}`)
 }
@@ -415,6 +524,18 @@ async function responseErrorMessage(response: Response) {
   } catch (error) {
     return `<failed to read error: ${error instanceof Error ? error.message : String(error)}>`
   }
+}
+
+async function requestLogError(response: Response, responseBody: string | undefined, readErrorBody: boolean) {
+  if (response.status < 400) return "-"
+  if (responseBody !== undefined) return responseErrorText(responseBody)
+  if (!readErrorBody) return responseStatusError(response)
+  return responseErrorMessage(response)
+}
+
+function responseStatusError(response: Response) {
+  if (response.status < 400) return "-"
+  return response.statusText || `HTTP ${response.status}`
 }
 
 function responseErrorText(text: string) {
@@ -545,7 +666,7 @@ async function proxyUpstream(fetcher: () => Promise<Response>) {
   }
 }
 
-async function proxyRequestLog(label: string, method: string, target: string, fetcher: () => Promise<Response>) {
+async function proxyRequestLog(label: string, method: string, target: string, fetcher: () => Promise<Response>, readErrorBody = true) {
   const started = Date.now()
   const response = await proxyUpstream(fetcher)
   return {
@@ -556,7 +677,7 @@ async function proxyRequestLog(label: string, method: string, target: string, fe
       target,
       status: response.status,
       durationMs: Date.now() - started,
-      error: await responseErrorMessage(response),
+      error: readErrorBody ? await responseErrorMessage(response) : responseStatusError(response),
     } satisfies RequestProxyLog,
   }
 }

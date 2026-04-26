@@ -30,7 +30,8 @@ export async function handleClaudeMessages(
   } catch (error) {
     return claudeErrorResponse(errorMessage(error), 400)
   }
-  const requestBody = previewText(stringifyBody(responsesBody))
+  const shouldCaptureProxyBody = options?.logBody === true && options.onProxy !== undefined
+  const requestBody = shouldCaptureProxyBody ? previewText(stringifyBody(responsesBody)) : undefined
   if (options?.logBody) logUpstreamBody(requestId, responsesBody)
 
   const started = Date.now()
@@ -47,21 +48,24 @@ export async function handleClaudeMessages(
 
   if (!response.ok) {
     const text = await response.text()
-    options?.onProxy?.({
-      label: "Upstream responses",
-      method: "POST",
-      target: "upstream",
-      status: response.status,
-      durationMs,
-      error: redactSecrets(text).slice(0, LOG_BODY_PREVIEW_LIMIT) || "-",
-      requestBody,
-      responseBody: previewText(redactSecrets(text)) || undefined,
-    })
+    if (options?.onProxy) {
+      const redactedText = redactSecrets(text)
+      options.onProxy({
+        label: "Upstream responses",
+        method: "POST",
+        target: "upstream",
+        status: response.status,
+        durationMs,
+        error: redactedText.slice(0, LOG_BODY_PREVIEW_LIMIT) || "-",
+        requestBody,
+        responseBody: shouldCaptureProxyBody ? previewText(redactedText) || undefined : undefined,
+      })
+    }
     console.error(`Claude messages upstream error ${response.status}: ${text.slice(0, LOG_BODY_PREVIEW_LIMIT)}`)
     return claudeErrorResponse(`Upstream request failed: ${response.status} ${text}`, response.status)
   }
 
-  const proxyLog: RequestProxyLog = {
+  const proxyLog: RequestProxyLog | undefined = options?.onProxy ? {
     label: "Upstream responses",
     method: "POST",
     target: "upstream",
@@ -69,10 +73,10 @@ export async function handleClaudeMessages(
     durationMs,
     error: "-",
     requestBody,
-  }
-  options?.onProxy?.(proxyLog)
+  } : undefined
+  if (proxyLog) options?.onProxy?.(proxyLog)
 
-  if (response.body) {
+  if (response.body && shouldCaptureProxyBody && proxyLog) {
     response = responseWithLoggedBody(response as Response & { body: ReadableStream<Uint8Array> }, (responseBody) => {
       proxyLog.responseBody = responseBody
     })

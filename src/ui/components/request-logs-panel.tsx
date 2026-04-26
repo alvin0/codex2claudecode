@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react"
 import { Box, Text, useStdout } from "ink"
 
 import { requestLogModel } from "../../core/request-logs"
-import type { RequestLogEntry } from "../../core/types"
+import type { RequestLogEntry, RequestLogMode } from "../../core/types"
 
 const LOG_HEIGHT = 15
 export const REQUEST_LOG_DETAIL_HEIGHT = 16
@@ -24,8 +24,8 @@ const DEFAULT_TABLE_WIDTH = FIXED_TABLE_WIDTH + COL_PATH + COL_SUMMARY
 const MIN_TABLE_WIDTH = 44
 const TABLE_GUTTER = 6
 const LOADING_FRAMES = ["|", "/", "-", "\\"]
-const LONG_SHORTCUTS = "↑/↓ select · Enter details · f follow · l copy · x clear · Esc close"
-const SHORT_SHORTCUTS = "↑/↓ select · Enter · f/l/x · Esc"
+const LONG_SHORTCUTS = "↑/↓ select · Enter details · f follow · d mode · l copy · x clear · Esc close"
+const SHORT_SHORTCUTS = "↑/↓ select · Enter · f/d/l/x · Esc"
 
 interface TableLayout {
   width: number
@@ -53,6 +53,7 @@ export function RequestLogsPanel(props: {
   copyStatus?: { type: "success" | "error"; message: string }
   clearConfirm?: boolean
   fileError?: string
+  requestLogMode?: Exclude<RequestLogMode, "off">
 }) {
   const { stdout } = useStdout()
   const table = tableLayout(stdout.columns)
@@ -73,9 +74,12 @@ export function RequestLogsPanel(props: {
       <Text color="#aab3cf">{"─".repeat(table.width)}</Text>
       <Box width={table.width} flexDirection="column" alignItems="center" marginTop={1}>
         <Text bold color="#c7d2fe">Request logs</Text>
-        <Box>
+        <Box width={table.width} justifyContent="center">
           <Text color="gray" wrap="truncate-end">{table.shortcuts}</Text>
+        </Box>
+        <Box>
           {props.autoFollow && <Text color="#22c55e"> ● FOLLOW</Text>}
+          {props.requestLogMode && <Text color={props.requestLogMode === "sync" ? "#facc15" : "#22c55e"}> ● {props.requestLogMode === "sync" ? "SYNC DEBUG" : "ASYNC LOGS"}</Text>}
         </Box>
       </Box>
       {props.clearConfirm && <Text color="yellow">Clear all request logs? y confirm · n/Esc cancel</Text>}

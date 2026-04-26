@@ -444,6 +444,31 @@ describe("Claude_Inbound_Provider edge cases", () => {
     })
   })
 
+  test("count_tokens skips body capture when body logging is disabled", async () => {
+    let capturedProxy: any
+    const provider = new Claude_Inbound_Provider()
+    const upstream = {
+      proxy: dummyUpstream.proxy,
+      inputTokens: () => Promise.resolve(Response.json({ object: "response.input_tokens", input_tokens: 27 })),
+      checkHealth: dummyUpstream.checkHealth,
+    }
+
+    const response = await provider.handle(
+      new Request("http://localhost/v1/messages/count_tokens", { method: "POST", body: JSON.stringify({ model: "gpt-5.4", messages: [{ role: "user", content: "hello" }] }) }),
+      { path: "/v1/messages/count_tokens", method: "POST" },
+      upstream,
+      { requestId: "req_1", logBody: false, quiet: true, onProxy: (entry) => { capturedProxy = entry } },
+    )
+
+    expect(await response.json()).toEqual({ input_tokens: 27 })
+    expect(capturedProxy).toMatchObject({
+      target: "/v1/responses/input_tokens",
+      status: 200,
+    })
+    expect(capturedProxy.requestBody).toBeUndefined()
+    expect(capturedProxy.responseBody).toBeUndefined()
+  })
+
   test("count_tokens falls back to local token counting when upstream auth lacks scope", async () => {
     let capturedProxy: any
     const provider = new Claude_Inbound_Provider()
@@ -571,7 +596,7 @@ describe("Claude_Inbound_Provider edge cases", () => {
     expect(body.error.message).toContain("passthrough")
   })
 
-  test("streaming response from upstream is returned as SSE", async () => {
+  test("streaming response from upstream is returned as SSE and captured when body logging is enabled", async () => {
     let capturedProxy: any
     const streamUpstream = {
       proxy: (_request: unknown, options?: { onResponseBodyChunk?: (chunk: string) => void }) =>
@@ -598,7 +623,7 @@ describe("Claude_Inbound_Provider edge cases", () => {
       new Request("http://localhost/v1/messages", { method: "POST", body: JSON.stringify({ model: "gpt-5.4", messages: [{ role: "user", content: "hello" }], stream: true }) }),
       { path: "/v1/messages", method: "POST" },
       streamUpstream,
-      { requestId: "req_1", logBody: false, quiet: true, onProxy: (entry) => { capturedProxy = entry } },
+      { requestId: "req_1", logBody: true, quiet: true, onProxy: (entry) => { capturedProxy = entry } },
     )
 
     expect(response.headers.get("content-type")).toContain("text/event-stream")
@@ -606,6 +631,45 @@ describe("Claude_Inbound_Provider edge cases", () => {
     expect(events.length).toBeGreaterThan(0)
     expect(capturedProxy.responseBody).toContain("response.output_text.delta")
     expect(capturedProxy.responseBody).toContain('"delta":"hello"')
+  })
+
+  test("streaming response skips capture hooks when body logging is disabled", async () => {
+    let capturedProxy: any
+    let sawCaptureHook = false
+    const streamUpstream = {
+      proxy: (_request: unknown, options?: { onResponseBodyChunk?: (chunk: string) => void }) => {
+        sawCaptureHook = options?.onResponseBodyChunk !== undefined
+        return Promise.resolve({
+          type: "canonical_stream" as const,
+          status: 200,
+          id: "resp_1",
+          model: "gpt-5.4",
+          events: {
+            async *[Symbol.asyncIterator]() {
+              options?.onResponseBodyChunk?.('event: response.output_text.delta\ndata: {"type":"response.output_text.delta","delta":"hello"}\n\n')
+              yield { type: "message_start", id: "resp_1", model: "gpt-5.4" } as const
+              yield { type: "text_delta", delta: "hello" } as const
+              yield { type: "message_stop", stopReason: "end_turn" } as const
+            },
+          },
+        })
+      },
+      checkHealth: () => Promise.resolve({ ok: true }),
+    }
+
+    const provider = new Claude_Inbound_Provider()
+    const response = await provider.handle(
+      new Request("http://localhost/v1/messages", { method: "POST", body: JSON.stringify({ model: "gpt-5.4", messages: [{ role: "user", content: "hello" }], stream: true }) }),
+      { path: "/v1/messages", method: "POST" },
+      streamUpstream,
+      { requestId: "req_1", logBody: false, quiet: true, onProxy: (entry) => { capturedProxy = entry } },
+    )
+
+    expect(response.headers.get("content-type")).toContain("text/event-stream")
+    const events = await readSse(response)
+    expect(events.length).toBeGreaterThan(0)
+    expect(sawCaptureHook).toBe(false)
+    expect(capturedProxy.responseBody).toBeUndefined()
   })
 
   test("canonical stream is cancelled when Claude client disconnects", async () => {
