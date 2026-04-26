@@ -1,14 +1,9 @@
 import { countTokens, encodeChat } from "gpt-tokenizer"
 
-import type { Canonical_Request } from "../../core/canonical"
-import { canonicalToCodexBody } from "../../upstream/codex/parse"
+import type { Canonical_InputMessage, Canonical_Request } from "../../core/canonical"
 import type { ClaudeMessagesRequest, JsonObject } from "../types"
 
 import { claudeToolChoiceToResponsesToolChoice, resolveClaudeTools } from "./server-tools"
-
-export function claudeToResponsesBody(body: ClaudeMessagesRequest): JsonObject {
-  return canonicalToCodexBody(claudeToCanonicalRequest(body))
-}
 
 export function claudeToCanonicalRequest(body: ClaudeMessagesRequest): Canonical_Request {
   const resolvedTools = resolveClaudeTools(body)
@@ -25,23 +20,26 @@ export function claudeToCanonicalRequest(body: ClaudeMessagesRequest): Canonical
     ]
       .filter((item) => item !== undefined)
       .join("\n\n"),
-    input: body.messages.flatMap((message) => {
+    input: body.messages.flatMap((message): Canonical_InputMessage[] => {
       const blocks = claudeContentToResponsesBlocks(message.role, message.content)
       const messageContent = blocks.filter((block) => block.kind === "content").map((block) => block.value)
       const itemMessages = blocks
         .filter((block) => block.kind === "item")
-        .map((block) => ({
+        .map((block): Canonical_InputMessage => ({
           role: block.value.type === "function_call_output" ? "tool" : "assistant",
           content: [block.value],
-        } as const))
+        }))
       return [
-        ...(messageContent.length ? [{ role: message.role, content: messageContent } as const] : []),
+        ...(messageContent.length ? [{ role: message.role, content: messageContent }] : []),
         ...itemMessages,
       ]
     }),
     stream: body.stream ?? true,
     passthrough: false,
-    metadata: { source: "claude" },
+    metadata: {
+      source: "claude",
+      ...(resolvedTools.clientWebSearchToolName && { claudeClientWebSearchToolName: resolvedTools.clientWebSearchToolName }),
+    },
     ...(textFormat && { textFormat }),
     ...(resolvedTools.tools && { tools: resolvedTools.tools }),
     ...(resolvedTools.include && { include: resolvedTools.include }),
@@ -302,7 +300,9 @@ function stringifyUnknown(value: unknown) {
   }
 }
 
-function claudeContentToResponsesBlocks(role: "user" | "assistant", content: unknown) {
+type ResponsesBlock = { kind: "content"; value: JsonObject } | { kind: "item"; value: JsonObject }
+
+function claudeContentToResponsesBlocks(role: "user" | "assistant", content: unknown): ResponsesBlock[] {
   if (typeof content === "string") {
     return [{ kind: "content" as const, value: { type: role === "assistant" ? "output_text" : "input_text", text: content } }]
   }

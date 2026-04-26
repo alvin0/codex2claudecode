@@ -2,6 +2,8 @@ import { describe, expect, test } from "bun:test"
 
 import type { Canonical_Response } from "../../src/core/canonical"
 import { Claude_Inbound_Provider } from "../../src/inbound/claude"
+import { Claude_Codex_Inbound_Adapter } from "../../src/inbound/claude/codex"
+import { Claude_Kiro_Inbound_Adapter } from "../../src/inbound/claude/kiro"
 import { claudeToCanonicalRequest } from "../../src/inbound/claude/convert"
 import { claudeErrorResponse } from "../../src/inbound/claude/errors"
 import { Model_Catalog } from "../../src/inbound/claude/models"
@@ -27,6 +29,40 @@ describe("Claude inbound translation", () => {
       tools: [{ type: "function", name: "save", parameters: { type: "object" }, strict: false }],
       toolChoice: { type: "function", name: "save" },
     })
+  })
+
+  test("keeps Claude Code WebFetch and WebSearch as client tools", () => {
+    const request = claudeToCanonicalRequest({
+      model: "claude-haiku-4.5",
+      messages: [{ role: "user", content: "read https://example.com/article" }],
+      tools: [
+        { name: "WebFetch", description: "Fetch a URL", input_schema: { type: "object", required: ["url", "prompt"] } },
+        { name: "WebSearch", description: "Search the web", input_schema: { type: "object", required: ["query"] } },
+        { name: "Read", input_schema: { type: "object", required: ["file_path"] } },
+      ],
+      tool_choice: { type: "tool", name: "WebFetch" },
+    })
+
+    expect(request.tools).toEqual([
+      { type: "function", name: "WebFetch", description: "Fetch a URL", parameters: { type: "object", required: ["url", "prompt"] }, strict: false },
+      { type: "function", name: "WebSearch", description: "Search the web", parameters: { type: "object", required: ["query"] }, strict: false },
+      { type: "function", name: "Read", description: undefined, parameters: { type: "object", required: ["file_path"] }, strict: false },
+    ])
+    expect(request.toolChoice).toEqual({ type: "function", name: "WebFetch" })
+    expect(request.metadata.claudeClientWebSearchToolName).toBe("WebSearch")
+  })
+
+  test("maps native Claude web_search server tools to server web search", () => {
+    const request = claudeToCanonicalRequest({
+      model: "claude-haiku-4.5",
+      messages: [{ role: "user", content: "search current docs" }],
+      tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 5 } as any],
+      tool_choice: { type: "tool", name: "web_search" },
+    })
+
+    expect(request.instructions).toContain("When web search is available")
+    expect(request.tools).toEqual([{ type: "web_search" }])
+    expect(request.toolChoice).toEqual({ type: "web_search" })
   })
 
   test("property: randomized Claude bodies become valid canonical requests", () => {
@@ -110,7 +146,7 @@ describe("Claude response translation", () => {
             yield { type: "thinking_delta", text: "Working" } as const
             yield { type: "text_delta", delta: "hello" } as const
             yield { type: "tool_call_done", callId: "call_1", name: "save", arguments: "{\"ok\":true}" } as const
-            yield { type: "server_tool_block", blocks: [{ type: "web_search_tool_result", tool_use_id: "srv_1", content: [] }] } as const
+            yield { type: "server_tool_block", blocks: [{ type: "server_tool_use", id: "srv_1", name: "web_search", input: { query: "q" } }, { type: "web_search_tool_result", tool_use_id: "srv_1", content: [] }] } as const
             yield { type: "usage", usage: { outputTokens: 4 } } as const
             yield { type: "message_stop", stopReason: "tool_use" } as const
           },
@@ -124,12 +160,23 @@ describe("Claude response translation", () => {
     expect(events.some((event) => event.data.delta?.type === "thinking_delta")).toBe(true)
     expect(events.some((event) => event.data.delta?.text === "hello")).toBe(true)
     expect(events.some((event) => event.data.content_block?.type === "tool_use")).toBe(true)
+    expect(events.some((event) => event.data.content_block?.type === "server_tool_use" && JSON.stringify(event.data.content_block.input) === "{}")).toBe(true)
+    expect(events.some((event) => event.data.delta?.type === "input_json_delta" && event.data.delta.partial_json === "{\"query\":\"q\"}")).toBe(true)
     expect(events.some((event) => event.data.content_block?.type === "web_search_tool_result")).toBe(true)
     expect(events.some((event) => event.data.type === "message_stop")).toBe(true)
   })
 })
 
 describe("Claude model catalog and provider", () => {
+  test("exposes Codex and Kiro as distinct Claude inbound adapters", () => {
+    const codex = new Claude_Codex_Inbound_Adapter(async () => [])
+    const kiro = new Claude_Kiro_Inbound_Adapter(async () => [])
+
+    expect(codex.name).toBe("claude-codex")
+    expect(kiro.name).toBe("claude-kiro")
+    expect(codex.routes()).toEqual(kiro.routes())
+  })
+
   test("lists all models without a resolver and filters with an injected resolver", async () => {
     const catalog = new Model_Catalog()
     const all = await catalog.listModels()

@@ -1,12 +1,11 @@
-import { writeFile } from "node:fs/promises"
-
-import { ensureParentDir, resolveAuthFile } from "../../core/paths"
+import { writeTextFile } from "../../core/bun-fs"
+import { resolveAuthFile } from "../../core/paths"
 import { normalizeReasoningBody } from "../../core/reasoning"
 import type { HealthStatus, JsonObject, RequestOptions } from "../../core/types"
-import { writeAccountInfoFile } from "./account-info"
+import { accountInfoKey, writeAccountInfoFile } from "./account-info"
 import { extractAccountId, readAuthFileData, selectAuthEntry } from "./auth"
 import { DEFAULT_CLIENT_ID, DEFAULT_CODEX_ENDPOINT, DEFAULT_ISSUER, OPENAI_RESPONSES_INPUT_TOKENS_ENDPOINT, REFRESH_SAFETY_MARGIN_MS, WHAM_ENVIRONMENTS_ENDPOINT, WHAM_USAGE_ENDPOINT } from "./constants"
-import { syncCodexCliAuthTokens } from "./codex-auth"
+import { pullCodexCliAuthTokens, syncCodexCliAuthTokens } from "./codex-auth"
 import type { AuthFileContent, AuthFileData, ChatCompletionRequest, CodexClientOptions, CodexClientTokens, InputTokensRequest, ResponsesRequest, TokenResponse } from "./types"
 
 export class CodexStandaloneClient {
@@ -25,6 +24,8 @@ export class CodexStandaloneClient {
   private readonly authFile?: string
   private readonly codexAuthFile?: string
   private readonly openAiApiKey?: string
+  private sourceAuthFile?: string
+  private sourceAccountKey?: string
   private authEntryIndex?: number
   private authFileIsArray?: boolean
 
@@ -42,6 +43,8 @@ export class CodexStandaloneClient {
     this.authFile = options.authFile
     this.codexAuthFile = options.codexAuthFile
     this.openAiApiKey = options.openAiApiKey ?? process.env.OPENAI_API_KEY
+    this.sourceAuthFile = options.sourceAuthFile
+    this.sourceAccountKey = options.sourceAccountKey
   }
 
   static async fromAuthFile(
@@ -58,6 +61,8 @@ export class CodexStandaloneClient {
       expiresAt: selected.auth.expires,
       accountId: selected.auth.accountId,
       authFile,
+      sourceAuthFile: selected.auth.sourceAuthFile,
+      sourceAccountKey: selected.auth.sourceAccountKey,
     })
     client.authEntryIndex = selected.index
     client.authFileIsArray = selected.isArray
@@ -74,14 +79,18 @@ export class CodexStandaloneClient {
   }
 
   async refresh() {
-    const tokens = await this.refreshAccessToken()
-    this.applyTokenResponse(tokens)
+    const sourceChanged = await this.syncFromSourceBeforeRefresh()
+    if (!(sourceChanged && this.hasFreshKnownAccessToken())) {
+      const tokens = await this.refreshAccessToken()
+      this.applyTokenResponse(tokens)
+    }
     await this.saveAuthFile()
     await syncCodexCliAuthTokens({
       accountId: this.accountId,
       accessToken: this.accessToken,
       refreshToken: this.refreshToken,
-      path: this.codexAuthFile,
+      path: this.sourceAuthFile ?? this.codexAuthFile,
+      sourceAccountKey: this.sourceAccountKey,
     }).catch(() => false)
     return this.tokens
   }
@@ -211,9 +220,33 @@ export class CodexStandaloneClient {
   }
 
   private async refreshIfExpired() {
-    if (this.expiresAt && this.expiresAt - REFRESH_SAFETY_MARGIN_MS > Date.now()) return
+    if (!this.isTokenExpiringSoon()) return
     if (!this.expiresAt) return
     await this.refresh()
+  }
+
+  private isTokenExpiringSoon() {
+    return Boolean(this.expiresAt && this.expiresAt - REFRESH_SAFETY_MARGIN_MS <= Date.now())
+  }
+
+  private hasFreshKnownAccessToken() {
+    return this.expiresAt !== undefined && !this.isTokenExpiringSoon()
+  }
+
+  private async syncFromSourceBeforeRefresh() {
+    const sourceAuth = await pullCodexCliAuthTokens({
+      accountId: this.accountId,
+      accessToken: this.accessToken,
+      refreshToken: this.refreshToken,
+      sourceAuthFile: this.sourceAuthFile,
+      sourceAccountKey: this.sourceAccountKey,
+      path: this.codexAuthFile,
+      strict: Boolean(this.sourceAuthFile),
+    })
+    if (!sourceAuth) return false
+    this.applyAuthFileContent(sourceAuth)
+    await this.saveAuthFile()
+    return true
   }
 
   private async refreshAccessToken() {
@@ -244,6 +277,7 @@ export class CodexStandaloneClient {
     this.refreshToken = tokens.refresh_token ?? this.refreshToken
     this.expiresAt = Date.now() + (tokens.expires_in ?? 3600) * 1000
     this.accountId = extractAccountId(tokens) ?? this.accountId
+    if (this.sourceAuthFile && !this.sourceAccountKey && this.accountId) this.sourceAccountKey = this.accountId
   }
 
   private async saveAuthFile() {
@@ -251,16 +285,15 @@ export class CodexStandaloneClient {
     if (this.authFileIsArray) {
       const file = await readAuthFileData(this.authFile)
       const entries = Array.isArray(file.data) ? file.data : [file.data]
-      entries[this.authEntryIndex ?? 0] = this.authFileContent(entries[this.authEntryIndex ?? 0])
-      await ensureParentDir(this.authFile)
-      await writeFile(this.authFile, `${JSON.stringify(entries satisfies AuthFileData, null, 2)}\n`)
-      await writeAccountInfoFile(this.authFile, entries)
+      const index = this.authEntryIndex ?? 0
+      entries[index] = this.authFileContent(entries[index])
+      await writeTextFile(this.authFile, `${JSON.stringify(entries satisfies AuthFileData, null, 2)}\n`)
+      await writeAccountInfoFile(this.authFile, entries, accountInfoKey(entries[index], index))
       return
     }
     const auth = this.authFileContent()
-    await ensureParentDir(this.authFile)
-    await writeFile(this.authFile, `${JSON.stringify(auth, null, 2)}\n`)
-    await writeAccountInfoFile(this.authFile, auth)
+    await writeTextFile(this.authFile, `${JSON.stringify(auth, null, 2)}\n`)
+    await writeAccountInfoFile(this.authFile, auth, accountInfoKey(auth, 0))
   }
 
   private authFileContent(previous?: AuthFileContent): AuthFileContent {
@@ -271,7 +304,18 @@ export class CodexStandaloneClient {
       refresh: this.refreshToken,
       expires: this.expiresAt,
       accountId: this.accountId,
+      ...(this.sourceAuthFile ? { sourceAuthFile: this.sourceAuthFile } : {}),
+      ...(this.sourceAccountKey ? { sourceAccountKey: this.sourceAccountKey } : {}),
     }
+  }
+
+  private applyAuthFileContent(auth: AuthFileContent) {
+    this.accessToken = auth.access
+    this.refreshToken = auth.refresh
+    this.expiresAt = auth.expires
+    this.accountId = auth.accountId
+    this.sourceAuthFile = auth.sourceAuthFile ?? this.sourceAuthFile
+    this.sourceAccountKey = auth.sourceAccountKey ?? this.sourceAccountKey
   }
 
   private headers(input?: HeadersInit) {

@@ -1,18 +1,22 @@
-import { afterEach, describe, expect, test } from "bun:test"
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
-import { tmpdir } from "node:os"
-import path from "node:path"
+import { afterEach, beforeEach, describe, expect, test } from "bun:test"
 
 import { LOG_BODY_PREVIEW_LIMIT } from "../src/core/constants"
 import { cors, responseHeaders } from "../src/core/http"
 import { readRequestLogDetail, requestLogFilePath } from "../src/core/request-logs"
+import { mkdir, mkdtemp, path, readFile, rm, tmpdir, writeFile } from "./helpers"
 import { startRuntime } from "../src/app/runtime"
 import { sse } from "./helpers"
 
 const tempDirs: string[] = []
+const originalEnv = { ...process.env }
 const originalFetch = globalThis.fetch
 
+beforeEach(() => {
+  process.env = { ...originalEnv, UPSTREAM_PROVIDER: "codex" }
+})
+
 afterEach(async () => {
+  process.env = { ...originalEnv }
   globalThis.fetch = originalFetch
   await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })))
 })
@@ -25,6 +29,14 @@ async function authFile() {
   return file
 }
 
+async function kiroAuthFile() {
+  const dir = await mkdtemp(path.join(tmpdir(), "kiro-runtime-test-"))
+  tempDirs.push(dir)
+  const file = path.join(dir, "kiro-auth-token.json")
+  await writeFile(file, JSON.stringify({ accessToken: "access", refreshToken: "refresh", expiresAt: new Date(Date.now() + 700_000).toISOString(), region: "us-east-1" }))
+  return file
+}
+
 function mockFetch(status = 200) {
   return ((url, init) => {
     if (init?.method === "HEAD") return Promise.resolve(new Response(null, { status: 405 }))
@@ -33,7 +45,7 @@ function mockFetch(status = 200) {
     if (String(url).includes("/responses/input_tokens")) return Promise.resolve(Response.json({ object: "response.input_tokens", input_tokens: 7 }))
     if (status !== 200) return Promise.resolve(new Response("upstream bad", { status }))
     return Promise.resolve(new Response(sse([{ type: "response.output_text.done", text: "ok" }, { type: "response.completed", response: { usage: { input_tokens: 1, output_tokens: 2 } } }])))
-  }) as typeof fetch
+  }) as unknown as typeof fetch
 }
 
 function rejectingFetch() {
@@ -41,7 +53,7 @@ function rejectingFetch() {
     if (init?.method === "HEAD") return Promise.resolve(new Response(null, { status: 500 }))
     if (String(url).includes("/usage")) return Promise.reject(new Error("usage down"))
     return Promise.resolve(new Response(sse([])))
-  }) as typeof fetch
+  }) as unknown as typeof fetch
 }
 
 function flappingHealthFetch() {
@@ -52,7 +64,7 @@ function flappingHealthFetch() {
       return Promise.resolve(new Response(null, { status: heads === 1 ? 405 : 500 }))
     }
     return Promise.resolve(Response.json({ ok: true }))
-  }) as typeof fetch
+  }) as unknown as typeof fetch
 }
 
 function deferred<T>() {
@@ -95,11 +107,14 @@ describe("runtime server", () => {
       },
     })
     const requestedPort = blocker.port
+    if (requestedPort === undefined) throw new Error("blocker server did not expose a port")
     try {
       const server = await startRuntime({ authFile: await authFile(), hostname: "127.0.0.1", port: requestedPort, healthIntervalMs: 0, logBody: false })
       try {
-        expect(server.port).toBe(requestedPort + 1)
-        expect((await originalFetch(`http://${server.hostname}:${server.port}/health`)).status).toBe(200)
+        const serverPort = server.port
+        if (serverPort === undefined) throw new Error("runtime server did not expose a port")
+        expect(serverPort).toBeGreaterThan(requestedPort)
+        expect((await originalFetch(`http://${server.hostname}:${serverPort}/health`)).status).toBe(200)
       } finally {
         server.stop(true)
       }
@@ -114,7 +129,11 @@ describe("runtime server", () => {
     const server = await startRuntime({ authFile: await authFile(), port: 0, healthIntervalMs: 0, logBody: false, onRequestLog: (entry) => logs.push(entry) })
     const base = `http://${server.hostname}:${server.port}`
     try {
-      expect((await originalFetch(`${base}/health`)).status).toBe(200)
+      const health = await originalFetch(`${base}/health`)
+      expect(health.status).toBe(200)
+      const healthBody = await health.json() as { upstream?: unknown; codex?: unknown }
+      expect(healthBody.upstream).toBeDefined()
+      expect(healthBody.codex).toBeUndefined()
       expect((await originalFetch(`${base}/usage`)).status).toBe(200)
       expect((await originalFetch(`${base}/environments`)).status).toBe(200)
       expect((await originalFetch(`${base}/v1/messages/count_tokens`, { method: "POST", body: JSON.stringify({ model: "m", messages: [{ role: "user", content: "hi" }] }) })).status).toBe(200)
@@ -135,10 +154,46 @@ describe("runtime server", () => {
             requestHeaders: expect.any(Object),
           }),
           expect.objectContaining({ method: "GET", path: "/usage", status: 200, proxy: expect.objectContaining({ status: 200, target: "/usage" }) }),
-          expect.objectContaining({ method: "POST", path: "/v1/messages", status: 200, proxy: expect.objectContaining({ status: 200, target: "/v1/responses" }) }),
+          expect.objectContaining({ method: "POST", path: "/v1/messages", status: 200, proxy: expect.objectContaining({ status: 200, target: "upstream" }) }),
           expect.objectContaining({ method: "POST", path: "/v1/unknown", status: 404, error: "Not found", requestHeaders: expect.any(Object) }),
         ]),
       )
+    } finally {
+      server.stop(true)
+    }
+  })
+
+  test("Kiro runtime root advertises only supported endpoints", async () => {
+    globalThis.fetch = mockFetch()
+    process.env.UPSTREAM_PROVIDER = "kiro"
+    const kiroAuth = await kiroAuthFile()
+    process.env.KIRO_AUTH_FILE = kiroAuth
+
+    const server = await startRuntime({ authFile: kiroAuth, port: 0, healthIntervalMs: 0, logBody: false })
+    const base = `http://${server.hostname}:${server.port}`
+    try {
+      const root = await originalFetch(`${base}/`)
+      expect(root.status).toBe(200)
+      const body = await root.json() as { endpoints: Record<string, string>; registered_routes: Array<{ path: string; method: string; provider: string }> }
+      expect(body.endpoints.messages).toBe("/v1/messages")
+      expect(body.endpoints.count_tokens).toBe("/v1/messages/count_tokens")
+      expect(body.endpoints.responses).toBe("/v1/responses")
+      expect(body.endpoints.complete).toBeUndefined()
+      expect(body.endpoints.chat_completions).toBe("/v1/chat/completions")
+      expect(body.endpoints.environments).toBeUndefined()
+      expect(body.registered_routes.some((route) => route.provider === "claude-kiro")).toBe(true)
+      expect(body.registered_routes.some((route) => route.provider === "openai-kiro")).toBe(true)
+      expect(body.registered_routes.some((route) => route.provider === "claude")).toBe(false)
+      expect(body.registered_routes.some((route) => route.provider === "openai")).toBe(false)
+      expect((await originalFetch(`${base}/v1/responses`, { method: "POST", body: JSON.stringify({ model: "m", input: "hi" }) })).status).toBe(200)
+      expect((await originalFetch(`${base}/v1/chat/completions`, { method: "POST", body: JSON.stringify({ model: "m", messages: [{ role: "user", content: "hi" }] }) })).status).toBe(200)
+      const invalid = await originalFetch(`${base}/v1/responses`, { method: "POST", body: JSON.stringify({ model: "m", messages: [{ role: "user", content: "hi" }] }) })
+      expect(invalid.status).toBe(400)
+      expect(invalid.headers.get("content-type")).toContain("application/json")
+      expect(await invalid.json()).toMatchObject({ error: { type: "invalid_request_error" } })
+      const logFile = await readFile(requestLogFilePath(kiroAuth), "utf8")
+      expect(logFile).toContain('"/v1/responses"')
+      expect(logFile).toContain('"/v1/chat/completions"')
     } finally {
       server.stop(true)
     }
@@ -312,7 +367,7 @@ describe("runtime server", () => {
     globalThis.fetch = mockFetch()
     const auth = await authFile()
     // Block log writes by placing a directory where the log file should be
-    await import("node:fs/promises").then(({ mkdir }) => mkdir(path.join(path.dirname(auth), "request-logs-recent.ndjson"), { recursive: true }))
+    await mkdir(path.join(path.dirname(auth), "request-logs-recent.ndjson"), { recursive: true })
     const logs: any[] = []
     const server = await startRuntime({ authFile: auth, port: 0, healthIntervalMs: 0, logBody: false, quiet: true, onRequestLog: (entry) => logs.push(entry) })
     const base = `http://${server.hostname}:${server.port}`
@@ -332,7 +387,7 @@ describe("runtime server", () => {
       if (String(url).includes("/usage")) return Promise.resolve(Response.json({ used: true }))
       if (String(url).includes("/environments")) return Promise.resolve(Response.json([]))
       return upstream.promise
-    }) as typeof fetch
+    }) as unknown as typeof fetch
     const startedLogs: any[] = []
     const completedLogs: any[] = []
     const server = await startRuntime({

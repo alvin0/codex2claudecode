@@ -1,5 +1,6 @@
 import { parseCliOptions } from "./cli"
-import { runExample, startRuntime } from "../index"
+import { runExample } from "./example"
+import { startRuntime } from "./runtime"
 import { runUi } from "../ui"
 
 if (import.meta.main) {

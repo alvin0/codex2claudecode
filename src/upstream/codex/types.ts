@@ -14,6 +14,8 @@ export interface CodexClientOptions {
   authFile?: string
   authAccount?: string
   codexAuthFile?: string
+  sourceAuthFile?: string
+  sourceAccountKey?: string
   openAiApiKey?: string
 }
 
@@ -40,6 +42,8 @@ export interface AuthFileContent {
   name?: string
   label?: string
   email?: string
+  sourceAuthFile?: string
+  sourceAccountKey?: string
 }
 
 export type AuthFileData = AuthFileContent | AuthFileContent[]

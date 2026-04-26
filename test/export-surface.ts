@@ -1,5 +1,4 @@
-import { readFile } from "node:fs/promises"
-import path from "node:path"
+import { path, readFile } from "./helpers"
 
 const cache = new Map<string, Promise<string[]>>()
 

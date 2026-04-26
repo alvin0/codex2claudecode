@@ -1,4 +1,4 @@
-import type { AccountView, RuntimeState } from "./types"
+import type { AccountView, ProviderMode, RuntimeState } from "./types"
 
 export function accountSubtitle(account: AccountView) {
   return account.accountId ? `${account.name} · ${account.accountId.slice(0, 8)}` : account.name
@@ -9,10 +9,11 @@ export function accountShortLabel(account: AccountView) {
   return `${account.name} · ${id}`
 }
 
-export function runtimeLine(runtime: RuntimeState, hostname: string, port: number) {
-  if (runtime.status === "starting") return "Starting Codex runtime..."
+export function runtimeLine(runtime: RuntimeState, hostname: string, port: number, providerMode: ProviderMode = "codex") {
+  const label = providerMode === "kiro" ? "Kiro" : "Codex"
+  if (runtime.status === "starting") return `Starting ${label} runtime...`
   if (runtime.status === "error") return `Runtime error: ${runtime.error}`
-  return `Codex runtime listening on http://${hostname}:${port} · started ${new Date(runtime.startedAt).toLocaleTimeString()}`
+  return `${label} runtime listening on http://${hostname}:${port} · started ${new Date(runtime.startedAt).toLocaleTimeString()}`
 }
 
 export function modelLabel() {

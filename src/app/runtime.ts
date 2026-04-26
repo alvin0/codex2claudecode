@@ -3,8 +3,16 @@ import { LOG_BODY_PREVIEW_LIMIT } from "../core/constants"
 import { cors, responseHeaders } from "../core/http"
 import type { Upstream_Provider } from "../core/interfaces"
 import { createLogPreview } from "../core/log-preview"
-import { appendRequestLog, ensureRequestLogFile, requestLogFilePath } from "../core/request-logs"
+import { appendRequestLog, ensureRequestLogFile, requestLogFilePath, requestLogModel } from "../core/request-logs"
+import type { Provider_Registry } from "../core/registry"
 import type { HealthStatus, JsonObject, RequestLogEntry, RequestProxyLog, RuntimeOptions } from "../core/types"
+
+type RuntimeBootstrap = (options?: RuntimeOptions) => Promise<{
+  authFile: string
+  authAccount?: string
+  registry: Provider_Registry
+  upstream: Upstream_Provider
+}>
 
 export async function startRuntime(options?: RuntimeOptions) {
   return startRuntimeWithBootstrap(options, bootstrapRuntime)
@@ -12,7 +20,7 @@ export async function startRuntime(options?: RuntimeOptions) {
 
 export async function startRuntimeWithBootstrap(
   options: RuntimeOptions | undefined,
-  bootstrap: typeof bootstrapRuntime,
+  bootstrap: RuntimeBootstrap,
 ) {
   const hostname = options?.hostname ?? process.env.HOST ?? "127.0.0.1"
   const preferredPort = options?.port ?? Number(process.env.PORT || 8787)
@@ -23,6 +31,7 @@ export async function startRuntimeWithBootstrap(
   const onRequestLogStart = options?.onRequestLogStart
   const onRequestLog = options?.onRequestLog
   const { authFile, authAccount, registry, upstream } = await bootstrap(options)
+  const routes = registry.listRoutes()
   await ensureRequestLogFile(authFile).catch((error) => {
     if (!quiet) warnRequestLogError(authFile, error)
   })
@@ -61,6 +70,7 @@ export async function startRuntimeWithBootstrap(
             status: response.status,
             durationMs,
             error: error ?? (response.status >= 400 && responseBody !== undefined ? responseErrorText(responseBody) : await responseErrorMessage(response)),
+            model: requestLogModel({ requestBody, proxy }),
             requestHeaders: headersPreview,
             requestBody,
             responseBody,
@@ -78,6 +88,7 @@ export async function startRuntimeWithBootstrap(
             status: 0,
             durationMs: 0,
             error: "-",
+            model: requestLogModel({ requestBody }),
             requestHeaders: headersPreview,
             requestBody,
           }
@@ -145,18 +156,8 @@ export async function startRuntimeWithBootstrap(
                   health_timeout_ms: healthTimeoutMs,
                   log_body: logBody,
                 },
-                endpoints: {
-                  messages: "/v1/messages",
-                  count_tokens: "/v1/messages/count_tokens",
-                  models: "/v1/models",
-                  responses: "/v1/responses",
-                  chat_completions: "/v1/chat/completions",
-                  health: "/health",
-                  usage: "/usage",
-                  environments: "/environments",
-                  test_connection: "/test-connection",
-                },
-                registered_routes: registry.listRoutes(),
+                endpoints: runtimeEndpoints(routes, upstream),
+                registered_routes: routes,
               }),
             ),
           )
@@ -172,7 +173,7 @@ export async function startRuntimeWithBootstrap(
                 cors(
                   Response.json({
                     status: "success",
-                    message: "Successfully connected to Codex upstream",
+                    message: "Successfully connected to upstream",
                     timestamp: new Date().toISOString(),
                     latency_ms: testDurationMs,
                     upstream: {
@@ -189,7 +190,7 @@ export async function startRuntimeWithBootstrap(
                   {
                     status: "failed",
                     error_type: "Connection Error",
-                    message: testHealth.error ?? "Unable to reach Codex upstream",
+                    message: testHealth.error ?? "Unable to reach upstream",
                     timestamp: new Date().toISOString(),
                     latency_ms: testDurationMs,
                     suggestions: [
@@ -231,7 +232,7 @@ export async function startRuntimeWithBootstrap(
                 {
                   ok: health.current.ok,
                   runtime: { ok: true },
-                  codex: health.current,
+                  upstream: health.current,
                 },
                 { status: health.current.ok ? 200 : 503 },
               ),
@@ -243,7 +244,7 @@ export async function startRuntimeWithBootstrap(
           if (!upstream.usage) {
             return finish(cors(Response.json({ error: { message: "Not implemented" } }, { status: 501 })))
           }
-          const proxy = await proxyRequestLog("Codex usage", "GET", "/usage", () => upstream.usage!({ headers: request.headers, signal: request.signal }))
+          const proxy = await proxyRequestLog("Upstream usage", "GET", "/usage", () => upstream.usage!({ headers: request.headers, signal: request.signal }))
           return finish(
             cors(proxy.response),
             proxy.entry,
@@ -257,7 +258,7 @@ export async function startRuntimeWithBootstrap(
           if (!upstream.environments) {
             return finish(cors(Response.json({ error: { message: "Not implemented" } }, { status: 501 })))
           }
-          const proxy = await proxyRequestLog("Codex environments", "GET", "/environments", () =>
+          const proxy = await proxyRequestLog("Upstream environments", "GET", "/environments", () =>
             upstream.environments!({ headers: request.headers, signal: request.signal }),
           )
           return finish(
@@ -312,22 +313,22 @@ export async function startRuntimeWithBootstrap(
   }
 
   if (!quiet) {
-    console.log(`Codex runtime is listening on http://${server.hostname}:${server.port}`)
+    console.log(`Codex2ClaudeCode runtime is listening on http://${server.hostname}:${server.port}`)
     console.log(`Root:             http://${server.hostname}:${server.port}/`)
-    console.log(`Claude messages:  http://${server.hostname}:${server.port}/v1/messages`)
-    console.log(`Claude tokens:    http://${server.hostname}:${server.port}/v1/messages/count_tokens`)
-    console.log(`Models:           http://${server.hostname}:${server.port}/v1/models`)
-    console.log(`Responses:        http://${server.hostname}:${server.port}/v1/responses`)
-    console.log(`Chat completions: http://${server.hostname}:${server.port}/v1/chat/completions`)
-    console.log(`Usage:            http://${server.hostname}:${server.port}/usage`)
-    console.log(`Environments:     http://${server.hostname}:${server.port}/environments`)
+    if (hasRoute(routes, "POST", "/v1/messages")) console.log(`Claude messages:  http://${server.hostname}:${server.port}/v1/messages`)
+    if (hasRoute(routes, "POST", "/v1/messages/count_tokens")) console.log(`Claude tokens:    http://${server.hostname}:${server.port}/v1/messages/count_tokens`)
+    if (hasRoute(routes, "GET", "/v1/models")) console.log(`Models:           http://${server.hostname}:${server.port}/v1/models`)
+    if (hasRoute(routes, "POST", "/v1/responses")) console.log(`Responses:        http://${server.hostname}:${server.port}/v1/responses`)
+    if (hasRoute(routes, "POST", "/v1/chat/completions")) console.log(`Chat completions: http://${server.hostname}:${server.port}/v1/chat/completions`)
+    if (upstream.usage) console.log(`Usage:            http://${server.hostname}:${server.port}/usage`)
+    if (upstream.environments) console.log(`Environments:     http://${server.hostname}:${server.port}/environments`)
     console.log(`Health:           http://${server.hostname}:${server.port}/health`)
     console.log(`Test connection:  http://${server.hostname}:${server.port}/test-connection`)
     console.log(`Health interval:  ${healthIntervalMs}ms`)
     console.log(`Log body:         ${logBody ? "enabled" : "disabled"}${logBody ? " (set LOG_BODY=0 to disable)" : ""}`)
     console.log(`Auth file:        ${authFile}`)
     if (authAccount) console.log(`Auth account:     ${authAccount}`)
-    for (const route of registry.listRoutes()) {
+    for (const route of routes) {
       console.log(`Route:            ${route.method} ${route.path} (${route.provider})`)
     }
   }
@@ -359,6 +360,24 @@ function isPortInUseError(error: unknown) {
   if (typeof error === "object" && error !== null && "code" in error && error.code === "EADDRINUSE") return true
   const message = error instanceof Error ? error.message : String(error)
   return message.includes("EADDRINUSE") || message.toLowerCase().includes("address already in use")
+}
+
+function runtimeEndpoints(routes: Array<{ method: string; path: string }>, upstream: Upstream_Provider) {
+  return {
+    ...(hasRoute(routes, "POST", "/v1/messages") ? { messages: "/v1/messages" } : {}),
+    ...(hasRoute(routes, "POST", "/v1/messages/count_tokens") ? { count_tokens: "/v1/messages/count_tokens" } : {}),
+    ...(hasRoute(routes, "GET", "/v1/models") ? { models: "/v1/models" } : {}),
+    ...(hasRoute(routes, "POST", "/v1/responses") ? { responses: "/v1/responses" } : {}),
+    ...(hasRoute(routes, "POST", "/v1/chat/completions") ? { chat_completions: "/v1/chat/completions" } : {}),
+    ...(upstream.usage ? { usage: "/usage" } : {}),
+    ...(upstream.environments ? { environments: "/environments" } : {}),
+    health: "/health",
+    test_connection: "/test-connection",
+  }
+}
+
+function hasRoute(routes: Array<{ method: string; path: string }>, method: string, path: string) {
+  return routes.some((route) => route.method === method && route.path === path)
 }
 
 async function readLoggedBody(request: Request) {
@@ -554,8 +573,8 @@ function createHealthMonitor(upstream: Pick<Upstream_Provider, "checkHealth">, i
     if (!quiet) {
       console.log(
         state.current.ok
-          ? `Codex upstream healthy (${state.current.status}, ${state.current.latencyMs}ms)`
-          : `Codex upstream unhealthy (${state.current.error ?? state.current.status ?? "unknown"})`,
+          ? `Upstream healthy (${state.current.status}, ${state.current.latencyMs}ms)`
+          : `Upstream unhealthy (${state.current.error ?? state.current.status ?? "unknown"})`,
       )
     }
   }

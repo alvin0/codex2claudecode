@@ -1,5 +1,4 @@
-import { readFile } from "node:fs/promises"
-
+import { readTextFile } from "../../core/bun-fs"
 import { resolveAuthFile } from "../../core/paths"
 import type { AuthFileContent, AuthFileData, TokenResponse } from "./types"
 
@@ -10,7 +9,7 @@ export async function readAuthFile(path: string, account?: string) {
 export async function readAuthFileData(path: string) {
   return {
     path: resolveAuthFile(path),
-    data: JSON.parse(await readFile(resolveAuthFile(path), "utf8")) as AuthFileData,
+    data: JSON.parse(await readTextFile(resolveAuthFile(path))) as AuthFileData,
   }
 }
 
@@ -18,7 +17,7 @@ export function selectAuthEntry(data: AuthFileData, account?: string, path = "au
   const entries = Array.isArray(data) ? data : [data]
   if (!entries.length) throw new Error(`Auth file ${path} does not contain any accounts`)
   const index = account
-    ? entries.findIndex((auth, itemIndex) => [auth.name, auth.label, auth.email, auth.accountId, authEntryKey(auth, itemIndex)].includes(account))
+    ? entries.findIndex((auth, itemIndex) => [auth.name, auth.label, auth.email, auth.accountId, auth.sourceAccountKey, authEntryKey(auth, itemIndex)].includes(account))
     : 0
   if (index < 0) throw new Error(`Auth file ${path} does not contain account ${account}`)
   return {
@@ -73,4 +72,15 @@ export function extractAccountId(tokens: TokenResponse): string | undefined {
     return claims ? extractAccountIdFromClaims(claims) : undefined
   }
   return undefined
+}
+
+export function accessTokenExpiresAt(accessToken: string) {
+  const payload = accessToken.split(".")[1]
+  if (!payload) return undefined
+  try {
+    const claims = JSON.parse(Buffer.from(payload, "base64url").toString()) as { exp?: unknown }
+    return typeof claims.exp === "number" ? claims.exp * 1000 : undefined
+  } catch {
+    return undefined
+  }
 }

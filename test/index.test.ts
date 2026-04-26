@@ -1,9 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test"
-import { mkdtemp, rm, writeFile } from "node:fs/promises"
-import { tmpdir } from "node:os"
-import path from "node:path"
 
-import { runExample } from "../src/index"
+import { runExample } from "../src/app/example"
+import { mkdtemp, path, rm, tmpdir, writeFile } from "./helpers"
 
 const originalFetch = globalThis.fetch
 const originalAuthFile = process.env.CODEX_AUTH_FILE
@@ -21,7 +19,7 @@ test("runExample uses the standalone client", async () => {
   tempDirs.push(dir)
   process.env.CODEX_AUTH_FILE = path.join(dir, "auth-codex.json")
   await writeFile(process.env.CODEX_AUTH_FILE, JSON.stringify({ type: "oauth", access: "a", refresh: "r", expires: Date.now() + 60_000 }))
-  globalThis.fetch = (() => Promise.resolve(Response.json({ ok: true }))) as typeof fetch
+  globalThis.fetch = (() => Promise.resolve(Response.json({ ok: true }))) as unknown as typeof fetch
 
   const logs: unknown[][] = []
   const originalLog = console.log

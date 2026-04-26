@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 
-import type { Canonical_Request } from "../../src/core/canonical"
+import type { Canonical_Event, Canonical_Request } from "../../src/core/canonical"
 import { Codex_Upstream_Provider } from "../../src/upstream/codex"
 import { canonicalToCodexBody, collectCodexResponse, streamCodexResponse } from "../../src/upstream/codex/parse"
 import { sse } from "../helpers"
@@ -218,9 +218,10 @@ describe("collectCodexResponse edge cases", () => {
 
     const thinking = response.content.find((block) => block.type === "thinking")
     expect(thinking).toBeDefined()
+    if (!thinking || thinking.type !== "thinking") throw new Error("expected thinking block")
     // Thinking includes lifecycle label "Initializing" from response.created + actual thinking text
-    expect(thinking!.type === "thinking" && thinking.thinking).toContain("Thinking...")
-    expect(thinking!.type === "thinking" && thinking.signature).toMatch(/^sig_/)
+    expect(thinking.thinking).toContain("Thinking...")
+    expect(thinking.signature).toMatch(/^sig_/)
   })
 
   test("thinking lifecycle labels prefer concrete output item payload", async () => {
@@ -376,7 +377,7 @@ describe("streamCodexResponse edge cases", () => {
     const stream = streamCodexResponse(new Response(null), "fallback")
 
     expect(stream.type).toBe("canonical_stream")
-    const events = []
+    const events: Canonical_Event[] = []
     for await (const event of stream.events) events.push(event)
     expect(events).toEqual([])
   })
@@ -393,7 +394,7 @@ describe("streamCodexResponse edge cases", () => {
       "fallback",
     )
 
-    const events = []
+    const events: Canonical_Event[] = []
     for await (const event of stream.events) events.push(event)
 
     expect(events.some((e) => e.type === "lifecycle" && (e as any).label === "response.some_unknown_event")).toBe(true)
@@ -410,7 +411,7 @@ describe("streamCodexResponse edge cases", () => {
       "fallback",
     )
 
-    const events = []
+    const events: Canonical_Event[] = []
     for await (const event of stream.events) events.push(event)
 
     expect(events.some((e) => e.type === "error" && (e as any).message === "rate limited")).toBe(true)
@@ -428,7 +429,7 @@ describe("streamCodexResponse edge cases", () => {
       "fallback",
     )
 
-    const events = []
+    const events: Canonical_Event[] = []
     for await (const event of stream.events) events.push(event)
 
     expect(events.some((e) => e.type === "message_stop" && (e as any).stopReason === "max_tokens")).toBe(true)
@@ -449,7 +450,7 @@ describe("streamCodexResponse edge cases", () => {
       "fallback",
     )
 
-    const events = []
+    const events: Canonical_Event[] = []
     for await (const event of stream.events) events.push(event)
 
     // function_call_arguments.delta is in UPSTREAM_THINKING_EVENTS, so it's consumed as a lifecycle/thinking event
@@ -476,7 +477,7 @@ describe("streamCodexResponse edge cases", () => {
       "fallback",
     )
 
-    const events = []
+    const events: Canonical_Event[] = []
     for await (const event of stream.events) events.push(event)
 
     const types = events.map((e) => e.type)
@@ -503,11 +504,13 @@ describe("streamCodexResponse edge cases", () => {
       "fallback",
     )
 
-    const events = []
+    const events: Canonical_Event[] = []
     for await (const event of stream.events) events.push(event)
 
     const textStart = events.findIndex((event) => event.type === "content_block_start" && event.blockType === "text")
-    const textStop = events.findIndex((event, index) => index > textStart && event.type === "content_block_stop" && event.index === events[textStart].index)
+    const textStartEvent = events[textStart]
+    if (!textStartEvent || textStartEvent.type !== "content_block_start") throw new Error("expected text content block start")
+    const textStop = events.findIndex((event, index) => index > textStart && event.type === "content_block_stop" && event.index === textStartEvent.index)
     const thinkingStart = events.findIndex((event, index) => index > textStart && event.type === "content_block_start" && event.blockType === "thinking")
 
     expect(textStart).toBeGreaterThan(-1)
@@ -521,7 +524,7 @@ describe("Codex_Upstream_Provider edge cases", () => {
     const provider = new Codex_Upstream_Provider({
       accessToken: "access",
       refreshToken: "refresh",
-      fetch: (() => Promise.reject(new Error("network down"))) as typeof fetch,
+      fetch: (() => Promise.reject(new Error("network down"))) as unknown as typeof fetch,
     })
 
     await expect(provider.proxy(canonicalRequest())).rejects.toThrow("network down")
@@ -539,7 +542,7 @@ describe("Codex_Upstream_Provider edge cases", () => {
               { type: "response.completed", response: { usage: { input_tokens: 1, output_tokens: 2 }, output: [{ type: "message", content: [{ type: "output_text", text: "hi" }] }] } },
             ]),
           ),
-        )) as typeof fetch,
+        )) as unknown as typeof fetch,
     })
 
     const result = await provider.proxy(canonicalRequest({ stream: false, passthrough: false }))
@@ -562,7 +565,7 @@ describe("Codex_Upstream_Provider edge cases", () => {
               { type: "response.completed", response: { usage: { input_tokens: 1, output_tokens: 2 }, output: [{ type: "message", content: [{ type: "output_text", text: "hi" }] }] } },
             ]),
           ),
-        )) as typeof fetch,
+        )) as unknown as typeof fetch,
     })
 
     const result = await provider.proxy(canonicalRequest({ stream: true, passthrough: false }))
@@ -573,7 +576,7 @@ describe("Codex_Upstream_Provider edge cases", () => {
     const provider = new Codex_Upstream_Provider({
       accessToken: "access",
       refreshToken: "refresh",
-      fetch: (() => Promise.resolve(new Response('{"error":"rate_limited"}', { status: 429 }))) as typeof fetch,
+      fetch: (() => Promise.resolve(new Response('{"error":"rate_limited"}', { status: 429 }))) as unknown as typeof fetch,
     })
 
     const result = await provider.proxy(canonicalRequest())
@@ -591,7 +594,7 @@ describe("Codex_Upstream_Provider edge cases", () => {
       fetch: ((url: string, init: any) => {
         if (init?.method === "HEAD") return Promise.resolve(new Response(null, { status: 405 }))
         return Promise.resolve(new Response("ok"))
-      }) as typeof fetch,
+      }) as unknown as typeof fetch,
     })
 
     const health = await provider.checkHealth(5000)

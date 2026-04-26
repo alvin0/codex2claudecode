@@ -5,7 +5,8 @@ import { Claude_Inbound_Provider } from "../../src/inbound/claude"
 import { claudeToCanonicalRequest, countClaudeInputTokens } from "../../src/inbound/claude/convert"
 import { claudeErrorResponse, claudeStreamErrorEvent } from "../../src/inbound/claude/errors"
 import { Model_Catalog } from "../../src/inbound/claude/models"
-import { canonicalResponseToClaudeMessage, claudeCanonicalStreamResponse, claudeStreamResponse } from "../../src/inbound/claude/response"
+import { claudeStreamResponse } from "../../src/inbound/claude/codex-response"
+import { canonicalResponseToClaudeMessage, claudeCanonicalStreamResponse } from "../../src/inbound/claude/response"
 import { readSse, sse } from "../helpers"
 
 describe("Claude → Canonical_Request edge cases", () => {
@@ -521,6 +522,8 @@ describe("Claude_Inbound_Provider edge cases", () => {
     const body = await response.json()
     expect(body.type).toBe("error")
     expect(body.error.message).toContain("503")
+    expect(body.error.message).toContain("Upstream request failed")
+    expect(body.error.message).not.toContain("Codex")
   })
 
   test("upstream proxy exception returns 500 Claude error", async () => {
@@ -817,12 +820,51 @@ describe("Model_Catalog edge cases", () => {
     expect(result.data).toEqual([])
   })
 
+  test("listModels resolves Kiro model metadata from the Kiro catalog", async () => {
+    const catalog = new Model_Catalog()
+    const result = await catalog.listModels(async () => ["claude-sonnet-4.5"])
+
+    expect(result.data).toHaveLength(1)
+    expect(result.data[0]).toMatchObject({
+      id: "claude-sonnet-4.5",
+      created_at: "2025-09-29T16:01:16Z",
+      display_name: "Claude Sonnet 4.5",
+      max_input_tokens: 1000000,
+      max_tokens: 64000,
+      type: "model",
+    })
+    expect(result.data[0].capabilities.image_input.supported).toBe(true)
+    expect(result.data[0].capabilities.pdf_input.supported).toBe(true)
+    expect(result.data[0].capabilities.structured_outputs.supported).toBe(true)
+  })
+
+  test("listModels resolves OpenRouter Codex model metadata from the Codex catalog", async () => {
+    const catalog = new Model_Catalog()
+    const result = await catalog.listModels(async () => ["gpt-5.5"])
+
+    expect(result.data).toHaveLength(1)
+    expect(result.data[0]).toMatchObject({
+      id: "gpt-5.5",
+      display_name: "GPT-5.5",
+      max_input_tokens: 200000,
+      max_tokens: 128000,
+      type: "model",
+    })
+    expect(result.data[0].capabilities.structured_outputs.supported).toBe(true)
+  })
+
+  test("getModel resolves Kiro model aliases", () => {
+    const catalog = new Model_Catalog()
+    expect(catalog.getModel("claude-sonnet-4-5")?.id).toBe("claude-sonnet-4.5")
+  })
+
   test("listModels without resolver returns all models", async () => {
     const catalog = new Model_Catalog()
     const result = await catalog.listModels()
     expect(result.data.length).toBeGreaterThan(0)
     expect(result.first_id).toBeDefined()
     expect(result.last_id).toBeDefined()
+    expect(Object.keys(result.data[0]).sort()).toEqual(["capabilities", "created_at", "display_name", "id", "max_input_tokens", "max_tokens", "type"])
   })
 
   test("listModels with limit 1 returns single model", async () => {

@@ -1,18 +1,9 @@
 import { Box, Text, useApp, useInput, useStdout } from "ink"
-import { useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
-import { readAccountInfoFile, refreshActiveAccountInfo, writeAccountInfoFile, writeActiveAccountInfo, type AccountInfo } from "../upstream/codex/account-info"
-import { readCodexFastModeConfig, writeCodexFastModeConfig } from "../upstream/codex/fast-mode"
-import { readAuthFileData } from "../upstream/codex/auth"
-import { CodexStandaloneClient } from "../upstream/codex/client"
-import { connectAccount, connectAccountFromCodexAuth, type ConnectAccountDraft } from "../upstream/codex/connect-account"
 import { packageInfo } from "../app/package-info"
-import { resolveAuthFile } from "../core/paths"
 import { clearRequestLogs, MAX_REQUEST_LOG_ENTRIES, readRecentRequestLogs, readRequestLogDetail } from "../core/request-logs"
-import { startRuntime } from "../app/runtime"
 import type { RequestLogEntry } from "../core/types"
-import type { AuthFileData } from "../upstream/codex/types"
-import { authDataToAccounts, selectedAccountIndex } from "./accounts"
 import {
   claudeSettingsPathForScope,
   claudeSettingsScopeLabel,
@@ -29,9 +20,8 @@ import {
   type ClaudeSettingsScope,
   type ClaudeEnvironmentDraft,
 } from "./claude-env"
-import { UI_COMMANDS } from "./commands"
+import { getCommands } from "./commands"
 import { writeClipboard } from "./clipboard"
-import { AccountInfoPanel } from "./components/account-info-panel"
 import { AccountSelector } from "./components/account-selector"
 import { ClaudeEnvironmentEditor } from "./components/claude-environment-editor"
 import { ClaudeEnvironmentPresetSelector, PRESET_OPTIONS } from "./components/claude-environment-preset-selector"
@@ -39,34 +29,49 @@ import { ClaudeEnvironmentScopeSelector } from "./components/claude-environment-
 import { ClaudeEnvironmentUnsetConfirm } from "./components/claude-environment-unset-confirm"
 import { CommandInput } from "./components/command-input"
 import { CommandOutput } from "./components/command-output"
+import { CodexFastModeSelector } from "./components/codex-fast-mode"
 import { ConnectAccountWizard } from "./components/connect-account-wizard"
 import { ConnectSourceSelector } from "./components/connect-source-selector"
-import { LimitsPanel } from "./components/limits-panel"
-import { formatAllRequestLogs, formatRequestLogDetail, RequestLogsPanel } from "./components/request-logs-panel"
-import { WelcomePanel } from "./components/welcome-panel"
-import { usageToView, type LimitGroupView } from "./limits"
-import type { RuntimeState } from "./types"
-
-const LIMITS_REFRESH_INTERVAL_MS = 5 * 60_000
+import { ProviderDashboard } from "./components/provider-dashboard"
+import {
+  formatAllRequestLogs,
+  formatRequestLogDetail,
+  RequestLogsPanel,
+  REQUEST_LOG_DETAIL_FAST_SCROLL_STEP,
+  REQUEST_LOG_DETAIL_SCROLL_STEP,
+  requestLogDetailMaxScroll,
+} from "./components/request-logs-panel"
+import { SwitchProviderConfirm } from "./components/switch-provider-confirm"
+import { nextProviderDefinition, providerDefinition } from "./providers/registry"
+import type { ProviderAccountData, ProviderConnectDraft, ProviderConnectField } from "./providers/types"
+import { useCodexFastMode } from "./providers/use-codex-fast-mode"
+import { useProviderLimits } from "./providers/use-provider-limits"
+import { useProviderRuntime } from "./providers/use-provider-runtime"
+import type { ProviderMode } from "./types"
 
 export function CodexCodeApp(props: { port?: number }) {
   const app = useApp()
   const { stdout } = useStdout()
-  const authFile = resolveAuthFile(process.env.CODEX_AUTH_FILE)
   const hostname = process.env.HOST ?? "127.0.0.1"
   const port = props.port ?? Number(process.env.PORT || 8787)
-  const [authData, setAuthData] = useState<AuthFileData | undefined>()
+  const [accountData, setAccountData] = useState<ProviderAccountData>()
   const [loadError, setLoadError] = useState<string>()
   const [selected, setSelected] = useState(0)
-  const [runtime, setRuntime] = useState<RuntimeState>({ status: "starting" })
-  const [activeAccountInfo, setActiveAccountInfo] = useState<AccountInfo>()
-  const [limitGroups, setLimitGroups] = useState<LimitGroupView[]>([])
-  const [limitsLoading, setLimitsLoading] = useState(false)
-  const [limitsError, setLimitsError] = useState<string>()
   const [inputMessage, setInputMessage] = useState("↑↓ select · enter confirm")
   const [commandIndex, setCommandIndex] = useState(0)
   const [mode, setMode] = useState<
-    "home" | "account-selector" | "logs" | "codex-fast-mode" | "claude-env-scope" | "claude-env-preset" | "claude-env-editor" | "claude-env-confirm" | "claude-env-unset-confirm" | "connect-source" | "connect-account"
+    | "home"
+    | "account-selector"
+    | "logs"
+    | "codex-fast-mode"
+    | "claude-env-scope"
+    | "claude-env-preset"
+    | "claude-env-editor"
+    | "claude-env-confirm"
+    | "claude-env-unset-confirm"
+    | "connect-source"
+    | "connect-account"
+    | "switch-provider"
   >("home")
   const [selectorIndex, setSelectorIndex] = useState(0)
   const [requestLogs, setRequestLogs] = useState<RequestLogEntry[]>([])
@@ -78,40 +83,124 @@ export function CodexCodeApp(props: { port?: number }) {
   const [logsClearConfirm, setLogsClearConfirm] = useState(false)
   const [logsFileError, setLogsFileError] = useState<string>()
   const [logsAutoFollow, setLogsAutoFollow] = useState(true)
-  const [codexFastMode, setCodexFastMode] = useState(false)
-  const [codexFastModeIndex, setCodexFastModeIndex] = useState(1)
   const [claudeEnvDraft, setClaudeEnvDraft] = useState<ClaudeEnvironmentDraft>(() => defaultClaudeEnvironment())
   const [claudeEnvIndex, setClaudeEnvIndex] = useState(0)
   const [claudeEnvScopeIndex, setClaudeEnvScopeIndex] = useState(0)
   const [claudeEnvPresetIndex, setClaudeEnvPresetIndex] = useState(0)
   const [claudeEnvAction, setClaudeEnvAction] = useState<"set" | "unset">("set")
   const [commandOutput, setCommandOutput] = useState<{ title: string; output: string }>()
+  const commandOutputRevision = useRef(0)
   const shell = useMemo(() => detectShell(), [])
-  const [connectDraft, setConnectDraft] = useState<ConnectAccountDraft>({ accountId: "", accessToken: "", refreshToken: "" })
+  const [connectDraft, setConnectDraft] = useState<ProviderConnectDraft>({})
   const [connectSourceIndex, setConnectSourceIndex] = useState(0)
   const [connectStep, setConnectStep] = useState(0)
   const [connectSaving, setConnectSaving] = useState(false)
   const [authRevision, setAuthRevision] = useState(0)
+  const [accountKey, setAccountKey] = useState<string>()
+  const resetRuntimeLogs = useCallback(() => {
+    setRequestLogs([])
+    setRequestLogDetails({})
+  }, [])
+  const clearCommandOutput = useCallback(() => {
+    commandOutputRevision.current += 1
+    setCommandOutput(undefined)
+  }, [])
+  const beginCommandOutput = useCallback(() => {
+    commandOutputRevision.current += 1
+    setCommandOutput(undefined)
+    return commandOutputRevision.current
+  }, [])
+  const setCommandOutputForRevision = useCallback((revision: number, output: { title: string; output: string }) => {
+    if (commandOutputRevision.current === revision) setCommandOutput(output)
+  }, [])
+  const appendRuntimeLog = useCallback((entry: RequestLogEntry) => {
+    setRequestLogs((logs) => {
+      const updated = upsertRequestLog(logs, entry)
+      setLogsAutoFollow((follow) => {
+        if (follow) setLogsSelected(Math.max(0, updated.length - 1))
+        return follow
+      })
+      return updated
+    })
+  }, [])
+  const providerRuntime = useProviderRuntime({
+    hostname,
+    port,
+    accountKey,
+    authRevision,
+    loadError,
+    onMessage: setInputMessage,
+    onRequestLogsReset: resetRuntimeLogs,
+    onRequestLogStart: appendRuntimeLog,
+    onRequestLog: appendRuntimeLog,
+  })
+  const {
+    authFile,
+    providerReady,
+    providerMode,
+    providerInfo,
+    runtime,
+    setProviderInfo,
+    setRuntimeError,
+    switchingProvider,
+    switchProvider,
+    upstream,
+  } = providerRuntime
+  const provider = useMemo(() => providerDefinition(providerMode), [providerMode])
+  const accountCapability = provider.accounts
+  const connectCapability = accountCapability?.connect
+  const connectFields = connectCapability?.fields ?? []
+  const accounts = useMemo(() => (accountData && accountCapability ? accountCapability.toAccounts(accountData) : []), [accountCapability, accountData])
+  const account = accounts[selected]
+  const codexFastMode = useCodexFastMode({ authFile, providerMode, providerReady, onMessage: setInputMessage })
+  const updateKiroInfo = useCallback((patch: { subscriptionTier?: string; email?: string }) => {
+    setProviderInfo((prev) => prev.mode === "kiro" ? { ...prev, ...patch } : prev)
+  }, [setProviderInfo])
+  const { activeAccountInfo, limitGroups, limitsLoading, limitsError, resetLimits } = useProviderLimits({
+    authFile,
+    authRevision,
+    accountKey,
+    loadError,
+    providerMode,
+    providerReady,
+    runtimeStatus: runtime.status,
+    upstream,
+    onKiroInfo: updateKiroInfo,
+    onMessage: setInputMessage,
+  })
+  const resetForProviderSwitch = useCallback((_targetMode: ProviderMode) => {
+    resetRuntimeLogs()
+    resetLimits()
+    clearCommandOutput()
+    setLoadError(undefined)
+    setAccountData(undefined)
+    setAccountKey(undefined)
+    setSelected(0)
+    setAuthRevision((value) => value + 1)
+  }, [clearCommandOutput, resetLimits, resetRuntimeLogs])
   const pkg = useMemo(() => packageInfo(), [])
-  const activePort = runtime.status === "running" ? runtime.server.port : port
+  const activePort = runtime.status === "running" ? runtime.server.port ?? port : port
   const terminalColumns = stdout.columns ?? 120
   const contentWidth = Math.max(40, terminalColumns - 2)
   const dashboardCompact = contentWidth < 106
   const dashboardInnerWidth = Math.max(32, contentWidth - 4)
-  const headerText = `v${pkg.version} - Author: ${pkg.author}`
-  const headerTextWidth = Math.max(12, Math.min(headerText.length, contentWidth - 8))
-  const headerRuleWidth = Math.max(0, contentWidth - headerTextWidth - 5)
+  const commands = useMemo(() => getCommands(providerMode), [providerMode])
+  const switchTarget = useMemo(() => nextProviderDefinition(providerMode), [providerMode])
+  const headerText = providerMode === "kiro" ? `v${pkg.version} · Kiro - Author: ${pkg.author}` : `v${pkg.version} - Author: ${pkg.author}`
+  const headerTextWidth = Math.max(12, Math.min(headerText.length, contentWidth - 10))
   const visibleRequestLogs = useMemo(
     () => requestLogs.map((log) => requestLogDetails[log.id] ?? log),
     [requestLogDetails, requestLogs],
   )
 
-  const accounts = useMemo(() => (authData ? authDataToAccounts(authData) : []), [authData])
-  const account = accounts[selected]
   const claudeEnvScopes: ClaudeSettingsScope[] = ["user", "project", "local"]
   const claudeEnvScope = claudeEnvScopes[claudeEnvScopeIndex] ?? "user"
   const claudeSettingsFile = claudeSettingsPathForScope(claudeEnvScope)
   const claudeSettingsTarget = claudeSettingsScopeLabel(claudeEnvScope)
+
+  useEffect(() => {
+    setCommandIndex((value) => Math.min(value, Math.max(0, commands.length - 1)))
+  }, [commands.length])
 
   useEffect(() => {
     if (!logsCopyStatus) return
@@ -120,95 +209,37 @@ export function CodexCodeApp(props: { port?: number }) {
   }, [logsCopyStatus])
 
   useEffect(() => {
-    let active = true
-    void readCodexFastModeConfig(authFile)
-      .then((config) => {
-        if (!active) return
-        setCodexFastMode(config.enabled)
-        setCodexFastModeIndex(config.enabled ? 0 : 1)
-      })
-      .catch(() => {
-        if (!active) return
-        setCodexFastMode(false)
-        setCodexFastModeIndex(1)
-      })
-    return () => {
-      active = false
+    if (!providerReady) return
+    if (!accountCapability) {
+      setAccountData(undefined)
+      setAccountKey(undefined)
+      setSelected(0)
+      setLoadError(undefined)
+      return
     }
-  }, [authFile])
-
-  useEffect(() => {
     let active = true
-    Promise.all([readAuthFileData(authFile), readAccountInfoFile(authFile)])
-      .then(([file, info]) => {
+    accountCapability.loadState(authFile)
+      .then((state) => {
         if (!active) return
-        setAuthData(file.data)
-        setSelected(selectedAccountIndex(file.data, process.env.CODEX_AUTH_ACCOUNT ?? info?.activeAccount))
-        void writeAccountInfoFile(authFile, file.data, process.env.CODEX_AUTH_ACCOUNT ?? info?.activeAccount).catch(() => {})
+        const loadedAccounts = accountCapability.toAccounts(state.data)
+        const nextSelected = Math.min(state.selected, Math.max(0, loadedAccounts.length - 1))
+        setLoadError(undefined)
+        setAccountData(state.data)
+        setSelected(nextSelected)
+        setAccountKey(loadedAccounts[nextSelected]?.key)
       })
       .catch((error) => {
         if (!active) return
-        setLoadError(error instanceof Error ? error.message : String(error))
-        setRuntime({ status: "error", error: error instanceof Error ? error.message : String(error) })
+        const message = error instanceof Error ? error.message : String(error)
+        setAccountData(undefined)
+        setAccountKey(undefined)
+        setLoadError(message)
+        setRuntimeError(message)
       })
     return () => {
       active = false
     }
-  }, [authFile])
-
-  useEffect(() => {
-    if (!account || loadError) return
-    let active = true
-    let server: ReturnType<typeof Bun.serve> | undefined
-    setRequestLogs([])
-    setRequestLogDetails({})
-    setRuntime({ status: "starting" })
-    startRuntime({
-      authFile,
-      authAccount: account.key,
-      hostname,
-      port,
-      logBody: process.env.LOG_BODY !== "0",
-      quiet: true,
-      onRequestLogStart: (entry) => {
-        setRequestLogs((logs) => {
-          const updated = upsertRequestLog(logs, entry)
-          // Auto-follow: always scroll to the newest entry
-          setLogsAutoFollow((follow) => {
-            if (follow) setLogsSelected(Math.max(0, updated.length - 1))
-            return follow
-          })
-          return updated
-        })
-      },
-      onRequestLog: (entry) => {
-        setRequestLogs((logs) => {
-          const updated = upsertRequestLog(logs, entry)
-          setLogsAutoFollow((follow) => {
-            if (follow) setLogsSelected(Math.max(0, updated.length - 1))
-            return follow
-          })
-          return updated
-        })
-      },
-    })
-      .then((nextServer) => {
-        server = nextServer
-        if (!active) {
-          nextServer.stop(true)
-          return
-        }
-        setRuntime({ status: "running", server: nextServer, startedAt: Date.now() })
-      })
-      .catch((error) => {
-        if (!active) return
-        setRuntime({ status: "error", error: error instanceof Error ? error.message : String(error) })
-      })
-    return () => {
-      active = false
-      server?.stop(true)
-    }
-  }, [account?.key, authFile, authRevision, hostname, loadError, port])
+  }, [accountCapability, authFile, authRevision, providerReady, setRuntimeError])
 
   useEffect(() => {
     if (mode !== "logs") return
@@ -267,45 +298,13 @@ export function CodexCodeApp(props: { port?: number }) {
     }
   }, [authFile, logsDetailOpen, logsSelected, mode, requestLogDetails, requestLogs])
 
-  useEffect(() => {
-    if (!account || loadError) return
-    let active = true
-    async function refresh() {
-      try {
-        setLimitsLoading(true)
-        setLimitsError(undefined)
-        const info = await refreshActiveAccountInfo(authFile, account.key)
-        const client = await CodexStandaloneClient.fromAuthFile(authFile, { authAccount: account.key })
-        const response = await client.usage()
-        if (!response.ok) throw new Error(`usage request failed with ${response.status}`)
-        const usage = usageToView(await response.json())
-        if (active) {
-          setActiveAccountInfo({ ...info, ...usage.accountInfo, updatedAt: usage.accountInfo?.updatedAt ?? info.updatedAt })
-          setLimitGroups(usage.limitGroups)
-          setLimitsLoading(false)
-        }
-      } catch (error) {
-        if (active) {
-          setLimitsLoading(false)
-          setLimitsError(error instanceof Error ? error.message : String(error))
-          setInputMessage(`Account refresh failed: ${error instanceof Error ? error.message : String(error)}`)
-        }
-      }
-    }
-    void refresh()
-    const timer = setInterval(() => void refresh(), LIMITS_REFRESH_INTERVAL_MS)
-    return () => {
-      active = false
-      clearInterval(timer)
-    }
-  }, [account?.key, authFile, authRevision, loadError])
-
   useInput((input, key) => {
     if (key.ctrl && input === "c") {
       if (runtime.status === "running") runtime.server.stop(true)
       app.exit()
       return
     }
+    if (switchingProvider) return
     if (mode === "logs") {
       if (logsClearConfirm) {
         if (input.toLowerCase() === "y") {
@@ -404,16 +403,22 @@ export function CodexCodeApp(props: { port?: number }) {
       return
     }
     if (key.escape) {
+      if (mode === "switch-provider") {
+        setMode("home")
+        setCommandIndex(0)
+        setInputMessage("Provider switch cancelled")
+        return
+      }
       if (mode === "connect-source" || mode === "connect-account") {
         setMode("home")
-        setConnectDraft({ accountId: "", accessToken: "", refreshToken: "" })
+        setConnectDraft(connectCapability?.defaultDraft() ?? {})
         setConnectSourceIndex(0)
         setConnectStep(0)
         setInputMessage("Connect account cancelled")
         return
       }
       if (commandOutput) {
-        setCommandOutput(undefined)
+        clearCommandOutput()
         setInputMessage("Type / for commands")
         return
       }
@@ -446,7 +451,7 @@ export function CodexCodeApp(props: { port?: number }) {
       if (mode === "codex-fast-mode") {
         setMode("home")
         setCommandIndex(0)
-        setCodexFastModeIndex(codexFastMode ? 0 : 1)
+        codexFastMode.resetSelection()
         setInputMessage("Codex fast mode unchanged")
         return
       }
@@ -461,37 +466,52 @@ export function CodexCodeApp(props: { port?: number }) {
       return
     }
     if (key.return) {
+      if (mode === "switch-provider") {
+        setMode("home")
+        void switchProvider({ onBeforeApply: resetForProviderSwitch })
+        return
+      }
       if (mode === "connect-source") {
+        if (!connectCapability) {
+          setMode("home")
+          setInputMessage("Connect is not available for this provider")
+          return
+        }
         if (connectSourceIndex === 0) {
           setConnectSaving(true)
-          void connectAccountFromCodexAuth(authFile)
+          void connectCapability.importFromSource(authFile)
             .then((result) => {
-              applyConnectedAccount(result.data, result.accountId)
+              applyConnectedAccount(result.data, result.accountKey)
               setMode("home")
-              setInputMessage(`Connected account ${result.accountId} from ~/.codex/auth.json`)
+              setInputMessage(`Connected account ${result.accountKey}`)
             })
             .catch((error) => setInputMessage(`Connect failed: ${error instanceof Error ? error.message : String(error)}`))
             .finally(() => setConnectSaving(false))
           return
         }
-        setConnectDraft({ accountId: "", accessToken: "", refreshToken: "" })
+        setConnectDraft(connectCapability.defaultDraft())
         setConnectStep(0)
         setMode("connect-account")
         return
       }
       if (mode === "connect-account") {
-        if (connectStep < 2) {
+        if (!connectCapability) {
+          setMode("home")
+          setInputMessage("Connect is not available for this provider")
+          return
+        }
+        if (connectStep < connectFields.length - 1) {
           setConnectStep((step) => step + 1)
           return
         }
         setConnectSaving(true)
-        void connectAccount(authFile, connectDraft)
+        void connectCapability.connectManual(authFile, connectDraft)
           .then((result) => {
-            applyConnectedAccount(result.data, result.accountId)
+            applyConnectedAccount(result.data, result.accountKey)
             setMode("home")
-            setConnectDraft({ accountId: "", accessToken: "", refreshToken: "" })
+            setConnectDraft(connectCapability.defaultDraft())
             setConnectStep(0)
-            setInputMessage(`Connected account ${result.accountId}`)
+            setInputMessage(`Connected account ${result.accountKey}`)
           })
           .catch((error) => setInputMessage(`Connect failed: ${error instanceof Error ? error.message : String(error)}`))
           .finally(() => setConnectSaving(false))
@@ -509,12 +529,12 @@ export function CodexCodeApp(props: { port?: number }) {
       if (mode === "claude-env-preset") {
         const preset = PRESET_OPTIONS[claudeEnvPresetIndex]
         if (preset?.key === "recommend") {
-          setClaudeEnvDraft(recommendedClaudeEnvironment())
+          setClaudeEnvDraft(recommendedClaudeEnvironment(providerMode))
           setClaudeEnvIndex(0)
           setMode("claude-env-editor")
           setInputMessage("Loaded recommended settings")
         } else if (preset?.key === "latest") {
-          void readClaudeSettingsEnvAsDraft(claudeSettingsFile)
+          void readClaudeSettingsEnvAsDraft(claudeSettingsFile, providerMode)
             .then((draft) => {
               setMode((current) => {
                 if (current !== "claude-env-preset") return current
@@ -541,20 +561,22 @@ export function CodexCodeApp(props: { port?: number }) {
       if (mode === "claude-env-confirm") {
         setMode("home")
         setInputMessage("Claude settings updated")
-        void writeClaudeEnvironmentConfig(authFile, claudeEnvDraft).catch((error) =>
+        const outputRevision = beginCommandOutput()
+        void writeClaudeEnvironmentConfig(authFile, claudeEnvDraft, providerMode).catch((error) =>
           setInputMessage(`Claude environment saved failed: ${error instanceof Error ? error.message : String(error)}`),
         )
         void runClaudeEnvironmentSet(claudeEnvDraft, baseUrl(hostname, activePort), shell, { authFile, settingsFile: claudeSettingsFile })
-          .then((output) => setCommandOutput({ title: `Set Claude environment - ${claudeSettingsTarget}`, output }))
-          .catch((error) => setCommandOutput({ title: "Set Claude environment failed", output: error instanceof Error ? error.message : String(error) }))
+          .then((output) => setCommandOutputForRevision(outputRevision, { title: `Set Claude environment - ${claudeSettingsTarget}`, output }))
+          .catch((error) => setCommandOutputForRevision(outputRevision, { title: "Set Claude environment failed", output: error instanceof Error ? error.message : String(error) }))
         return
       }
       if (mode === "claude-env-unset-confirm") {
         setMode("home")
         setInputMessage("Claude settings env entries removed")
+        const outputRevision = beginCommandOutput()
         void runClaudeEnvironmentUnset(claudeEnvDraft, shell, { authFile, settingsFile: claudeSettingsFile })
-          .then((output) => setCommandOutput({ title: `Unset Claude environment - ${claudeSettingsTarget}`, output }))
-          .catch((error) => setCommandOutput({ title: "Unset Claude environment echo failed", output: error instanceof Error ? error.message : String(error) }))
+          .then((output) => setCommandOutputForRevision(outputRevision, { title: `Unset Claude environment - ${claudeSettingsTarget}`, output }))
+          .catch((error) => setCommandOutputForRevision(outputRevision, { title: "Unset Claude environment echo failed", output: error instanceof Error ? error.message : String(error) }))
         return
       }
       if (mode === "claude-env-editor") {
@@ -562,25 +584,28 @@ export function CodexCodeApp(props: { port?: number }) {
         return
       }
       if (mode === "codex-fast-mode") {
-        const enabled = codexFastModeIndex === 0
-        setCodexFastMode(enabled)
+        codexFastMode.saveSelection()
         setMode("home")
         setCommandIndex(0)
-        setInputMessage(`Codex fast mode ${enabled ? "ON" : "OFF"}`)
-        void writeCodexFastModeConfig(authFile, { enabled }).catch((error) =>
-          setInputMessage(`Codex fast mode save failed: ${error instanceof Error ? error.message : String(error)}`),
-        )
         return
       }
       if (mode === "account-selector") {
+        const nextAccount = accounts[selectorIndex]
+        if (!nextAccount) {
+          setMode("home")
+          setCommandIndex(0)
+          setInputMessage("No account selected")
+          return
+        }
         setSelected(selectorIndex)
-        if (authData) void writeActiveAccountInfo(authFile, authData, accounts[selectorIndex]?.key ?? "").catch(() => {})
+        setAccountKey(nextAccount.key)
+        if (accountCapability && accountData) void accountCapability.persistActive(authFile, accountData, nextAccount.key).catch(() => {})
         setMode("home")
         setCommandIndex(0)
-        setInputMessage(`Switched to ${accounts[selectorIndex]?.name ?? "account"}`)
+        setInputMessage(`Switched to ${nextAccount.name}`)
         return
       }
-      const command = UI_COMMANDS[commandIndex]
+      const command = commands[commandIndex]
       if (mode === "logs") {
         if (requestLogs.length) {
           setLogsDetailOpen((value) => {
@@ -598,7 +623,21 @@ export function CodexCodeApp(props: { port?: number }) {
         return
       }
       if (command) {
+        clearCommandOutput()
+        if (command.name === "/switch-provider") {
+          if (runtime.status === "starting" || switchingProvider) {
+            setInputMessage("Provider switch already in progress")
+            return
+          }
+          setMode("switch-provider")
+          setCommandIndex(0)
+          return
+        }
         if (command.name === "/account") {
+          if (!accountCapability) {
+            setInputMessage("Account switching is not available for this provider")
+            return
+          }
           setSelectorIndex(selected)
           setMode("account-selector")
           return
@@ -616,13 +655,18 @@ export function CodexCodeApp(props: { port?: number }) {
           return
         }
         if (command.name === "/codex-fast-mode") {
-          setCodexFastModeIndex(codexFastMode ? 0 : 1)
+          codexFastMode.resetSelection()
           setMode("codex-fast-mode")
           setCommandIndex(0)
           setInputMessage("Select Codex fast mode")
           return
         }
         if (command.name === "/connect") {
+          if (!connectCapability) {
+            setInputMessage("Connect is not available for this provider")
+            return
+          }
+          setConnectDraft(connectCapability.defaultDraft())
           setConnectSourceIndex(0)
           setConnectStep(0)
           setMode("connect-source")
@@ -630,9 +674,9 @@ export function CodexCodeApp(props: { port?: number }) {
           return
         }
         if (command.name === "/set-claude-env") {
-          void readClaudeEnvironmentConfig(authFile)
+          void readClaudeEnvironmentConfig(authFile, providerMode)
             .then((draft) => setClaudeEnvDraft(draft))
-            .catch(() => setClaudeEnvDraft(defaultClaudeEnvironment()))
+            .catch(() => setClaudeEnvDraft(defaultClaudeEnvironment(providerMode)))
           setClaudeEnvIndex(0)
           setClaudeEnvScopeIndex(0)
           setClaudeEnvAction("set")
@@ -641,9 +685,9 @@ export function CodexCodeApp(props: { port?: number }) {
           return
         }
         if (command.name === "/unset-claude-env") {
-          void readClaudeEnvironmentConfig(authFile)
+          void readClaudeEnvironmentConfig(authFile, providerMode)
             .then((draft) => setClaudeEnvDraft(draft))
-            .catch(() => setClaudeEnvDraft(defaultClaudeEnvironment()))
+            .catch(() => setClaudeEnvDraft(defaultClaudeEnvironment(providerMode)))
           setClaudeEnvScopeIndex(0)
           setClaudeEnvAction("unset")
           setMode("claude-env-scope")
@@ -657,7 +701,7 @@ export function CodexCodeApp(props: { port?: number }) {
     }
     if (key.backspace || key.delete) {
       if (mode === "connect-account") {
-        setConnectDraft((draft) => updateConnectDraft(draft, connectStep, (value) => value.slice(0, -1)))
+        setConnectDraft((draft) => updateConnectDraft(draft, connectFields, connectStep, (value) => value.slice(0, -1)))
         return
       }
       if (mode === "claude-env-editor") {
@@ -672,7 +716,7 @@ export function CodexCodeApp(props: { port?: number }) {
       return
     }
     if (mode === "codex-fast-mode") {
-      if (key.upArrow || key.downArrow) setCodexFastModeIndex((value) => (value + 1) % 2)
+      if (key.upArrow || key.downArrow) codexFastMode.setSelected((value) => (value + 1) % 2)
       return
     }
     if (mode === "connect-source") {
@@ -682,15 +726,28 @@ export function CodexCodeApp(props: { port?: number }) {
     }
     if (mode === "logs") {
       if (logsDetailOpen) {
-        if (key.upArrow) {
+        const detailLog = visibleRequestLogs[logsSelected]
+        const maxDetailScroll = detailLog ? requestLogDetailMaxScroll(detailLog, stdout.columns) : 0
+        const scrollStep = key.pageUp || key.pageDown || key.meta ? REQUEST_LOG_DETAIL_FAST_SCROLL_STEP : REQUEST_LOG_DETAIL_SCROLL_STEP
+        if (key.home) {
           setLogsCopyStatus(undefined)
           setLogsClearConfirm(false)
-          setLogsDetailScroll((value) => Math.max(0, value - 1))
+          setLogsDetailScroll(0)
         }
-        if (key.downArrow) {
+        if (key.end) {
           setLogsCopyStatus(undefined)
           setLogsClearConfirm(false)
-          setLogsDetailScroll((value) => value + 1)
+          setLogsDetailScroll(maxDetailScroll)
+        }
+        if (key.upArrow || key.pageUp) {
+          setLogsCopyStatus(undefined)
+          setLogsClearConfirm(false)
+          setLogsDetailScroll((value) => Math.max(0, Math.min(value, maxDetailScroll) - scrollStep))
+        }
+        if (key.downArrow || key.pageDown) {
+          setLogsCopyStatus(undefined)
+          setLogsClearConfirm(false)
+          setLogsDetailScroll((value) => Math.min(maxDetailScroll, value + scrollStep))
         }
         return
       }
@@ -726,12 +783,13 @@ export function CodexCodeApp(props: { port?: number }) {
       if (input === "y") {
         setMode("home")
         setInputMessage("Claude settings updated")
-        void writeClaudeEnvironmentConfig(authFile, claudeEnvDraft).catch((error) =>
+        const outputRevision = beginCommandOutput()
+        void writeClaudeEnvironmentConfig(authFile, claudeEnvDraft, providerMode).catch((error) =>
           setInputMessage(`Claude environment saved failed: ${error instanceof Error ? error.message : String(error)}`),
         )
         void runClaudeEnvironmentSet(claudeEnvDraft, baseUrl(hostname, activePort), shell, { authFile, settingsFile: claudeSettingsFile })
-          .then((output) => setCommandOutput({ title: `Set Claude environment - ${claudeSettingsTarget}`, output }))
-          .catch((error) => setCommandOutput({ title: "Set Claude environment failed", output: error instanceof Error ? error.message : String(error) }))
+          .then((output) => setCommandOutputForRevision(outputRevision, { title: `Set Claude environment - ${claudeSettingsTarget}`, output }))
+          .catch((error) => setCommandOutputForRevision(outputRevision, { title: "Set Claude environment failed", output: error instanceof Error ? error.message : String(error) }))
       }
       if (input === "n") {
         setMode("home")
@@ -743,9 +801,10 @@ export function CodexCodeApp(props: { port?: number }) {
       if (input === "y") {
         setMode("home")
         setInputMessage("Claude settings env entries removed")
+        const outputRevision = beginCommandOutput()
         void runClaudeEnvironmentUnset(claudeEnvDraft, shell, { authFile, settingsFile: claudeSettingsFile })
-          .then((output) => setCommandOutput({ title: `Unset Claude environment - ${claudeSettingsTarget}`, output }))
-          .catch((error) => setCommandOutput({ title: "Unset Claude environment echo failed", output: error instanceof Error ? error.message : String(error) }))
+          .then((output) => setCommandOutputForRevision(outputRevision, { title: `Unset Claude environment - ${claudeSettingsTarget}`, output }))
+          .catch((error) => setCommandOutputForRevision(outputRevision, { title: "Unset Claude environment echo failed", output: error instanceof Error ? error.message : String(error) }))
       }
       if (input === "n") {
         setMode("home")
@@ -761,17 +820,19 @@ export function CodexCodeApp(props: { port?: number }) {
     }
     if (mode === "connect-account") {
       if (input && !key.upArrow && !key.downArrow && !key.leftArrow && !key.rightArrow) {
-        setConnectDraft((draft) => updateConnectDraft(draft, connectStep, (value) => `${value}${input}`))
+        setConnectDraft((draft) => updateConnectDraft(draft, connectFields, connectStep, (value) => `${value}${input}`))
       }
       return
     }
     if (mode === "home") {
       if (key.upArrow) {
-        setCommandIndex((value) => (value - 1 + UI_COMMANDS.length) % UI_COMMANDS.length)
+        clearCommandOutput()
+        setCommandIndex((value) => (value - 1 + commands.length) % commands.length)
         return
       }
       if (key.downArrow) {
-        setCommandIndex((value) => (value + 1) % UI_COMMANDS.length)
+        clearCommandOutput()
+        setCommandIndex((value) => (value + 1) % commands.length)
         return
       }
     }
@@ -779,31 +840,34 @@ export function CodexCodeApp(props: { port?: number }) {
 
   return (
     <Box flexDirection="column" paddingX={1} paddingY={1}>
-      <Box marginLeft={1} width={Math.max(1, contentWidth - 1)}>
+      <Box marginLeft={1}>
         <Text color="#d97757">─── </Text>
         <Box width={headerTextWidth}>
           <Text color="#aab3cf" wrap="truncate-end">{headerText}</Text>
         </Box>
-        <Text color="#d97757">{"─".repeat(headerRuleWidth)}</Text>
+        <Text color="#d97757"> ───</Text>
       </Box>
-      <Box borderStyle="round" borderColor="#d97757" minHeight={dashboardCompact ? undefined : 13} width={contentWidth} flexDirection={dashboardCompact ? "column" : "row"}>
-        <WelcomePanel hostname={hostname} port={activePort} compact={dashboardCompact} width={dashboardCompact ? dashboardInnerWidth : 42} />
-        {dashboardCompact ? (
-          <Text color="#7f4f45">{"─".repeat(dashboardInnerWidth)}</Text>
-        ) : (
-          <Box width={1} borderStyle="single" borderColor="#7f4f45" />
-        )}
-        <Box flexGrow={1} flexDirection="column" paddingX={dashboardCompact ? 1 : 2} marginTop={dashboardCompact ? 1 : 0} width={dashboardCompact ? dashboardInnerWidth : undefined}>
-          <AccountInfoPanel account={account} info={activeAccountInfo} />
-          <CodexFastModeStatus enabled={codexFastMode} />
-          <LimitsPanel limitGroups={limitGroups} loading={limitsLoading} error={limitsError} compact={dashboardCompact} width={dashboardInnerWidth} />
-        </Box>
-      </Box>
-      {mode === "home" && <CommandInput selected={commandIndex} message={inputMessage} />}
-      {mode === "account-selector" && <AccountSelector accounts={accounts} selected={selectorIndex} />}
-      {mode === "codex-fast-mode" && <CodexFastModeSelector selected={codexFastModeIndex} current={codexFastMode} />}
-      {mode === "connect-source" && <ConnectSourceSelector selected={connectSourceIndex} saving={connectSaving} />}
-      {mode === "connect-account" && <ConnectAccountWizard draft={connectDraft} step={connectStep} saving={connectSaving} />}
+      <ProviderDashboard
+        hostname={hostname}
+        port={activePort}
+        contentWidth={contentWidth}
+        compact={dashboardCompact}
+        innerWidth={dashboardInnerWidth}
+        providerMode={providerMode}
+        providerInfo={providerInfo}
+        account={account}
+        activeAccountInfo={activeAccountInfo}
+        codexFastMode={codexFastMode.enabled}
+        limitGroups={limitGroups}
+        limitsLoading={limitsLoading}
+        limitsError={limitsError}
+      />
+      {mode === "home" && <CommandInput selected={commandIndex} message={inputMessage} commands={commands} />}
+      {mode === "account-selector" && accountCapability && <AccountSelector accounts={accounts} selected={selectorIndex} title={accountCapability.selectorTitle} description={accountCapability.selectorDescription} />}
+      {mode === "codex-fast-mode" && providerMode === "codex" && <CodexFastModeSelector selected={codexFastMode.selected} current={codexFastMode.enabled} />}
+      {mode === "connect-source" && connectCapability && <ConnectSourceSelector connect={connectCapability} selected={connectSourceIndex} saving={connectSaving} />}
+      {mode === "connect-account" && connectCapability && <ConnectAccountWizard title={connectCapability.title} description={connectCapability.manualDescription} draft={connectDraft} fields={connectFields} step={connectStep} saving={connectSaving} />}
+      {mode === "switch-provider" && <SwitchProviderConfirm currentLabel={providerInfo.label} targetLabel={switchTarget.label} />}
       {mode === "logs" && (
         <RequestLogsPanel
           logs={visibleRequestLogs}
@@ -826,62 +890,25 @@ export function CodexCodeApp(props: { port?: number }) {
     </Box>
   )
 
-  function applyConnectedAccount(data: AuthFileData, accountId: string) {
+  function applyConnectedAccount(data: ProviderAccountData, nextAccountKey: string) {
+    const nextAccounts = accountCapability?.toAccounts(data) ?? []
+    const nextSelected = Math.max(0, nextAccounts.findIndex((item) => item.key === nextAccountKey))
     setLoadError(undefined)
-    setAuthData(data)
-    setSelected(selectedAccountIndex(data, accountId))
-    setActiveAccountInfo(undefined)
-    setLimitGroups([])
-    setLimitsError(undefined)
-    setLimitsLoading(true)
+    setAccountData(data)
+    setSelected(nextSelected)
+    setAccountKey(nextAccounts[nextSelected]?.key)
+    resetLimits({ loading: true })
     setAuthRevision((value) => value + 1)
   }
 }
 
-function updateConnectDraft(draft: ConnectAccountDraft, step: number, update: (value: string) => string): ConnectAccountDraft {
-  const keys = ["accountId", "accessToken", "refreshToken"] as const
-  const key = keys[step]
+function updateConnectDraft(draft: ProviderConnectDraft, fields: ProviderConnectField[], step: number, update: (value: string) => string): ProviderConnectDraft {
+  const key = fields[step]?.key
+  if (!key) return draft
   return {
     ...draft,
-    [key]: update(draft[key]),
+    [key]: update(draft[key] ?? ""),
   }
-}
-
-function CodexFastModeSelector(props: { selected: number; current: boolean }) {
-  const options = [
-    { label: "on", description: 'Add service_tier: "priority" to /v1/responses' },
-    { label: "off", description: "Default request body" },
-  ]
-
-  return (
-    <Box borderStyle="round" borderColor="#7f4f45" flexDirection="column" paddingX={2} paddingY={1}>
-      <Text bold color="#d97757">Codex fast mode</Text>
-      <Text color="gray">Current: {props.current ? "on" : "off"}</Text>
-      {options.map((option, index) => (
-        <Box key={option.label}>
-          <Box width={3}>
-            <Text color={props.selected === index ? "#d97757" : "gray"}>{props.selected === index ? ">" : " "}</Text>
-          </Box>
-          <Box width={8}>
-            <Text bold={props.selected === index}>{option.label}</Text>
-          </Box>
-          <Text color="#aab3cf">{option.description}</Text>
-        </Box>
-      ))}
-    </Box>
-  )
-}
-
-function CodexFastModeStatus(props: { enabled: boolean }) {
-  return (
-    <Box marginTop={1} flexDirection="column">
-      <Box>
-        <Text bold color="#a58a86">Codex fast: </Text>
-        <Text bold color={props.enabled ? "#d97757" : "gray"}>{props.enabled ? "ON" : "OFF"}</Text>
-      </Box>
-      {props.enabled && <Text color="gray" wrap="truncate-end">Responses tier: priority</Text>}
-    </Box>
-  )
 }
 
 function updateClaudeEnvDraft(draft: ClaudeEnvironmentDraft, index: number, update: (value: string) => string): ClaudeEnvironmentDraft {

@@ -32,6 +32,73 @@ describe("OpenAI normalizeCanonicalRequest edge cases", () => {
     expect(request.input[0].content[0]).toEqual({ type: "input_text", text: "valid" })
   })
 
+  test("responses: array input preserves item-based tool and reasoning history", () => {
+    const request = normalizeCanonicalRequest("/v1/responses", {
+      model: "gpt-5.4",
+      input: [
+        { type: "message", role: "user", content: [{ type: "input_text", text: "next" }] },
+        { type: "function_call", id: "fc_1", call_id: "call_1", name: "save", arguments: "{\"x\":1}" },
+        { type: "function_call_output", call_id: "call_1", output: [{ type: "output_text", text: "saved" }] },
+        { type: "function_call", role: "assistant", id: "fc_2", call_id: "call_2", name: "load", arguments: { ok: true } },
+        { type: "function_call_output", role: "tool", call_id: "call_2", output: { type: "output_text", text: "loaded" } },
+        { type: "reasoning", id: "rs_1", summary: [{ type: "summary_text", text: "used save" }] },
+        { type: "unknown" },
+      ],
+    }, { passthrough: false })
+
+    expect(request.input).toEqual([
+      { role: "user", content: [{ type: "input_text", text: "next" }] },
+      { role: "assistant", content: [{ type: "function_call", id: "fc_1", call_id: "call_1", name: "save", arguments: "{\"x\":1}" }] },
+      { role: "tool", content: [{ type: "function_call_output", call_id: "call_1", output: "saved" }] },
+      { role: "assistant", content: [{ type: "function_call", id: "fc_2", call_id: "call_2", name: "load", arguments: "{\"ok\":true}" }] },
+      { role: "tool", content: [{ type: "function_call_output", call_id: "call_2", output: "loaded" }] },
+      { role: "assistant", content: [{ type: "reasoning", id: "rs_1", summary: [{ type: "summary_text", text: "used save" }] }] },
+    ])
+  })
+
+  test("responses: role/content messages accept string and OpenAI content parts", () => {
+    const request = normalizeCanonicalRequest("/v1/responses", {
+      model: "gpt-5.4",
+      input: [
+        { role: "user", content: "hello" },
+        { type: "message", role: "assistant", content: "world" },
+        { role: "user", content: [{ type: "text", text: "look" }, { type: "image_url", image_url: { url: "data:image/png;base64,abc", detail: "low" } }] },
+        { role: "user", content: { type: "input_text", text: "single" } },
+        { role: "tool", content: ["tool text", { type: "function_call_output", call_id: "call_1", output: "ok" }] },
+      ],
+    }, { passthrough: false })
+
+    expect(request.input).toEqual([
+      { role: "user", content: [{ type: "input_text", text: "hello" }] },
+      { role: "assistant", content: [{ type: "output_text", text: "world" }] },
+      { role: "user", content: [{ type: "input_text", text: "look" }, { type: "input_image", image_url: "data:image/png;base64,abc", detail: "low" }] },
+      { role: "user", content: [{ type: "input_text", text: "single" }] },
+      { role: "tool", content: [{ type: "input_text", text: "tool text" }, { type: "function_call_output", call_id: "call_1", output: "ok" }] },
+    ])
+  })
+
+  test("responses: tool role function outputs stringify nested content", () => {
+    const request = normalizeCanonicalRequest("/v1/responses", {
+      model: "gpt-5.4",
+      input: [
+        {
+          role: "tool",
+          content: { type: "function_call_output", call_id: "call_1", output: [{ type: "output_text", text: "saved" }] },
+        },
+        {
+          type: "message",
+          role: "tool",
+          content: [{ type: "function_call_output", call_id: "call_2", output: { type: "output_text", text: "loaded" } }],
+        },
+      ],
+    }, { passthrough: false })
+
+    expect(request.input).toEqual([
+      { role: "tool", content: [{ type: "function_call_output", call_id: "call_1", output: "saved" }] },
+      { role: "tool", content: [{ type: "function_call_output", call_id: "call_2", output: "loaded" }] },
+    ])
+  })
+
   test("responses: missing input produces empty array", () => {
     const request = normalizeCanonicalRequest("/v1/responses", { model: "gpt-5.4" })
     expect(request.input).toEqual([])
@@ -52,6 +119,20 @@ describe("OpenAI normalizeCanonicalRequest edge cases", () => {
     expect(request.instructions).toBe("You are a helpful assistant.")
   })
 
+  test("responses: system and developer input messages become instructions", () => {
+    const request = normalizeCanonicalRequest("/v1/responses", {
+      model: "m",
+      input: [
+        { role: "system", content: "sys" },
+        { role: "developer", content: [{ type: "input_text", text: "dev" }] },
+        { role: "user", content: "hi" },
+      ],
+    }, { passthrough: false })
+
+    expect(request.instructions).toBe("sys\n\ndev")
+    expect(request.input).toEqual([{ role: "user", content: [{ type: "input_text", text: "hi" }] }])
+  })
+
   test("responses: stream false is preserved", () => {
     const request = normalizeCanonicalRequest("/v1/responses", { model: "m", input: "hi", stream: false })
     expect(request.stream).toBe(false)
@@ -69,6 +150,25 @@ describe("OpenAI normalizeCanonicalRequest edge cases", () => {
       tools: [{ type: "function", name: "save" }],
     })
     expect(request.tools).toEqual([{ type: "function", name: "save" }])
+  })
+
+  test("responses: Kiro mode normalizes text.format, server tools, and stream default", () => {
+    const request = normalizeCanonicalRequest("/v1/responses", {
+      model: "m",
+      input: [
+        { role: "user", content: [{ type: "input_text", text: "valid" }] },
+      ],
+      text: { format: { type: "json_schema", name: "result", schema: { type: "object" } } },
+      tools: [{ type: "web_search_preview" }, { type: "function", name: "save" }],
+      tool_choice: { type: "web_search_preview" },
+      stream: false,
+    }, { passthrough: false })
+
+    expect(request.passthrough).toBe(false)
+    expect(request.stream).toBe(false)
+    expect(request.textFormat).toEqual({ type: "json_schema", name: "result", schema: { type: "object" } })
+    expect(request.tools).toEqual([{ type: "web_search" }, { type: "function", name: "save" }])
+    expect(request.toolChoice).toEqual({ type: "web_search" })
   })
 
   test("responses: non-array tools is omitted", () => {
@@ -156,7 +256,7 @@ describe("OpenAI normalizeCanonicalRequest edge cases", () => {
 
     expect(request.instructions).toBe("You are a pirate")
     // system messages are filtered from input
-    expect(request.input.every((m) => m.role !== "system")).toBe(true)
+    expect(request.input.every((m) => (m as { role: string }).role !== "system")).toBe(true)
   })
 
   test("chat: developer messages become instructions", () => {
@@ -169,6 +269,19 @@ describe("OpenAI normalizeCanonicalRequest edge cases", () => {
     })
 
     expect(request.instructions).toBe("Be concise")
+  })
+
+  test("chat: system and developer content arrays become text instructions", () => {
+    const request = normalizeCanonicalRequest("/v1/chat/completions", {
+      model: "m",
+      messages: [
+        { role: "system", content: [{ type: "text", text: "sys" }] },
+        { role: "developer", content: [{ type: "input_text", text: "dev" }] },
+        { role: "user", content: "hello" },
+      ],
+    })
+
+    expect(request.instructions).toBe("sys\n\ndev")
   })
 
   test("chat: multiple system messages are joined", () => {
@@ -207,15 +320,44 @@ describe("OpenAI normalizeCanonicalRequest edge cases", () => {
     expect(request.input[1].content).toEqual([{ type: "output_text", text: "world" }])
   })
 
-  test("chat: array content is passed through as-is", () => {
+  test("chat: array content maps OpenAI text and image parts to canonical content", () => {
     const request = normalizeCanonicalRequest("/v1/chat/completions", {
       model: "m",
       messages: [
-        { role: "user", content: [{ type: "text", text: "hello" }, { type: "image_url", image_url: { url: "data:..." } }] },
+        { role: "user", content: [{ type: "text", text: "hello" }, { type: "image_url", image_url: { url: "data:image/png;base64,abc", detail: "low" } }] },
+        { role: "assistant", content: [{ type: "text", text: "world" }] },
       ],
     })
 
-    expect(request.input[0].content).toHaveLength(2)
+    expect(request.input[0].content).toEqual([
+      { type: "input_text", text: "hello" },
+      { type: "input_image", image_url: "data:image/png;base64,abc", detail: "low" },
+    ])
+    expect(request.input[1].content).toEqual([{ type: "output_text", text: "world" }])
+  })
+
+  test("chat: single content object maps without being dropped", () => {
+    const request = normalizeCanonicalRequest("/v1/chat/completions", {
+      model: "m",
+      messages: [
+        { role: "user", content: { type: "text", text: "hello" } },
+        { role: "assistant", content: { type: "text", text: "world" } },
+      ],
+    })
+
+    expect(request.input[0].content).toEqual([{ type: "input_text", text: "hello" }])
+    expect(request.input[1].content).toEqual([{ type: "output_text", text: "world" }])
+  })
+
+  test("chat: refusal content maps to assistant text", () => {
+    const request = normalizeCanonicalRequest("/v1/chat/completions", {
+      model: "m",
+      messages: [
+        { role: "assistant", content: { type: "refusal", refusal: "I cannot help with that." } },
+      ],
+    })
+
+    expect(request.input[0].content).toEqual([{ type: "output_text", text: "I cannot help with that." }])
   })
 
   test("chat: tool role messages are preserved", () => {
@@ -283,6 +425,74 @@ describe("OpenAI normalizeCanonicalRequest edge cases", () => {
     })
 
     expect(request.instructions).toBe("explicit")
+  })
+
+  test("chat: object tool_choice modes normalize to strings", () => {
+    expect(normalizeCanonicalRequest("/v1/chat/completions", {
+      model: "m",
+      messages: [{ role: "user", content: "hi" }],
+      tool_choice: { type: "required" },
+    }, { passthrough: false }).toolChoice).toBe("required")
+
+    expect(normalizeCanonicalRequest("/v1/chat/completions", {
+      model: "m",
+      messages: [{ role: "user", content: "hi" }],
+      tool_choice: { type: "none" },
+    }, { passthrough: false }).toolChoice).toBe("none")
+  })
+
+  test("chat completions: Kiro mode normalizes Chat messages, tools, response_format, and tool history", () => {
+    const request = normalizeCanonicalRequest("/v1/chat/completions", {
+      model: "gpt-5.4",
+      messages: [
+        { role: "system", content: "sys" },
+        { role: "developer", content: "dev" },
+        { role: "user", content: "hello" },
+        {
+          role: "assistant",
+          content: null,
+          tool_calls: [
+            { id: "call_1", type: "function", function: { name: "save", arguments: "{\"value\":1}" } },
+          ],
+        },
+        { role: "tool", tool_call_id: "call_1", content: "saved" },
+      ],
+      response_format: {
+        type: "json_schema",
+        json_schema: { name: "result", schema: { type: "object", properties: { ok: { type: "boolean" } } } },
+      },
+      tools: [{
+        type: "function",
+        function: {
+          name: "save",
+          description: "Save data",
+          parameters: { type: "object", properties: { value: { type: "number" } } },
+          strict: true,
+        },
+      }],
+      tool_choice: { type: "function", function: { name: "save" } },
+    }, { passthrough: false })
+
+    expect(request).toMatchObject({
+      model: "gpt-5.4",
+      instructions: "sys\n\ndev",
+      passthrough: false,
+      stream: false,
+      textFormat: { type: "json_schema", name: "result", schema: { type: "object", properties: { ok: { type: "boolean" } } } },
+      tools: [{
+        type: "function",
+        name: "save",
+        description: "Save data",
+        parameters: { type: "object", properties: { value: { type: "number" } } },
+        strict: true,
+      }],
+      toolChoice: { type: "function", function: { name: "save" } },
+      input: [
+        { role: "user", content: [{ type: "input_text", text: "hello" }] },
+        { role: "assistant", content: [{ type: "function_call", id: "call_1", call_id: "call_1", name: "save", arguments: "{\"value\":1}" }] },
+        { role: "tool", content: [{ type: "function_call_output", call_id: "call_1", output: "saved" }] },
+      ],
+    })
   })
 
   // --- Unknown pathname ---

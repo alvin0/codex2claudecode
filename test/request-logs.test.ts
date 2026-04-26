@@ -1,7 +1,4 @@
 import { afterEach, expect, test } from "bun:test"
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
-import { tmpdir } from "node:os"
-import path from "node:path"
 
 import {
   appendRequestLog,
@@ -12,8 +9,10 @@ import {
   readRequestLogDetail,
   requestLogDetailFilePath,
   requestLogFilePath,
+  requestLogModel,
 } from "../src/core/request-logs"
 import type { RequestLogEntry } from "../src/core/types"
+import { mkdtemp, path, readFile, rm, tmpdir, writeFile } from "./helpers"
 
 const tempDirs: string[] = []
 
@@ -64,6 +63,34 @@ test("appends request logs to request-logs-recent.ndjson", async () => {
     id: "req-1",
     requestBody: '{"input":"hi"}',
   })
+})
+
+test("persists request model in recent log summaries", async () => {
+  const file = await authFile()
+
+  await appendRequestLog(file, logEntry({
+    requestBody: JSON.stringify({ model: "claude-sonnet-4.5", messages: [] }),
+  }))
+
+  const summary = JSON.parse((await readFile(requestLogFilePath(file), "utf8")).trim()) as RequestLogEntry
+  expect(summary.model).toBe("claude-sonnet-4.5")
+  expect(summary.requestBody).toBeUndefined()
+  expect(requestLogModel(summary)).toBe("claude-sonnet-4.5")
+})
+
+test("extracts request model from proxy body when client body is unavailable", () => {
+  expect(requestLogModel(logEntry({
+    requestBody: undefined,
+    proxy: {
+      label: "Kiro messages",
+      method: "POST",
+      target: "upstream",
+      status: 200,
+      durationMs: 12,
+      error: "-",
+      requestBody: JSON.stringify({ model: "claude-opus-4.6" }),
+    },
+  }))).toBe("claude-opus-4.6")
 })
 
 test("creates request log file when parent directories are missing", async () => {

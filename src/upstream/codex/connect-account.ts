@@ -1,8 +1,7 @@
-import { writeFile } from "node:fs/promises"
-
-import { ensureParentDir } from "../../core/paths"
+import { writeTextFile } from "../../core/bun-fs"
+import { expandHome } from "../../core/paths"
 import { writeAccountInfoFile } from "./account-info"
-import { extractAccountId, readAuthFileData } from "./auth"
+import { accessTokenExpiresAt, extractAccountId, readAuthFileData } from "./auth"
 import { DEFAULT_CLIENT_ID, DEFAULT_ISSUER } from "./constants"
 import { DEFAULT_CODEX_CLI_AUTH_FILE, readCodexCliAuthFile, syncCodexCliAuthTokens } from "./codex-auth"
 import type { AuthFileContent, AuthFileData } from "./types"
@@ -27,9 +26,15 @@ export async function connectAccount(authFile: string, draft: ConnectAccountDraf
 export async function connectAccountFromCodexAuth(authFile: string, source = DEFAULT_CODEX_CLI_AUTH_FILE, options?: ConnectAccountOptions) {
   const auth = await readCodexCliAuthFile(source)
   if (auth.auth_mode && auth.auth_mode !== "chatgpt") throw new Error(`Unsupported auth_mode: ${auth.auth_mode}`)
-  return saveConnectedAuth(authFile, connectedAuthEntryFromTokens(auth.tokens?.account_id ?? "", auth.tokens?.access_token ?? "", auth.tokens?.refresh_token ?? ""), {
+  const sourceAuthFile = expandHome(source)
+  const entry = connectedAuthEntryFromTokens(auth.tokens?.account_id ?? "", auth.tokens?.access_token ?? "", auth.tokens?.refresh_token ?? "")
+  return saveConnectedAuth(authFile, {
+    ...entry,
+    sourceAuthFile,
+    sourceAccountKey: entry.accountId,
+  }, {
     ...options,
-    codexAuthFile: source,
+    codexAuthFile: sourceAuthFile,
   })
 }
 
@@ -54,14 +59,14 @@ async function saveConnectedAuth(authFile: string, auth: AuthFileContent, option
   const entries = Array.isArray(file.data) ? file.data : [file.data]
   const index = entries.findIndex((entry) => entry.accountId === auth.accountId)
   const nextEntries = index >= 0 ? entries.map((entry, itemIndex) => (itemIndex === index ? { ...entry, ...auth } : entry)) : [...entries, auth]
-  await ensureParentDir(authFile)
-  await writeFile(authFile, `${JSON.stringify(nextEntries satisfies AuthFileData, null, 2)}\n`)
+  await writeTextFile(authFile, `${JSON.stringify(nextEntries satisfies AuthFileData, null, 2)}\n`)
   await writeAccountInfoFile(authFile, nextEntries, auth.accountId)
   await syncCodexCliAuthTokens({
     accountId: auth.accountId,
     accessToken: auth.access,
     refreshToken: auth.refresh,
-    path: options?.codexAuthFile,
+    path: auth.sourceAuthFile ?? options?.codexAuthFile,
+    sourceAccountKey: auth.sourceAccountKey,
   }).catch(() => false)
   return {
     accountId: auth.accountId,
@@ -101,15 +106,4 @@ async function refreshAccessToken(refreshToken: string, options?: ConnectAccount
 
 function cleanToken(value: string) {
   return value.trim().replace(/^['"]|['"]$/g, "").replace(/\s+/g, "")
-}
-
-function accessTokenExpiresAt(accessToken: string) {
-  const payload = accessToken.split(".")[1]
-  if (!payload) return undefined
-  try {
-    const claims = JSON.parse(Buffer.from(payload, "base64url").toString()) as { exp?: unknown }
-    return typeof claims.exp === "number" ? claims.exp * 1000 : undefined
-  } catch {
-    return undefined
-  }
 }

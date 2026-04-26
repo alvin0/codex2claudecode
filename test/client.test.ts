@@ -1,10 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test"
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
-import { tmpdir } from "node:os"
-import path from "node:path"
 
 import { CodexStandaloneClient } from "../src/upstream/codex/client"
-import { jwt, sse } from "./helpers"
+import { jwt, mkdtemp, path, readFile, rm, sse, tmpdir, writeFile } from "./helpers"
 
 const tempDirs: string[] = []
 
@@ -12,7 +9,7 @@ afterEach(async () => {
   await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })))
 })
 
-async function authFile(contents = { type: "oauth", access: "access", refresh: "refresh", expires: Date.now() + 60_000, accountId: "acct" }) {
+async function authFile(contents: unknown = { type: "oauth", access: "access", refresh: "refresh", expires: Date.now() + 60_000, accountId: "acct" }) {
   const dir = await mkdtemp(path.join(tmpdir(), "codex-client-test-"))
   tempDirs.push(dir)
   const file = path.join(dir, "auth-codex.json")
@@ -52,7 +49,7 @@ describe("CodexStandaloneClient", () => {
       fetch: ((url, init) => {
         calls.push({ url: String(url), init: init ?? {} })
         return Promise.resolve(Response.json({ ok: true }))
-      }) as typeof fetch,
+      }) as unknown as typeof fetch,
     })
 
     await expect(client.proxy({ model: "gpt-5.4_xhigh", input: "hi" }, { headers: { host: "bad", "x-test": "yes" } })).resolves.toBeInstanceOf(Response)
@@ -84,7 +81,7 @@ describe("CodexStandaloneClient", () => {
         }
         if (calls.filter((item) => item.includes("/codex/responses")).length === 1) return Promise.resolve(new Response("no", { status: 401 }))
         return Promise.resolve(Response.json({ ok: true }))
-      }) as typeof fetch,
+      }) as unknown as typeof fetch,
     })
 
     const response = await client.proxy({ model: "gpt-5.4", input: "hi" })
@@ -104,7 +101,7 @@ describe("CodexStandaloneClient", () => {
       fetch: ((url) => {
         if (String(url).endsWith("/oauth/token")) return Promise.resolve(Response.json({ access_token: "new", refresh_token: "new-refresh", expires_in: 60 }))
         return Promise.resolve(Response.json({ ok: true }))
-      }) as typeof fetch,
+      }) as unknown as typeof fetch,
     })
 
     await client.refresh()
@@ -123,7 +120,7 @@ describe("CodexStandaloneClient", () => {
       fetch: ((url) => {
         if (String(url).endsWith("/oauth/token")) return Promise.resolve(new Response("denied", { status: 400 }))
         return Promise.resolve(Response.json({ ok: true }))
-      }) as typeof fetch,
+      }) as unknown as typeof fetch,
     })
 
     await expect(client.proxy({ model: "m" })).rejects.toThrow("Token refresh failed: 400 denied")
@@ -137,7 +134,7 @@ describe("CodexStandaloneClient", () => {
       fetch: ((url) => {
         expect(String(url)).toBe("https://issuer.test/oauth/token")
         return Promise.resolve(Response.json({ access_token: "new", refresh_token: "new-refresh", expires_in: 1 }))
-      }) as typeof fetch,
+      }) as unknown as typeof fetch,
     })
 
     await expect(client.refresh()).resolves.toMatchObject({ accessToken: "new", refreshToken: "new-refresh" })
@@ -151,7 +148,7 @@ describe("CodexStandaloneClient", () => {
       fetch: ((url) => {
         expect(String(url)).toBe("https://issuer.test/oauth/token")
         return Promise.resolve(Response.json({ access_token: "new", expires_in: 1 }))
-      }) as typeof fetch,
+      }) as unknown as typeof fetch,
     })
 
     await expect(client.refresh()).resolves.toMatchObject({ accessToken: "new", refreshToken: "refresh" })
@@ -173,7 +170,7 @@ describe("CodexStandaloneClient", () => {
       fetch: ((url) => {
         if (String(url).endsWith("/oauth/token")) return Promise.resolve(Response.json({ access_token: "new", refresh_token: "new-refresh", expires_in: 60 }))
         return Promise.resolve(Response.json({ ok: true }))
-      }) as typeof fetch,
+      }) as unknown as typeof fetch,
     })
 
     await client.refresh()
@@ -198,7 +195,7 @@ describe("CodexStandaloneClient", () => {
       fetch: ((url) => {
         if (String(url).endsWith("/oauth/token")) return Promise.resolve(Response.json({ access_token: "new", refresh_token: "new-refresh", expires_in: 60 }))
         return Promise.resolve(Response.json({ ok: true }))
-      }) as typeof fetch,
+      }) as unknown as typeof fetch,
     })
 
     await client.refresh()
@@ -223,27 +220,219 @@ describe("CodexStandaloneClient", () => {
       fetch: ((url) => {
         if (String(url).endsWith("/oauth/token")) return Promise.resolve(Response.json({ access_token: "new", expires_in: 60 }))
         return Promise.resolve(Response.json({ ok: true }))
-      }) as typeof fetch,
+      }) as unknown as typeof fetch,
     })
 
     await client.refresh()
     expect(JSON.parse(await readFile(codexFile, "utf8"))).toMatchObject({
-      tokens: { account_id: "acct", access_token: "new", refresh_token: "refresh" },
+      tokens: { account_id: "acct", access_token: "new", refresh_token: "cli-refresh" },
     })
+  })
+
+  test("refresh pulls changed Codex CLI source before refreshing stale app tokens", async () => {
+    const sourceAccess = jwt({ exp: Math.floor((Date.now() + 700_000) / 1000), chatgpt_account_id: "acct" })
+    const codexFile = await codexCliAuthFile({
+      auth_mode: "chatgpt",
+      tokens: {
+        account_id: "acct",
+        access_token: sourceAccess,
+        refresh_token: "source-refresh",
+      },
+    })
+    const file = await authFile({
+      type: "oauth",
+      access: "managed-old",
+      refresh: "managed-refresh",
+      expires: Date.now() - 1,
+      accountId: "acct",
+      sourceAuthFile: codexFile,
+      sourceAccountKey: "acct",
+    })
+    let refreshCalls = 0
+    const client = await CodexStandaloneClient.fromAuthFile(file, {
+      issuer: "https://issuer.test",
+      fetch: ((url) => {
+        if (String(url).endsWith("/oauth/token")) {
+          refreshCalls += 1
+          return Promise.resolve(new Response("source token is fresh", { status: 401 }))
+        }
+        return Promise.resolve(Response.json({ ok: true }))
+      }) as unknown as typeof fetch,
+    })
+
+    await client.refresh()
+
+    expect(refreshCalls).toBe(0)
+    expect(client.tokens).toMatchObject({ accessToken: sourceAccess, refreshToken: "source-refresh", accountId: "acct" })
+    expect(JSON.parse(await readFile(file, "utf8"))).toMatchObject({
+      access: sourceAccess,
+      refresh: "source-refresh",
+      accountId: "acct",
+      sourceAuthFile: codexFile,
+      sourceAccountKey: "acct",
+    })
+  })
+
+  test("refresh uses the latest Codex CLI refresh token when source is still stale", async () => {
+    const sourceAccess = jwt({ exp: Math.floor((Date.now() - 60_000) / 1000), chatgpt_account_id: "acct" })
+    const codexFile = await codexCliAuthFile({
+      auth_mode: "chatgpt",
+      tokens: {
+        account_id: "acct",
+        access_token: sourceAccess,
+        refresh_token: "source-refresh",
+      },
+    })
+    const file = await authFile({
+      type: "oauth",
+      access: "managed-old",
+      refresh: "managed-refresh",
+      expires: Date.now() - 1,
+      accountId: "acct",
+      sourceAuthFile: codexFile,
+      sourceAccountKey: "acct",
+    })
+    const client = await CodexStandaloneClient.fromAuthFile(file, {
+      issuer: "https://issuer.test",
+      fetch: ((url, init) => {
+        if (String(url).endsWith("/oauth/token")) {
+          expect(String(init?.body)).toContain("refresh_token=source-refresh")
+          return Promise.resolve(Response.json({ access_token: "new", refresh_token: "new-refresh", expires_in: 60 }))
+        }
+        return Promise.resolve(Response.json({ ok: true }))
+      }) as unknown as typeof fetch,
+    })
+
+    await client.refresh()
+
+    expect(JSON.parse(await readFile(file, "utf8"))).toMatchObject({
+      access: "new",
+      refresh: "new-refresh",
+      sourceAuthFile: codexFile,
+      sourceAccountKey: "acct",
+    })
+    expect(JSON.parse(await readFile(codexFile, "utf8"))).toMatchObject({
+      tokens: { account_id: "acct", access_token: "new", refresh_token: "new-refresh" },
+    })
+    expect(await readFile(codexFile, "utf8")).not.toContain("sourceAuthFile")
+  })
+
+  test("linked Codex CLI source pointing at another account does not overwrite the selected managed account", async () => {
+    const sourceAccess = jwt({ exp: Math.floor((Date.now() + 700_000) / 1000), chatgpt_account_id: "acct-b" })
+    const codexFile = await codexCliAuthFile({
+      auth_mode: "chatgpt",
+      tokens: {
+        account_id: "acct-b",
+        access_token: sourceAccess,
+        refresh_token: "source-refresh-b",
+      },
+    })
+    const file = await authFile([
+      {
+        type: "oauth",
+        name: "first",
+        access: "managed-a-old",
+        refresh: "managed-a-refresh",
+        expires: Date.now() - 1,
+        accountId: "acct-a",
+        sourceAuthFile: codexFile,
+        sourceAccountKey: "acct-a",
+      },
+      {
+        type: "oauth",
+        name: "second",
+        access: "managed-b",
+        refresh: "managed-b-refresh",
+        expires: Date.now() - 1,
+        accountId: "acct-b",
+        sourceAuthFile: codexFile,
+        sourceAccountKey: "acct-b",
+      },
+    ])
+    let refreshCalls = 0
+    const client = await CodexStandaloneClient.fromAuthFile(file, {
+      authAccount: "acct-a",
+      issuer: "https://issuer.test",
+      fetch: ((url, init) => {
+        if (String(url).endsWith("/oauth/token")) {
+          refreshCalls += 1
+          expect(String(init?.body)).toContain("refresh_token=managed-a-refresh")
+          return Promise.resolve(Response.json({ access_token: "managed-a-new", refresh_token: "managed-a-refresh-new", expires_in: 60, id_token: jwt({ chatgpt_account_id: "acct-a" }) }))
+        }
+        return Promise.resolve(Response.json({ ok: true }))
+      }) as unknown as typeof fetch,
+    })
+
+    await client.refresh()
+
+    expect(refreshCalls).toBe(1)
+    expect(JSON.parse(await readFile(file, "utf8"))).toMatchObject([
+      {
+        name: "first",
+        access: "managed-a-new",
+        refresh: "managed-a-refresh-new",
+        accountId: "acct-a",
+        sourceAuthFile: codexFile,
+        sourceAccountKey: "acct-a",
+      },
+      {
+        name: "second",
+        access: "managed-b",
+        refresh: "managed-b-refresh",
+        accountId: "acct-b",
+        sourceAuthFile: codexFile,
+        sourceAccountKey: "acct-b",
+      },
+    ])
+    expect(JSON.parse(await readFile(codexFile, "utf8"))).toMatchObject({
+      tokens: { account_id: "acct-b", access_token: sourceAccess, refresh_token: "source-refresh-b" },
+    })
+    expect(await readFile(codexFile, "utf8")).not.toContain("sourceAuthFile")
+  })
+
+  test("linked Codex CLI source fails fast when the source auth mode becomes unsupported", async () => {
+    const codexFile = await codexCliAuthFile({
+      auth_mode: "api",
+      tokens: {
+        account_id: "acct",
+        access_token: "source",
+        refresh_token: "source-refresh",
+      },
+    })
+    const file = await authFile({
+      type: "oauth",
+      access: "managed-old",
+      refresh: "managed-refresh",
+      expires: Date.now() - 1,
+      accountId: "acct",
+      sourceAuthFile: codexFile,
+      sourceAccountKey: "acct",
+    })
+    let refreshCalls = 0
+    const client = await CodexStandaloneClient.fromAuthFile(file, {
+      issuer: "https://issuer.test",
+      fetch: ((url) => {
+        if (String(url).endsWith("/oauth/token")) refreshCalls += 1
+        return Promise.resolve(Response.json({ ok: true }))
+      }) as unknown as typeof fetch,
+    })
+
+    await expect(client.refresh()).rejects.toThrow("Unsupported Codex CLI auth file")
+    expect(refreshCalls).toBe(0)
   })
 
   test("throws helpful errors for failed JSON/stream requests and missing stream bodies", async () => {
     const failing = new CodexStandaloneClient({
       accessToken: "a",
       refreshToken: "r",
-      fetch: (() => Promise.resolve(new Response("bad", { status: 400 }))) as typeof fetch,
+      fetch: (() => Promise.resolve(new Response("bad", { status: 400 }))) as unknown as typeof fetch,
     })
     await expect(failing.responses({ model: "gpt-5.4", input: "hi" })).rejects.toThrow("Codex request failed: 400 bad")
 
     const noBody = new CodexStandaloneClient({
       accessToken: "a",
       refreshToken: "r",
-      fetch: (() => Promise.resolve(new Response(null))) as typeof fetch,
+      fetch: (() => Promise.resolve(new Response(null))) as unknown as typeof fetch,
     })
     await expect(noBody.responsesStream({ model: "gpt-5.4", input: "hi" })).rejects.toThrow("Response did not include a stream body")
   })
@@ -256,7 +445,7 @@ describe("CodexStandaloneClient", () => {
       fetch: ((url, init) => {
         bodies.push(JSON.parse(String(init?.body ?? "{}")))
         return Promise.resolve(Response.json({ ok: true }))
-      }) as typeof fetch,
+      }) as unknown as typeof fetch,
     })
 
     await expect(client.responses({ model: "gpt-5.4", input: "hi" })).resolves.toEqual({ ok: true })
@@ -282,7 +471,7 @@ describe("CodexStandaloneClient", () => {
           body: JSON.parse(String(init?.body ?? "{}")),
         }
         return Promise.resolve(Response.json({ object: "response.input_tokens", input_tokens: 7 }))
-      }) as typeof fetch,
+      }) as unknown as typeof fetch,
     })
 
     const response = await client.inputTokens({ model: "gpt-5.4", input: "hi" })
@@ -304,7 +493,7 @@ describe("CodexStandaloneClient", () => {
         if (String(url).includes("/usage")) return Promise.resolve(Response.json({ usage: true }))
         if (String(url).includes("/environments")) return Promise.resolve(Response.json([]))
         return Promise.resolve(new Response(sse([])))
-      }) as typeof fetch,
+      }) as unknown as typeof fetch,
     })
     expect((await client.checkHealth()).ok).toBe(true)
     expect(await (await client.usage()).json()).toEqual({ usage: true })
@@ -313,14 +502,14 @@ describe("CodexStandaloneClient", () => {
     const rejected = new CodexStandaloneClient({
       accessToken: "a",
       refreshToken: "r",
-      fetch: (() => Promise.resolve(new Response(null, { status: 401 }))) as typeof fetch,
+      fetch: (() => Promise.resolve(new Response(null, { status: 401 }))) as unknown as typeof fetch,
     })
     expect(await rejected.checkHealth()).toMatchObject({ ok: false, status: 401, error: "Codex auth rejected health check with 401" })
 
     const broken = new CodexStandaloneClient({
       accessToken: "a",
       refreshToken: "r",
-      fetch: (() => Promise.reject(new Error("network down"))) as typeof fetch,
+      fetch: (() => Promise.reject(new Error("network down"))) as unknown as typeof fetch,
     })
     expect(await broken.checkHealth()).toMatchObject({ ok: false, error: "network down" })
   })

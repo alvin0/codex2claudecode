@@ -1,9 +1,7 @@
 import { describe, expect, test } from "bun:test"
-import { readFile } from "node:fs/promises"
-import path from "node:path"
-import { pathToFileURL } from "node:url"
 
 import { extractModuleExportNames } from "./export-surface"
+import { path, pathToFileURL, readFile } from "./helpers"
 
 interface BackwardCompatBaseline {
   modules: Array<{

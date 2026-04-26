@@ -1,7 +1,4 @@
 import { expect, test } from "bun:test"
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
-import { tmpdir } from "node:os"
-import path from "node:path"
 
 import { CLAUDE_CODE_ENV_CONFIG } from "../src/inbound/claude/claude-code-env.config"
 import {
@@ -20,10 +17,13 @@ import {
   persistClaudeEnvironment,
   persistClaudeEnvironmentUnset,
   readClaudeEnvironmentConfig,
+  readClaudeSettingsEnvAsDraft,
+  recommendedClaudeEnvironment,
   runClaudeEnvironmentSet,
   runClaudeEnvironmentUnset,
   writeClaudeEnvironmentConfig,
 } from "../src/ui/claude-env"
+import { mkdtemp, path, readFile, rm, tmpdir, writeFile } from "./helpers"
 
 async function withTempDir<T>(prefix: string, run: (dir: string) => Promise<T>) {
   const dir = await mkdtemp(path.join(tmpdir(), prefix))
@@ -55,6 +55,7 @@ test("formats preview lines for Claude settings updates", async () => {
   expect(claudeEnvironmentCommands(value, "http://127.0.0.1:8787", "posix")).toContain('ANTHROPIC_AUTH_TOKEN = "codex2claudecode"')
   await expect(echoClaudeEnvironment(value, "http://127.0.0.1:8787", "posix")).resolves.toContain('ANTHROPIC_DEFAULT_HAIKU_MODEL = "gpt-5.4-mini"')
   await expect(echoClaudeEnvironment(value, "http://127.0.0.1:8787", "posix")).resolves.toContain('CLAUDE_CODE_DISABLE_1M_CONTEXT = "1"')
+  await expect(echoClaudeEnvironment(value, "http://127.0.0.1:8787", "posix")).resolves.toContain('CLAUDE_AUTOCOMPACT_PCT_OVERRIDE = "64"')
   await expect(runClaudeEnvironmentSet(value, "http://127.0.0.1:8787", "posix", { persist: false })).resolves.toContain("ANTHROPIC_BASE_URL=http://127.0.0.1:8787")
 })
 
@@ -70,10 +71,42 @@ test("formats unset preview lines for Claude settings env keys", async () => {
     "ANTHROPIC_DEFAULT_SONNET_MODEL",
     "ANTHROPIC_DEFAULT_HAIKU_MODEL",
     "CLAUDE_CODE_DISABLE_1M_CONTEXT",
+    "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE",
     "NODE_TLS_REJECT_UNAUTHORIZED",
   ])
   await expect(echoClaudeEnvironmentUnset(value, "posix")).resolves.toContain("ANTHROPIC_BASE_URL")
   await expect(runClaudeEnvironmentUnset(value, "posix", { persist: false })).resolves.toBe(`Updated ${claudeSettingsPath()} env object.`)
+})
+
+test("uses OpenRouter Codex model recommendations", () => {
+  expect(recommendedClaudeEnvironment("codex")).toMatchObject({
+    ANTHROPIC_MODEL: "gpt-5.5",
+    ANTHROPIC_DEFAULT_OPUS_MODEL: "gpt-5.5",
+    ANTHROPIC_DEFAULT_SONNET_MODEL: "gpt-5.5",
+    ANTHROPIC_DEFAULT_HAIKU_MODEL: "gpt-5.4-mini",
+  })
+})
+
+test("uses Kiro Claude model defaults when provider mode is Kiro", async () => {
+  const recommended = recommendedClaudeEnvironment("kiro")
+  expect(recommended).toMatchObject({
+    ANTHROPIC_MODEL: "claude-sonnet-4.5",
+    ANTHROPIC_DEFAULT_OPUS_MODEL: "claude-opus-4.6",
+    ANTHROPIC_DEFAULT_SONNET_MODEL: "claude-sonnet-4.5",
+    ANTHROPIC_DEFAULT_HAIKU_MODEL: "claude-haiku-4.5",
+  })
+
+  await withTempDir("claude-settings-kiro-", async (dir) => {
+    const settingsFile = path.join(dir, "settings.json")
+    await writeFile(settingsFile, `${JSON.stringify({ env: {} }, null, 2)}\n`)
+
+    await expect(readClaudeSettingsEnvAsDraft(settingsFile, "kiro")).resolves.toMatchObject({
+      ANTHROPIC_MODEL: "claude-sonnet-4.5",
+      ANTHROPIC_DEFAULT_OPUS_MODEL: "claude-opus-4.6",
+      ANTHROPIC_DEFAULT_SONNET_MODEL: "claude-sonnet-4.5",
+      ANTHROPIC_DEFAULT_HAIKU_MODEL: "claude-haiku-4.5",
+    })
+  })
 })
 
 test("detects supported and unsupported shells", () => {
@@ -128,6 +161,7 @@ test("merges env updates into ~/.claude/settings.json without changing other fie
     expect(saved.env.ANTHROPIC_API_KEY).toBe("codex2claudecode")
     expect(saved.env.CUSTOM_ENV).toBe("custom-value")
     expect(saved.env.CLAUDE_CODE_DISABLE_1M_CONTEXT).toBe("1")
+    expect(saved.env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE).toBe("64")
     expect(saved.env.NODE_TLS_REJECT_UNAUTHORIZED).toBe("0")
     expect(saved.env.REMOVE_ME).toBeUndefined()
   })
@@ -149,6 +183,7 @@ test("removes only managed env keys from ~/.claude/settings.json", async () => {
         ANTHROPIC_API_KEY: "codex2claudecode",
         ANTHROPIC_MODEL: "gpt-5.4",
         CLAUDE_CODE_DISABLE_1M_CONTEXT: "1",
+        CLAUDE_AUTOCOMPACT_PCT_OVERRIDE: "64",
         NODE_TLS_REJECT_UNAUTHORIZED: "0",
         CUSTOM_ENV: "custom-value",
         REMOVE_ME: "legacy",
@@ -166,6 +201,7 @@ test("removes only managed env keys from ~/.claude/settings.json", async () => {
     expect(saved.env.ANTHROPIC_API_KEY).toBeUndefined()
     expect(saved.env.ANTHROPIC_MODEL).toBeUndefined()
     expect(saved.env.CLAUDE_CODE_DISABLE_1M_CONTEXT).toBeUndefined()
+    expect(saved.env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE).toBeUndefined()
     expect(saved.env.NODE_TLS_REJECT_UNAUTHORIZED).toBeUndefined()
     expect(saved.env.CUSTOM_ENV).toBeUndefined()
     expect(saved.env.REMOVE_ME).toBeUndefined()
@@ -187,6 +223,7 @@ test("creates ~/.claude/settings.json if it does not exist", async () => {
     expect(saved.env.ANTHROPIC_API_KEY).toBe("codex2claudecode")
     expect(saved.env.CUSTOM_ENV).toBe("custom-value")
     expect(saved.env.CLAUDE_CODE_DISABLE_1M_CONTEXT).toBe("1")
+    expect(saved.env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE).toBe("64")
     expect(saved.env.NODE_TLS_REJECT_UNAUTHORIZED).toBe("0")
   })
 })

@@ -1,7 +1,5 @@
-import { readFile, writeFile } from "node:fs/promises"
-import path from "node:path"
-
-import { ensureParentDir } from "../../core/paths"
+import { readTextFile, writeTextFile } from "../../core/bun-fs"
+import { bunPath as path } from "../../core/paths"
 import type { AuthFileContent, AuthFileData } from "./types"
 import { extractAccountIdFromClaims, parseJwtClaims, readAuthFileData, selectAuthEntry } from "./auth"
 
@@ -20,7 +18,7 @@ export interface AccountInfoFile {
 
 export async function readAccountInfoFile(authFile: string): Promise<AccountInfoFile | undefined> {
   try {
-    return normalizeAccountInfoFile(JSON.parse(await readFile(accountInfoPath(authFile), "utf8")) as AccountInfoFile | Record<string, AccountInfo>)
+    return normalizeAccountInfoFile(JSON.parse(await readTextFile(accountInfoPath(authFile))) as AccountInfoFile | Record<string, AccountInfo>)
   } catch {
     return
   }
@@ -28,8 +26,7 @@ export async function readAccountInfoFile(authFile: string): Promise<AccountInfo
 
 export async function writeAccountInfoFile(authFile: string, data: AuthFileData, activeAccount?: string) {
   const previous = await readAccountInfoFile(authFile)
-  await ensureParentDir(accountInfoPath(authFile))
-  await writeFile(accountInfoPath(authFile), `${JSON.stringify(accountInfoFromAuthData(data, activeAccount ?? previous?.activeAccount), null, 2)}\n`)
+  await writeTextFile(accountInfoPath(authFile), `${JSON.stringify(accountInfoFromAuthData(data, activeAccount ?? previous?.activeAccount), null, 2)}\n`)
 }
 
 export async function refreshActiveAccountInfo(authFile: string, account?: string) {
@@ -86,9 +83,17 @@ export function accountInfoKey(auth: AuthFileContent, index: number) {
 }
 
 function normalizeAccountInfoFile(file: AccountInfoFile | Record<string, AccountInfo>): AccountInfoFile {
-  if ("accounts" in file) return file
+  if (
+    "accounts" in file &&
+    file.accounts &&
+    typeof file.accounts === "object" &&
+    !Array.isArray(file.accounts)
+  ) {
+    return file as AccountInfoFile
+  }
+  const accounts = file as Record<string, AccountInfo>
   return {
-    activeAccount: Object.keys(file)[0],
-    accounts: file,
+    activeAccount: Object.keys(accounts)[0],
+    accounts,
   }
 }

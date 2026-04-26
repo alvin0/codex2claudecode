@@ -9,6 +9,7 @@ import type {
 } from "../../core/canonical"
 import { consumeCodexSse, parseJsonObject, parseSseJson } from "../../core/sse"
 import type { JsonObject, SseEvent } from "../../core/types"
+import type { InputTokensRequest } from "./types"
 
 const THINKING_SIGNATURE_PREFIX = "sig_"
 
@@ -112,9 +113,9 @@ export function canonicalToCodexBody(request: Canonical_Request): JsonObject {
   }
 }
 
-export function canonicalToCodexInputTokensBody(request: Canonical_Request): JsonObject {
+export function canonicalToCodexInputTokensBody(request: Canonical_Request): InputTokensRequest {
   const { stream: _stream, store: _store, service_tier: _serviceTier, ...body } = canonicalToCodexBody(request)
-  return body
+  return body as InputTokensRequest
 }
 
 export async function collectCodexResponse(response: Response, fallbackModel = "unknown"): Promise<Canonical_Response> {
@@ -583,8 +584,14 @@ function isServerToolOutputItem(item: unknown) {
   return outputItem.type === "web_search_call" || outputItem.type === "mcp_call" || outputItem.type === "mcp_list_tools"
 }
 
-function countServerToolUse(output: unknown[]) {
-  return output.reduce(
+interface ServerToolUseCounts {
+  webSearchRequests: number
+  webFetchRequests: number
+  mcpCalls: number
+}
+
+function countServerToolUse(output: unknown[]): ServerToolUseCounts {
+  return output.reduce<ServerToolUseCounts>(
     (acc, item) => {
       if (!item || typeof item !== "object") return acc
       const outputItem = item as { type?: unknown; action?: unknown }
@@ -882,7 +889,7 @@ function contentPartAddedLabel(part: JsonObject) {
 }
 
 function summarizeToolArguments(argumentsJson: string, toolName: string) {
-  const parsed = parseJsonObject(argumentsJson)
+  const parsed = asJsonObject(parseJsonObject(argumentsJson))
   const normalizedToolName = toolName.toLowerCase()
 
   if (Array.isArray(parsed.todos)) {
