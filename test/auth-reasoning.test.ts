@@ -1,16 +1,14 @@
 import { afterEach, describe, expect, test } from "bun:test"
-import { mkdtemp, rm, writeFile } from "node:fs/promises"
-import { tmpdir } from "node:os"
-import path from "node:path"
 
+import { normalizeReasoningBody } from "../src/core/reasoning"
+import { normalizeRequestBody } from "../src/inbound/openai/normalize"
+import { mkdtemp, path, rm, tmpdir, writeFile } from "./helpers"
 import {
   extractAccountId,
   extractAccountIdFromClaims,
-  normalizeReasoningBody,
-  normalizeRequestBody,
   parseJwtClaims,
   readAuthFile,
-} from "../src/index"
+} from "../src/upstream/codex/auth"
 import { jwt } from "./helpers"
 
 const tempDirs: string[] = []

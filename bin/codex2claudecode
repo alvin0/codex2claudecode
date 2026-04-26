@@ -1,28 +1,106 @@
 #!/usr/bin/env node
+
 import { spawnSync } from "node:child_process"
-import { dirname, join } from "node:path"
+import { dirname, resolve } from "node:path"
+import process from "node:process"
 import { fileURLToPath } from "node:url"
 
-const root = dirname(fileURLToPath(import.meta.url))
-const entry = join(root, "..", "dist", "index.js")
-const args = [entry, ...process.argv.slice(2)]
-const result = spawnSync("bun", args, { stdio: "inherit", env: process.env })
+const REQUIRED_BUN_VERSION = "1.3.0"
+const NPM_BUN_PACKAGE = "bun@latest"
+const npx = process.env.NPX_BINARY || (process.platform === "win32" ? "npx.cmd" : "npx")
+const bun = process.env.BUN_BINARY || "bun"
+const entry = resolve(dirname(fileURLToPath(import.meta.url)), "../dist/index.js")
 
-if (result.error?.code === "ENOENT") {
-  console.error("codex2claudecode requires Bun to run.")
-  console.error("")
-  console.error("Install Bun first:")
-  console.error("  macOS/Linux: curl -fsSL https://bun.sh/install | bash")
-  console.error("  Windows PowerShell: powershell -c \"irm bun.sh/install.ps1 | iex\"")
-  console.error("")
-  console.error("Then run again:")
-  console.error("  npx codex2claudecode")
-  process.exit(1)
+const systemBun = {
+  command: bun,
+  argsPrefix: [],
+  label: bun,
 }
+const npmBun = {
+  command: npx,
+  argsPrefix: ["--yes", NPM_BUN_PACKAGE],
+  label: `npx --yes ${NPM_BUN_PACKAGE}`,
+}
+
+let runtime = checkBun(systemBun)
+
+if (!runtime.ok && shouldTryNpmBun()) {
+  console.error(`codex2claudecode could not use local Bun (${runtime.reason}). Trying ${npmBun.label}...`)
+  runtime = checkBun(npmBun)
+}
+
+if (!runtime.ok) {
+  failWithInstallHint(runtime.reason)
+}
+
+const result = spawnSync(runtime.command, [...runtime.argsPrefix, entry, ...process.argv.slice(2)], {
+  env: process.env,
+  stdio: "inherit",
+})
 
 if (result.error) {
-  console.error(result.error.message)
+  console.error(`Failed to start codex2claudecode with ${runtime.label}: ${result.error.message}`)
   process.exit(1)
 }
 
-process.exit(result.status ?? 0)
+process.exit(result.status ?? 1)
+
+function checkBun(candidate) {
+  const versionCheck = spawnSync(candidate.command, [...candidate.argsPrefix, "--version"], {
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  })
+
+  if (versionCheck.error) {
+    return { ok: false, reason: `Unable to find Bun executable via ${candidate.label}.`, ...candidate }
+  }
+
+  const bunVersion = versionCheck.stdout.trim()
+  if (versionCheck.status !== 0 || !bunVersion) {
+    return {
+      ok: false,
+      reason: `Unable to verify Bun version via ${candidate.label}.${versionCheck.stderr ? `\n${versionCheck.stderr.trim()}` : ""}`,
+      ...candidate,
+    }
+  }
+
+  if (compareVersions(bunVersion, REQUIRED_BUN_VERSION) < 0) {
+    return { ok: false, reason: `Bun ${REQUIRED_BUN_VERSION} or newer is required; found ${bunVersion} via ${candidate.label}.`, ...candidate }
+  }
+
+  return { ok: true, version: bunVersion, ...candidate }
+}
+
+function shouldTryNpmBun() {
+  return !process.env.BUN_BINARY && process.env.CODEX2CLAUDECODE_DISABLE_NPX_BUN !== "1"
+}
+
+function failWithInstallHint(message) {
+  console.error(`codex2claudecode requires Bun at runtime. ${message}`)
+  console.error("")
+  console.error("The npm/npx launcher can use Bun from npm automatically:")
+  console.error(`  npx --yes ${NPM_BUN_PACKAGE} --version`)
+  console.error("")
+  console.error("To disable this fallback, set CODEX2CLAUDECODE_DISABLE_NPX_BUN=1.")
+  console.error("")
+  console.error("Install Bun:")
+  console.error("  macOS/Linux: curl -fsSL https://bun.sh/install | bash")
+  console.error('  Windows PowerShell: powershell -c "irm bun.sh/install.ps1 | iex"')
+  console.error("")
+  console.error(`After installing Bun, rerun: ${process.argv.slice(0, 2).join(" ")}`)
+  process.exit(1)
+}
+
+function compareVersions(left, right) {
+  const leftParts = parseVersion(left)
+  const rightParts = parseVersion(right)
+  for (let index = 0; index < Math.max(leftParts.length, rightParts.length); index += 1) {
+    const diff = (leftParts[index] ?? 0) - (rightParts[index] ?? 0)
+    if (diff !== 0) return diff
+  }
+  return 0
+}
+
+function parseVersion(value) {
+  return value.split(/[.-]/).map((part) => Number.parseInt(part, 10)).filter((part) => Number.isFinite(part))
+}

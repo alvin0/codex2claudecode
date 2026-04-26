@@ -50,7 +50,7 @@ export class OpenAI_Inbound_Provider implements Inbound_Provider {
         requestBody,
       }
       context.onProxy?.(proxyLog)
-      const response = new Response(result.body, {
+      const response = new Response(passthroughBodyInit(result.body), {
         status: result.status,
         statusText: result.statusText,
         headers: responseHeaders(result.headers),
@@ -99,6 +99,11 @@ function isCanonicalError(result: UpstreamResult): result is Canonical_ErrorResp
 
 function previewText(text: string) {
   return text.slice(0, LOG_BODY_PREVIEW_LIMIT)
+}
+
+function passthroughBodyInit(body: Canonical_PassthroughResponse["body"]): BodyInit | null {
+  if (body instanceof Uint8Array) return body.buffer.slice(body.byteOffset, body.byteOffset + body.byteLength) as ArrayBuffer
+  return body
 }
 
 function responseWithLoggedBody(response: Response & { body: ReadableStream<Uint8Array> }, onComplete: (responseBody?: string) => void) {

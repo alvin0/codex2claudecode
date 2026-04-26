@@ -114,11 +114,11 @@ describe("parseSseJson edge cases", () => {
   })
 
   test("array JSON returns the array", () => {
-    expect(parseSseJson({ data: "[1,2,3]" })).toEqual([1, 2, 3])
+    expect(parseSseJson({ data: "[1,2,3]" }) as unknown).toEqual([1, 2, 3])
   })
 
   test("string JSON returns the string", () => {
-    expect(parseSseJson({ data: '"hello"' })).toBe("hello")
+    expect(parseSseJson({ data: '"hello"' }) as unknown).toBe("hello")
   })
 })
 

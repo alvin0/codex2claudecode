@@ -1,6 +1,9 @@
 import type { ClaudeTool, JsonObject } from "../types"
 
 import type { ClaudeServerToolAdapter } from "./server-tool-adapter"
+import { responseOutputTextToClaudeBlocks } from "./content"
+
+export { responseOutputTextToClaudeBlocks as codexMessageContentToClaudeBlocks } from "./content"
 
 export function codexWebCallToClaudeBlocks(
   item: { id?: unknown; action?: unknown },
@@ -112,21 +115,6 @@ function claudeServerToolId(id: string) {
   return `srvtoolu_${id.replace(/[^A-Za-z0-9]/g, "")}`
 }
 
-export function codexMessageContentToClaudeBlocks(content: unknown): JsonObject[] {
-  if (!content || typeof content !== "object") return []
-  const item = content as { type?: unknown; text?: unknown; annotations?: unknown }
-  if (item.type !== "output_text" || typeof item.text !== "string") return []
-  const text = item.text
-  const citations = Array.isArray(item.annotations) ? item.annotations.flatMap((annotation) => codexAnnotationToClaudeCitation(annotation, text)) : undefined
-  return [
-    {
-      type: "text",
-      text,
-      ...(citations?.length ? { citations } : {}),
-    },
-  ]
-}
-
 export function codexOutputItemsToClaudeContent(output: unknown) {
   if (!Array.isArray(output)) return []
   const citationSources = codexCitationSourcesFromOutput(output)
@@ -138,7 +126,7 @@ export function codexOutputItemsToClaudeContent(output: unknown) {
       return claudeWebResultHasContent(blocks.content[1]) ? blocks.content : []
     }
     if (outputItem.type === "message" && Array.isArray(outputItem.content)) {
-      return outputItem.content.flatMap((content) => codexMessageContentToClaudeBlocks(content))
+      return outputItem.content.flatMap((content) => responseOutputTextToClaudeBlocks(content))
     }
     return []
   })
@@ -199,7 +187,7 @@ export const webServerToolAdapter: ClaudeServerToolAdapter = {
 }
 
 function isClaudeWebTool(tool: ClaudeTool) {
-  return tool?.type !== "mcp_toolset" && [tool.name, tool.type].some((value) => typeof value === "string" && /^web_(search|fetch)(?:_\d+)?$/i.test(value))
+  return tool?.type !== "mcp_toolset" && typeof tool.type === "string" && /^web[_-]?(search|fetch)(?:_\d+)?$/i.test(tool.type)
 }
 
 function claudeWebToolToResponsesTool(tool: ClaudeTool) {
@@ -259,37 +247,6 @@ function codexAnnotationSource(annotation: unknown) {
       url: citation.url,
       title: typeof citation.title === "string" ? citation.title : citation.url,
       encrypted_content: "",
-    },
-  ]
-}
-
-function codexAnnotationToClaudeCitation(annotation: unknown, text: string) {
-  if (!annotation || typeof annotation !== "object") return []
-  const item = annotation as {
-    type?: unknown
-    url?: unknown
-    title?: unknown
-    start_index?: unknown
-    end_index?: unknown
-    url_citation?: {
-      url?: unknown
-      title?: unknown
-      start_index?: unknown
-      end_index?: unknown
-    }
-  }
-  const citation = item.url_citation ?? item
-  if (item.type !== "url_citation" || typeof citation.url !== "string") return []
-  return [
-    {
-      type: "web_search_result_location",
-      url: citation.url,
-      title: typeof citation.title === "string" ? citation.title : citation.url,
-      encrypted_index: "",
-      cited_text:
-        typeof citation.start_index === "number" && typeof citation.end_index === "number"
-          ? text.slice(citation.start_index, citation.end_index)
-          : "",
     },
   ]
 }

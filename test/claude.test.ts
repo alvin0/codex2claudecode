@@ -1,10 +1,11 @@
 import { describe, expect, test } from "bun:test"
 import { countTokens, encodeChat } from "gpt-tokenizer"
 
-import { claudeToResponsesBody, countClaudeInputTokens } from "../src/inbound/claude/convert"
+import { claudeToResponsesBody } from "../src/inbound/claude/codex-convert"
+import { countClaudeInputTokens } from "../src/inbound/claude/convert"
 import { claudeErrorResponse } from "../src/inbound/claude/errors"
 import { handleClaudeCountTokens, handleClaudeMessages } from "../src/inbound/claude/handlers"
-import { collectClaudeMessage, claudeStreamResponse } from "../src/inbound/claude/response"
+import { collectClaudeMessage, claudeStreamResponse } from "../src/inbound/claude/codex-response"
 import { consumeCodexSse, parseJsonObject, parseSseJson } from "../src/core/sse"
 import {
   claudeWebResultHasContent,
@@ -718,7 +719,7 @@ describe("SSE and Claude response mapping", () => {
     const badUpstream = { proxy: () => Promise.resolve(new Response("bad", { status: 503 })) }
     const upstream = await handleClaudeMessages(badUpstream as any, new Request("http://x", { method: "POST", body: JSON.stringify({ model: "m", messages: [] }) }), "id")
     expect(upstream.status).toBe(503)
-    expect(await upstream.json()).toEqual({ type: "error", error: { type: "api_error", message: "Codex request failed: 503 bad" } })
+    expect(await upstream.json()).toEqual({ type: "error", error: { type: "api_error", message: "Upstream request failed: 503 bad" } })
 
     const throwingClient = { proxy: () => Promise.reject(new Error("network down")) }
     const thrown = await handleClaudeMessages(throwingClient as any, new Request("http://x", { method: "POST", body: JSON.stringify({ model: "m", messages: [] }) }), "id")

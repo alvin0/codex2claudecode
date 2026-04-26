@@ -1,11 +1,11 @@
 import React from "react"
 import { Box, Text, useStdout } from "ink"
 
-import { UI_COMMANDS } from "../commands"
+import type { UiCommand } from "../commands"
 
-export function CommandInput(props: { selected: number; message?: string }) {
+export function CommandInput(props: { selected: number; message?: string; commands: UiCommand[] }) {
   const { stdout } = useStdout()
-  const commands = UI_COMMANDS
+  const commands = props.commands
   const commandWidth = Math.max(22, ...commands.map((command) => command.name.length + 4))
   const descriptionWidth = Math.max(20, (stdout.columns ?? 100) - commandWidth - 6)
 

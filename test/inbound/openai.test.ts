@@ -1,11 +1,9 @@
 import { afterEach, describe, expect, test } from "bun:test"
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
-import { tmpdir } from "node:os"
-import path from "node:path"
 
 import { OpenAI_Inbound_Provider } from "../../src/inbound/openai"
 import { codexConfigPath, writeCodexFastModeConfig } from "../../src/upstream/codex/fast-mode"
 import { normalizeCanonicalRequest, normalizeRequestBody } from "../../src/inbound/openai/normalize"
+import { mkdtemp, path, readFile, rm, tmpdir, writeFile } from "../helpers"
 
 const tempDirs: string[] = []
 

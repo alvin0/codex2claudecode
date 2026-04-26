@@ -1,7 +1,7 @@
-import { readFile } from "node:fs/promises"
-import { homedir } from "node:os"
-import path from "node:path"
+import { readTextFile } from "../../core/bun-fs"
+import { bunPath as path, homeDir } from "../../core/paths"
 
+import kiroModelsConfig from "../../../kiro-models.json"
 import modelsConfig from "../../../models.json"
 
 // ---------------------------------------------------------------------------
@@ -16,6 +16,37 @@ import modelsConfig from "../../../models.json"
 // The /v1/models endpoint reads ~/.claude/settings.json to determine which
 // models the user has actually configured, and only returns those.
 // ---------------------------------------------------------------------------
+
+export interface ModelInfo {
+  id: string
+  capabilities: ModelCapabilities
+  created_at: string
+  display_name: string
+  max_input_tokens: number
+  max_tokens: number
+  type: "model"
+}
+
+export interface ListModelsResponse {
+  data: ModelInfo[]
+  first_id: string | null
+  has_more: boolean
+  last_id: string | null
+}
+
+interface JsonModelEntry {
+  id: string
+  display_name: string
+  created_at: string
+  max_input_tokens: number
+  max_tokens: number
+  capabilities: JsonModelCapabilities
+}
+
+interface JsonModelCatalog {
+  aliases?: Record<string, string>
+  models: JsonModelEntry[]
+}
 
 export interface CapabilitySupport {
   supported: boolean
@@ -56,23 +87,6 @@ export interface ModelCapabilities {
   thinking: ThinkingCapability
 }
 
-export interface ModelInfo {
-  id: string
-  capabilities: ModelCapabilities
-  created_at: string
-  display_name: string
-  max_input_tokens: number
-  max_tokens: number
-  type: "model"
-}
-
-export interface ListModelsResponse {
-  data: ModelInfo[]
-  first_id: string | null
-  has_more: boolean
-  last_id: string | null
-}
-
 /** Flat capability flags as stored in models.json */
 interface JsonModelCapabilities {
   batch: boolean
@@ -91,36 +105,23 @@ interface JsonModelCapabilities {
   context_management: boolean
 }
 
-interface JsonModelEntry {
-  id: string
-  display_name: string
-  created_at: string
-  max_input_tokens: number
-  max_tokens: number
-  capabilities: JsonModelCapabilities
-}
-
-// ---------------------------------------------------------------------------
-// Transform flat JSON capabilities → nested Claude API capabilities
-// ---------------------------------------------------------------------------
-
 function expandCapabilities(c: JsonModelCapabilities): ModelCapabilities {
   return {
     batch: { supported: c.batch },
     citations: { supported: c.citations },
     code_execution: { supported: c.code_execution },
     context_management: {
-      supported: c.context_management,
       clear_thinking_20251015: { supported: c.context_management },
       clear_tool_uses_20250919: { supported: c.context_management },
       compact_20260112: { supported: c.context_management },
+      supported: c.context_management,
     },
     effort: {
-      supported: c.effort_low || c.effort_medium || c.effort_high || c.effort_xhigh || c.effort_max,
       high: { supported: c.effort_high },
       low: { supported: c.effort_low },
       max: { supported: c.effort_max },
       medium: { supported: c.effort_medium },
+      supported: c.effort_low || c.effort_medium || c.effort_high || c.effort_xhigh || c.effort_max,
       xhigh: { supported: c.effort_xhigh },
     },
     image_input: { supported: c.image_input },
@@ -136,21 +137,47 @@ function expandCapabilities(c: JsonModelCapabilities): ModelCapabilities {
   }
 }
 
+const SYNTHETIC_MODEL_CAPABILITIES = expandCapabilities({
+  batch: false,
+  citations: false,
+  code_execution: false,
+  image_input: false,
+  pdf_input: false,
+  structured_outputs: false,
+  thinking: true,
+  thinking_adaptive: true,
+  effort_low: true,
+  effort_medium: true,
+  effort_high: true,
+  effort_xhigh: true,
+  effort_max: false,
+  context_management: true,
+})
+
 // ---------------------------------------------------------------------------
 // Build full catalog from JSON (used for lookups)
 // ---------------------------------------------------------------------------
 
-const MODEL_CATALOG: ModelInfo[] = (modelsConfig.models as JsonModelEntry[]).map((entry) => ({
-  id: entry.id,
-  capabilities: expandCapabilities(entry.capabilities),
-  created_at: entry.created_at,
-  display_name: entry.display_name,
-  max_input_tokens: entry.max_input_tokens,
-  max_tokens: entry.max_tokens,
-  type: "model" as const,
-}))
+function buildModelCatalog(config: JsonModelCatalog): ModelInfo[] {
+  return config.models.map((entry) => ({
+    id: entry.id,
+    capabilities: expandCapabilities(entry.capabilities),
+    created_at: entry.created_at,
+    display_name: entry.display_name,
+    max_input_tokens: entry.max_input_tokens,
+    max_tokens: entry.max_tokens,
+    type: "model" as const,
+  }))
+}
 
-const MODEL_ALIASES: Record<string, string> = modelsConfig.aliases as Record<string, string>
+const CODEX_MODEL_CATALOG = buildModelCatalog(modelsConfig as JsonModelCatalog)
+const KIRO_MODEL_CATALOG = buildModelCatalog(kiroModelsConfig as JsonModelCatalog)
+const MODEL_CATALOG: ModelInfo[] = [...CODEX_MODEL_CATALOG, ...KIRO_MODEL_CATALOG]
+
+const MODEL_ALIASES: Record<string, string> = {
+  ...((modelsConfig as JsonModelCatalog).aliases ?? {}),
+  ...((kiroModelsConfig as JsonModelCatalog).aliases ?? {}),
+}
 
 // Build a lookup map for O(1) access
 const MODEL_MAP = new Map<string, ModelInfo>()
@@ -194,8 +221,8 @@ function resolveModelId(raw: string): string {
 async function readActiveModelIds(): Promise<string[]> {
   let envMap: Record<string, unknown> = {}
   try {
-    const settingsPath = path.join(homedir(), ".claude", "settings.json")
-    const parsed = JSON.parse(await readFile(settingsPath, "utf8")) as { env?: Record<string, unknown> }
+    const settingsPath = path.join(homeDir(), ".claude", "settings.json")
+    const parsed = JSON.parse(await readTextFile(settingsPath)) as { env?: Record<string, unknown> }
     if (parsed.env && typeof parsed.env === "object") {
       envMap = parsed.env
     }
@@ -280,34 +307,33 @@ export async function claudeSettingsModelResolver(): Promise<string[]> {
  */
 function resolveModelInfos(ids: string[]): ModelInfo[] {
   return ids.map((id) => {
-    const known = MODEL_MAP.get(id)
+    const known = MODEL_MAP.get(resolveModelId(id))
     if (known) return known
     // Synthetic entry for models not in catalog (user set a custom model)
     return {
       id,
-      capabilities: expandCapabilities({
-        batch: false,
-        citations: false,
-        code_execution: false,
-        image_input: false,
-        pdf_input: false,
-        structured_outputs: false,
-        thinking: true,
-        thinking_adaptive: true,
-        effort_low: true,
-        effort_medium: true,
-        effort_high: true,
-        effort_xhigh: true,
-        effort_max: false,
-        context_management: true,
-      }),
-      created_at: new Date().toISOString(),
-      display_name: id,
+      capabilities: SYNTHETIC_MODEL_CAPABILITIES,
+      created_at: "1970-01-01T00:00:00Z",
+      display_name: displayNameFromModelId(id),
       max_input_tokens: 0,
       max_tokens: 0,
       type: "model" as const,
     }
   })
+}
+
+function displayNameFromModelId(id: string) {
+  return id
+    .split("-")
+    .filter(Boolean)
+    .map((part) => {
+      const lower = part.toLowerCase()
+      if (lower === "gpt") return "GPT"
+      if (lower === "glm") return "GLM"
+      if (lower === "ai") return "AI"
+      return part.charAt(0).toUpperCase() + part.slice(1)
+    })
+    .join(" ")
 }
 
 // ---------------------------------------------------------------------------

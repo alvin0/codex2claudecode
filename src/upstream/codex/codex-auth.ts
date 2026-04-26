@@ -1,7 +1,7 @@
-import { readFile, writeFile } from "node:fs/promises"
-
+import { readTextFile, writeTextFile } from "../../core/bun-fs"
 import { expandHome } from "../../core/paths"
-import { extractAccountId } from "./auth"
+import { accessTokenExpiresAt, extractAccountId } from "./auth"
+import type { AuthFileContent } from "./types"
 
 export const DEFAULT_CODEX_CLI_AUTH_FILE = "~/.codex/auth.json"
 
@@ -16,8 +16,24 @@ export interface CodexCliAuthFile {
   [key: string]: unknown
 }
 
+export interface CodexCliTokenSnapshot {
+  accountId?: string
+  accessToken: string
+  refreshToken: string
+  expiresAt?: number
+  path: string
+  key?: string
+}
+
 export async function readCodexCliAuthFile(path = DEFAULT_CODEX_CLI_AUTH_FILE) {
-  return JSON.parse(await readFile(expandHome(path), "utf8")) as CodexCliAuthFile
+  return JSON.parse(await readTextFile(expandHome(path))) as CodexCliAuthFile
+}
+
+export async function readCodexCliAuthTokens(path = DEFAULT_CODEX_CLI_AUTH_FILE) {
+  const authFile = expandHome(path)
+  const snapshot = codexCliAuthTokenSnapshot(await readCodexCliAuthFile(authFile), authFile)
+  if (!snapshot) throw new Error(`Unsupported Codex CLI auth file at ${authFile}`)
+  return snapshot
 }
 
 export function codexCliAuthAccountId(auth: CodexCliAuthFile) {
@@ -27,7 +43,45 @@ export function codexCliAuthAccountId(auth: CodexCliAuthFile) {
   })
 }
 
-export async function syncCodexCliAuthTokens(input: { accountId?: string; accessToken: string; refreshToken: string; path?: string }) {
+export async function pullCodexCliAuthTokens(input: {
+  accountId?: string
+  accessToken: string
+  refreshToken: string
+  sourceAuthFile?: string
+  sourceAccountKey?: string
+  path?: string
+  strict?: boolean
+}): Promise<AuthFileContent | undefined> {
+  const sourceAuthFile = expandHome(input.sourceAuthFile ?? input.path ?? DEFAULT_CODEX_CLI_AUTH_FILE)
+  let source: CodexCliTokenSnapshot | undefined
+  try {
+    source = codexCliAuthTokenSnapshot(await readCodexCliAuthFile(sourceAuthFile), sourceAuthFile)
+  } catch (error) {
+    if (input.strict) throw error
+    return
+  }
+  if (!source) {
+    if (input.strict) throw new Error(`Unsupported Codex CLI auth file at ${sourceAuthFile}`)
+    return
+  }
+
+  const linkedBySource = Boolean(input.sourceAuthFile)
+  if (linkedBySource && !codexSourceMatchesLinkedAccount(input, source)) return
+  if (!linkedBySource && (!input.accountId || source.accountId !== input.accountId)) return
+  if (!codexSourceAuthChanged(input, source)) return
+
+  return {
+    type: "oauth",
+    access: source.accessToken,
+    refresh: source.refreshToken,
+    expires: source.expiresAt,
+    accountId: source.accountId ?? input.accountId,
+    sourceAuthFile,
+    sourceAccountKey: source.key ?? input.sourceAccountKey,
+  }
+}
+
+export async function syncCodexCliAuthTokens(input: { accountId?: string; accessToken: string; refreshToken: string; path?: string; sourceAccountKey?: string }) {
   if (!input.accountId) return false
 
   let auth: CodexCliAuthFile
@@ -39,9 +93,11 @@ export async function syncCodexCliAuthTokens(input: { accountId?: string; access
 
   if (auth.auth_mode && auth.auth_mode !== "chatgpt") return false
   if (!auth.tokens) return false
-  if (codexCliAuthAccountId(auth) !== input.accountId) return false
+  const currentAccountKey = codexCliAuthAccountId(auth)
+  const expectedAccountKey = input.sourceAccountKey ?? input.accountId
+  if (!currentAccountKey || currentAccountKey !== expectedAccountKey) return false
 
-  await writeFile(
+  await writeTextFile(
     expandHome(input.path ?? DEFAULT_CODEX_CLI_AUTH_FILE),
     `${JSON.stringify({
       ...auth,
@@ -55,6 +111,34 @@ export async function syncCodexCliAuthTokens(input: { accountId?: string; access
   )
 
   return true
+}
+
+function codexCliAuthTokenSnapshot(auth: CodexCliAuthFile, path: string): CodexCliTokenSnapshot | undefined {
+  if (auth.auth_mode && auth.auth_mode !== "chatgpt") return
+  const accessToken = cleanToken(auth.tokens?.access_token)
+  const refreshToken = cleanToken(auth.tokens?.refresh_token)
+  if (!accessToken || !refreshToken) return
+  const accountId = codexCliAuthAccountId(auth)
+  return {
+    ...(accountId ? { accountId, key: accountId } : {}),
+    accessToken,
+    refreshToken,
+    expiresAt: accessTokenExpiresAt(accessToken),
+    path,
+  }
+}
+
+function codexSourceAuthChanged(current: { accountId?: string; accessToken: string; refreshToken: string }, source: CodexCliTokenSnapshot) {
+  return current.accessToken !== source.accessToken
+    || current.refreshToken !== source.refreshToken
+    || (source.accountId !== undefined && current.accountId !== source.accountId)
+}
+
+function codexSourceMatchesLinkedAccount(input: { accountId?: string; accessToken: string; refreshToken: string; sourceAccountKey?: string }, source: CodexCliTokenSnapshot) {
+  const expectedAccountKey = input.sourceAccountKey ?? input.accountId
+  if (!expectedAccountKey) return false
+  if (source.key === expectedAccountKey) return true
+  return input.accessToken === source.accessToken || input.refreshToken === source.refreshToken
 }
 
 function cleanToken(value?: string) {

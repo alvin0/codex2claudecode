@@ -1,7 +1,5 @@
-import { mkdir, open, readFile, readdir, rename, rm, writeFile } from "node:fs/promises"
-import path from "node:path"
-
-import { ensureParentDir } from "./paths"
+import { isBusyError, isNotFoundError, pathExists, readDirectory, readTextFile, removePath, writeTextFile } from "./bun-fs"
+import { bunPath as path } from "./paths"
 import type { RequestLogEntry } from "./types"
 
 export const REQUEST_LOG_FILE_NAME = "request-logs-recent.ndjson"
@@ -18,9 +16,7 @@ export function requestLogDetailFilePath(authFile: string, id: string) {
 
 export async function ensureRequestLogFile(authFile: string) {
   const file = requestLogFilePath(authFile)
-  await ensureParentDir(file)
-  const fh = await open(file, "a")
-  await fh.close()
+  if (!(await pathExists(file))) await writeTextFile(file, "")
 }
 
 const writeQueues = new Map<string, Promise<void>>()
@@ -43,13 +39,12 @@ export async function appendRequestLog(authFile: string, entry: RequestLogEntry)
   return enqueueWrite(authFile, async () => {
     const file = requestLogFilePath(authFile)
     await ensureRequestLogFile(authFile)
-    await ensureRequestLogDetailDir(authFile)
     const detail = withDetailFile(entry)
-    await atomicWriteFile(requestLogDetailFilePath(authFile, entry.id), `${JSON.stringify(detail, null, 2)}\n`)
+    await writeRequestLogFile(requestLogDetailFilePath(authFile, entry.id), `${JSON.stringify(detail, null, 2)}\n`)
     const logs = await readRecentRequestLogsRaw(authFile, MAX_REQUEST_LOG_ENTRIES)
     logs.push(toRequestLogSummary(detail))
     const recentLogs = logs.slice(-MAX_REQUEST_LOG_ENTRIES)
-    await atomicWriteFile(file, formatRequestLogs(recentLogs))
+    await writeRequestLogFile(file, formatRequestLogs(recentLogs))
     await removeOrphanedRequestLogDetails(authFile, new Set(recentLogs.map((log) => safeLogId(log.id))))
   })
 }
@@ -61,7 +56,7 @@ export async function readRecentRequestLogs(authFile: string, limit = MAX_REQUES
 export async function readRequestLogDetail(authFile: string, entry: RequestLogEntry): Promise<RequestLogEntry> {
   if (!entry.detailFile) return entry
   try {
-    const detail = JSON.parse(await readFile(path.join(path.dirname(authFile), entry.detailFile), "utf8")) as RequestLogEntry
+    const detail = JSON.parse(await readTextFile(path.join(path.dirname(authFile), entry.detailFile))) as RequestLogEntry
     return typeof detail.at === "string" ? detail : entry
   } catch (error: unknown) {
     if (isNotFoundError(error)) return entry
@@ -72,7 +67,7 @@ export async function readRequestLogDetail(authFile: string, entry: RequestLogEn
 async function readRecentRequestLogsRaw(authFile: string, limit: number): Promise<RequestLogEntry[]> {
   let content: string
   try {
-    content = await readFile(requestLogFilePath(authFile), "utf8")
+    content = await readTextFile(requestLogFilePath(authFile))
   } catch (error: unknown) {
     if (isNotFoundError(error)) return []
     throw error
@@ -90,32 +85,20 @@ async function readRecentRequestLogsRaw(authFile: string, limit: number): Promis
 export async function clearRequestLogs(authFile: string) {
   return enqueueWrite(authFile, async () => {
     try {
-      await rm(requestLogFilePath(authFile), { force: true })
+      await removePath(requestLogFilePath(authFile), { force: true })
     } catch (error: unknown) {
       if (!isBusyError(error)) throw error
     }
     try {
-      await rm(path.join(path.dirname(authFile), REQUEST_LOG_DETAIL_DIR_NAME), { recursive: true, force: true })
+      await removePath(path.join(path.dirname(authFile), REQUEST_LOG_DETAIL_DIR_NAME), { recursive: true, force: true })
     } catch (error: unknown) {
       if (!isBusyError(error)) throw error
     }
   })
 }
 
-async function ensureRequestLogDetailDir(authFile: string) {
-  await mkdir(path.join(path.dirname(authFile), REQUEST_LOG_DETAIL_DIR_NAME), { recursive: true })
-}
-
-async function atomicWriteFile(targetFile: string, content: string): Promise<void> {
-  const dir = path.dirname(targetFile)
-  const tmpFile = path.join(dir, `.tmp-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`)
-  try {
-    await writeFile(tmpFile, content, { encoding: "utf8" })
-    await rename(tmpFile, targetFile)
-  } catch (error: unknown) {
-    await rm(tmpFile, { force: true }).catch(() => {})
-    throw error
-  }
+async function writeRequestLogFile(targetFile: string, content: string): Promise<void> {
+  await writeTextFile(targetFile, content)
 }
 
 function parseRequestLogLine(line: string) {
@@ -169,7 +152,7 @@ async function removeOrphanedRequestLogDetails(authFile: string, keptIds: Set<st
   const dir = path.join(path.dirname(authFile), REQUEST_LOG_DETAIL_DIR_NAME)
   let files: string[]
   try {
-    files = await readdir(dir)
+    files = await readDirectory(dir)
   } catch (error: unknown) {
     if (isNotFoundError(error)) return
     throw error
@@ -178,20 +161,10 @@ async function removeOrphanedRequestLogDetails(authFile: string, keptIds: Set<st
     files
       .filter((file) => file.endsWith(".json"))
       .filter((file) => !keptIds.has(file.slice(0, -".json".length)))
-      .map((file) => rm(path.join(dir, file), { force: true })),
+      .map((file) => removePath(path.join(dir, file), { force: true })),
   )
 }
 
 function safeLogId(id: string) {
   return id.replace(/[^A-Za-z0-9._-]/g, "_")
-}
-
-function isNotFoundError(error: unknown): boolean {
-  return typeof error === "object" && error !== null && "code" in error && (error as NodeJS.ErrnoException).code === "ENOENT"
-}
-
-function isBusyError(error: unknown): boolean {
-  if (typeof error !== "object" || error === null || !("code" in error)) return false
-  const code = (error as NodeJS.ErrnoException).code
-  return code === "EBUSY" || code === "EPERM"
 }

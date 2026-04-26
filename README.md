@@ -28,7 +28,11 @@ npx codex2claudecode
 ```
 
 `npx` uses a small Node launcher that checks for Bun and prints install
-instructions if Bun is missing.
+instructions if Bun is missing. If Bun is not installed locally, the launcher
+will try the npm-published Bun package (`npx --yes bun@latest`) and run the app
+through that cached binary. It does not install Bun globally. Set
+`CODEX2CLAUDECODE_DISABLE_NPX_BUN=1` to disable this fallback, or set
+`BUN_BINARY=/path/to/bun` to force a specific Bun executable.
 
 Run with Bun:
 
@@ -43,6 +47,20 @@ npx codex2claudecode --port 8786
 bunx codex2claudecode -p 8786
 ```
 
+### Runtime Requirement
+
+The runtime is Bun-only. Starting with the Bun migration, the packaged CLI
+requires Bun `>=1.3.0` to execute the application. The `npx` entry point is a
+compatibility launcher: it checks for Bun, falls back to the npm-published Bun
+package when possible, and prints installation instructions if no usable Bun is
+available.
+
+Existing Node-only installations should install Bun before upgrading:
+
+```sh
+curl -fsSL https://bun.sh/install | bash
+```
+
 ## Connect an Account
 
 Open the UI and run:
@@ -51,7 +69,7 @@ Open the UI and run:
 /connect
 ```
 
-You can choose:
+The command uses the active provider. For Codex, you can choose:
 
 ```text
 Add from ~/.codex/auth.json
@@ -80,6 +98,57 @@ refreshToken
 ```
 
 Manual mode uses the refresh token to fetch a fresh access token before saving.
+
+Before refreshing a Codex account imported from `~/.codex/auth.json`,
+codex2claudecode first checks the original Codex CLI auth file. If the Codex CLI
+already changed its token fields, the managed account is updated from that
+source before any refresh-token request is attempted. When codex2claudecode
+performs the refresh itself, it writes the updated `access_token`,
+`refresh_token`, and `account_id` fields back to the original Codex CLI auth
+file as well.
+
+For Kiro, switch to Kiro mode first, then run:
+
+```text
+/connect
+```
+
+You can choose:
+
+```text
+Add from Kiro IDE auth
+Manual
+```
+
+`Add from Kiro IDE auth` imports from the Kiro auth token cache:
+
+```text
+~/.aws/sso/cache/kiro-auth-token.json
+```
+
+or from `KIRO_AUTH_FILE` when that environment variable is set. Manual mode
+asks for:
+
+```text
+label
+accessToken
+refreshToken
+region
+profileArn
+```
+
+`label` and `profileArn` are optional. Managed Kiro accounts are stored in:
+
+```text
+~/.codex2claudecode/kiro-state.json
+```
+
+Before refreshing an imported Kiro account, codex2claudecode first checks the
+original Kiro auth file. If Kiro IDE already changed its token fields, the
+managed account is updated from that source before any refresh-token request is
+attempted. When codex2claudecode performs the refresh itself, it writes the
+updated `accessToken`, `refreshToken`, `expiresAt`, and `profileArn` fields back
+to the original Kiro auth file as well.
 
 ## Claude Code
 
@@ -139,9 +208,9 @@ defaults, locked env values, and editable env keys are defined in
 ## UI Commands
 
 ```text
-/connect          Add or update a Codex account
-/account          Switch active Codex account
-/limits           Show Codex account and model limits
+/connect          Add or update an account for the active provider
+/account          Switch active provider account
+/limits           Show active provider account limits
 /logs             Show recent runtime request logs
 /set-claude-env   Edit Claude Code environment exports
 /unset-claude-env Remove Claude Code environment variables
@@ -173,7 +242,26 @@ GET  /environments
 GET  /health
 ```
 
+## Kiro Payload Limit
+
+Kiro requests are preflight-checked before sending upstream. The default body
+limit is `1_200_000` bytes, matching the observed safe range before Kiro starts
+returning opaque `400 Improperly formed request` errors. When a request exceeds
+the limit, the gateway removes the oldest conversation history until the payload
+fits and emits a visible warning in the response.
+
+You can override the limit with either:
+
+```sh
+KIRO_PAYLOAD_SIZE_LIMIT_BYTES=900000
+KIRO_MAX_PAYLOAD_SIZE_MB=1.2
+```
+
 ## Models and Reasoning
+
+For Kiro, model names are fetched from Kiro's `ListAvailableModels` endpoint and
+cached briefly. If that endpoint is unavailable, codex2claudecode falls back to a
+small known-supported list so Claude Code still has selectable models.
 
 GPT-5 models can include a suffix for reasoning effort:
 
@@ -206,14 +294,18 @@ bun run test
 bun run coverage
 ```
 
+`bun run typecheck` runs the strict source config first. It then runs a test
+config that keeps strict null and structural checks but relaxes `noImplicitAny`
+for terse test doubles such as inline `fetch` mocks.
+
 Current deterministic test status:
 
 ```text
 bun run check
-PASS - Bundled 163 modules
+PASS - typecheck + Bun bundle
 
 bun run test
-PASS - 43 pass, 1 filtered out, 0 fail
+PASS - 515 pass, 1 filtered out, 0 fail
 ```
 
 Live smoke test using `auth-codex.json`:
@@ -256,7 +348,7 @@ MIT. See [LICENSE](./LICENSE).
 
 ## Notes
 
-- `auth-codex.json` contains secrets. Do not commit it.
+- `auth-codex.json` and `kiro-state.json` contain secrets. Do not commit them.
 - `.account-info.json` and `.claude-env.json` do not contain OAuth tokens, but may contain email/account metadata.
 - Bun currently reports line/function coverage. Branch coverage is covered by deterministic tests but is not reported by Bun text/lcov output.
 

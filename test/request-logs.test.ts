@@ -1,7 +1,4 @@
 import { afterEach, expect, test } from "bun:test"
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
-import { tmpdir } from "node:os"
-import path from "node:path"
 
 import {
   appendRequestLog,
@@ -14,6 +11,7 @@ import {
   requestLogFilePath,
 } from "../src/core/request-logs"
 import type { RequestLogEntry } from "../src/core/types"
+import { mkdtemp, path, readFile, rm, tmpdir, writeFile } from "./helpers"
 
 const tempDirs: string[] = []
 

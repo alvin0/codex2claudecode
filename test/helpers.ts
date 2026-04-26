@@ -1,5 +1,54 @@
 import { expect } from "bun:test"
 
+import { fileStat, makeTempDir, pathExists, readTextFile, removePath, writeTextFile, type BunRemoveOptions, type BunWriteFileOptions } from "../src/core/bun-fs"
+import { bunPath as path, homeDir, makeDir, pathToFileHref, tempDir } from "../src/core/paths"
+
+export { path }
+
+export function homedir() {
+  return homeDir()
+}
+
+export function tmpdir() {
+  return tempDir()
+}
+
+export async function mkdtemp(prefix: string) {
+  return makeTempDir(prefix)
+}
+
+export async function mkdir(dir: string, _options?: { recursive?: boolean }) {
+  return makeDir(dir)
+}
+
+export async function readFile(file: string, _encoding?: string) {
+  return readTextFile(file)
+}
+
+export async function writeFile(file: string, content: string, options?: BunWriteFileOptions) {
+  return writeTextFile(file, content, options)
+}
+
+export async function rm(file: string, options?: BunRemoveOptions) {
+  return removePath(file, options)
+}
+
+export async function stat(file: string) {
+  return fileStat(file)
+}
+
+export async function exists(file: string) {
+  return pathExists(file)
+}
+
+export function pathToFileURL(file: string) {
+  return new URL(pathToFileHref(file))
+}
+
+export function randomUUID() {
+  return crypto.randomUUID()
+}
+
 export function jwt(payload: unknown) {
   return [
     Buffer.from(JSON.stringify({ alg: "none" })).toString("base64url"),

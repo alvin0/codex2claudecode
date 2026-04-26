@@ -9,11 +9,26 @@ import { canonicalResponseToClaudeMessage, claudeCanonicalStreamResponse } from 
 import { Model_Catalog, claudeSettingsModelResolver } from "./models"
 import type { ClaudeMessagesRequest } from "./types"
 
-export class Claude_Inbound_Provider implements Inbound_Provider {
-  readonly name = "claude"
-  private readonly modelCatalog: Model_Catalog
+export interface ClaudeInboundProviderOptions {
+  name?: string
+  modelResolver?: () => Promise<string[]>
+  upstreamLogLabel?: string
+  inputTokensLogLabel?: string
+}
 
-  constructor(private readonly modelResolver: () => Promise<string[]> = claudeSettingsModelResolver) {
+export class Claude_Inbound_Provider implements Inbound_Provider {
+  readonly name: string
+  private readonly modelCatalog: Model_Catalog
+  private readonly modelResolver: () => Promise<string[]>
+  private readonly upstreamLogLabel: string
+  private readonly inputTokensLogLabel: string
+
+  constructor(optionsOrModelResolver: ClaudeInboundProviderOptions | (() => Promise<string[]>) = {}) {
+    const options = typeof optionsOrModelResolver === "function" ? { modelResolver: optionsOrModelResolver } : optionsOrModelResolver
+    this.name = options.name ?? "claude"
+    this.modelResolver = options.modelResolver ?? claudeSettingsModelResolver
+    this.upstreamLogLabel = options.upstreamLogLabel ?? "Upstream responses"
+    this.inputTokensLogLabel = options.inputTokensLogLabel ?? "OpenAI input tokens"
     this.modelCatalog = new Model_Catalog()
   }
 
@@ -75,7 +90,7 @@ export class Claude_Inbound_Provider implements Inbound_Provider {
       return claudeErrorResponse(error instanceof Error ? error.message : String(error), 400)
     }
 
-    const requestBody = context.logBody ? previewText(JSON.stringify(canonicalRequest)) : undefined
+    let requestBody = context.logBody ? previewText(JSON.stringify(canonicalRequest)) : undefined
     const started = Date.now()
     const upstreamResponsePreview = createLogPreview()
     let result: UpstreamResult
@@ -83,6 +98,9 @@ export class Claude_Inbound_Provider implements Inbound_Provider {
       result = await upstream.proxy(canonicalRequest, {
         headers: request.headers,
         signal: request.signal,
+        onRequestBody: (body) => {
+          if (context.logBody) requestBody = previewText(body)
+        },
         onResponseBodyChunk: (chunk) => upstreamResponsePreview.append(chunk),
       })
     } catch (error) {
@@ -92,22 +110,22 @@ export class Claude_Inbound_Provider implements Inbound_Provider {
 
     if (isCanonicalError(result)) {
       context.onProxy?.({
-        label: "Codex responses",
+        label: this.upstreamLogLabel,
         method: "POST",
-        target: "/v1/responses",
+        target: "upstream",
         status: result.status,
         durationMs,
         error: previewText(result.body) || "-",
         requestBody,
         responseBody: previewText(result.body) || undefined,
       } satisfies RequestProxyLog)
-      return claudeErrorResponse(`Codex request failed: ${result.status} ${result.body}`, result.status)
+      return claudeErrorResponse(`Upstream request failed: ${result.status} ${result.body}`, result.status)
     }
 
     const proxyLog: RequestProxyLog = {
-      label: "Codex responses",
+      label: this.upstreamLogLabel,
       method: "POST",
-      target: "/v1/responses",
+      target: "upstream",
       status: "status" in result ? result.status : 200,
       durationMs,
       error: "-",
@@ -167,7 +185,7 @@ export class Claude_Inbound_Provider implements Inbound_Provider {
     if (!response.ok) {
       const text = await response.text()
       context.onProxy?.({
-        label: "OpenAI input tokens",
+        label: this.inputTokensLogLabel,
         method: "POST",
         target: "/v1/responses/input_tokens",
         status: response.status,
@@ -177,12 +195,12 @@ export class Claude_Inbound_Provider implements Inbound_Provider {
         responseBody: previewText(text) || undefined,
       })
       if (response.status === 401 || response.status === 403) return localCountTokensResponse(body)
-      return claudeErrorResponse(`Codex input token count failed: ${response.status} ${text}`, response.status)
+      return claudeErrorResponse(`Upstream input token count failed: ${response.status} ${text}`, response.status)
     }
 
     const text = await response.text()
     context.onProxy?.({
-      label: "OpenAI input tokens",
+      label: this.inputTokensLogLabel,
       method: "POST",
       target: "/v1/responses/input_tokens",
       status: response.status,
@@ -207,7 +225,6 @@ export class Claude_Inbound_Provider implements Inbound_Provider {
   }
 }
 
-export { handleClaudeCountTokens, handleClaudeMessages } from "./handlers"
 
 function previewText(text: string) {
   return text.slice(0, LOG_BODY_PREVIEW_LIMIT)

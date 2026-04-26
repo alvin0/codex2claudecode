@@ -4,9 +4,10 @@ import type { CodexStandaloneClient } from "../../upstream/codex/client"
 import { normalizeReasoningBody } from "../../core/reasoning"
 import type { ClaudeMessagesRequest, JsonObject, RequestProxyLog } from "../types"
 
-import { claudeToResponsesBody, countClaudeInputTokens } from "./convert"
+import { claudeToResponsesBody } from "./codex-convert"
+import { countClaudeInputTokens } from "./convert"
 import { claudeErrorResponse } from "./errors"
-import { collectClaudeMessage, claudeStreamResponse } from "./response"
+import { collectClaudeMessage, claudeStreamResponse } from "./codex-response"
 
 export async function handleClaudeMessages(
   client: CodexStandaloneClient,
@@ -47,9 +48,9 @@ export async function handleClaudeMessages(
   if (!response.ok) {
     const text = await response.text()
     options?.onProxy?.({
-      label: "Codex responses",
+      label: "Upstream responses",
       method: "POST",
-      target: "/v1/responses",
+      target: "upstream",
       status: response.status,
       durationMs,
       error: redactSecrets(text).slice(0, LOG_BODY_PREVIEW_LIMIT) || "-",
@@ -57,13 +58,13 @@ export async function handleClaudeMessages(
       responseBody: previewText(redactSecrets(text)) || undefined,
     })
     console.error(`Claude messages upstream error ${response.status}: ${text.slice(0, LOG_BODY_PREVIEW_LIMIT)}`)
-    return claudeErrorResponse(`Codex request failed: ${response.status} ${text}`, response.status)
+    return claudeErrorResponse(`Upstream request failed: ${response.status} ${text}`, response.status)
   }
 
   const proxyLog: RequestProxyLog = {
-    label: "Codex responses",
+    label: "Upstream responses",
     method: "POST",
-    target: "/v1/responses",
+    target: "upstream",
     status: response.status,
     durationMs,
     error: "-",
@@ -81,9 +82,9 @@ export async function handleClaudeMessages(
     onStreamError: (error) => {
       if (!options?.onProxy) return
       options.onProxy({
-        label: "Codex responses (stream error)",
+        label: "Upstream responses (stream error)",
         method: "POST",
-        target: "/v1/responses",
+        target: "upstream",
         status: 200,
         durationMs: Date.now() - started,
         error,

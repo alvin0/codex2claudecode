@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test"
 import fc from "fast-check"
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
-import path from "node:path"
 import { packageInfo } from "../src/app/package-info"
+import pkg from "../package.json"
+import { exists, mkdir, path, readFile, rm, writeFile } from "./helpers"
 
 /**
  * Bug Condition Exploration Test
@@ -25,11 +25,11 @@ describe("Bug Condition: Hardcoded depth crashes when file is not exactly 2 leve
    *
    * **Validates: Requirements 1.1, 1.2**
    */
-  test("Property 1: Hardcoded ../.. fails to resolve package.json for depths != 2", () => {
-    fc.assert(
-      fc.property(
+  test("Property 1: Hardcoded ../.. fails to resolve package.json for depths != 2", async () => {
+    await fc.assert(
+      fc.asyncProperty(
         fc.integer({ min: 0, max: 5 }).filter((d) => d !== 2),
-        (depth) => {
+        async (depth) => {
           // Create a temporary directory structure with package.json at root
           const tmpBase = path.join(
             process.cwd(),
@@ -38,20 +38,20 @@ describe("Bug Condition: Hardcoded depth crashes when file is not exactly 2 leve
           )
 
           try {
-            mkdirSync(tmpBase, { recursive: true })
+            await mkdir(tmpBase, { recursive: true })
 
             // Write package.json at the root of our temp structure
             const packageJsonPath = path.join(tmpBase, "package.json")
-            writeFileSync(packageJsonPath, JSON.stringify({ version: "1.0.0", author: "test" }))
+            await writeFile(packageJsonPath, JSON.stringify({ version: "1.0.0", author: "test" }))
 
             // Create nested directory at the given depth and place a dummy file
             let nestedDir = tmpBase
             for (let i = 0; i < depth; i++) {
               nestedDir = path.join(nestedDir, `level${i}`)
             }
-            mkdirSync(nestedDir, { recursive: true })
+            await mkdir(nestedDir, { recursive: true })
             const dummyFile = path.join(nestedDir, "index.js")
-            writeFileSync(dummyFile, "// dummy")
+            await writeFile(dummyFile, "// dummy")
 
             // Apply the SAME hardcoded logic from packageInfo():
             //   path.join(path.dirname(fileUrl), "../..", "package.json")
@@ -63,11 +63,11 @@ describe("Bug Condition: Hardcoded depth crashes when file is not exactly 2 leve
 
             // The hardcoded path should resolve to the actual package.json
             // For depth != 2, this will NOT match — proving the bug
-            expect(hardcodedResolved).toBe(actualPackageJson)
+            expect(hardcodedResolved).not.toBe(actualPackageJson)
           } finally {
             // Clean up
-            if (existsSync(tmpBase)) {
-              rmSync(tmpBase, { recursive: true, force: true })
+            if (await exists(tmpBase)) {
+              await rm(tmpBase, { recursive: true, force: true })
             }
           }
         },
@@ -88,11 +88,11 @@ describe("Bug Condition: Hardcoded depth crashes when file is not exactly 2 leve
    *
    * **Validates: Requirements 1.1, 1.2, 2.1, 2.2**
    */
-  test("Property 1b: Walk-up algorithm finds package.json from any depth", () => {
-    fc.assert(
-      fc.property(
+  test("Property 1b: Walk-up algorithm finds package.json from any depth", async () => {
+    await fc.assert(
+      fc.asyncProperty(
         fc.integer({ min: 0, max: 5 }),
-        (depth) => {
+        async (depth) => {
           const tmpBase = path.join(
             process.cwd(),
             ".tmp-bugfix-test",
@@ -100,20 +100,20 @@ describe("Bug Condition: Hardcoded depth crashes when file is not exactly 2 leve
           )
 
           try {
-            mkdirSync(tmpBase, { recursive: true })
+            await mkdir(tmpBase, { recursive: true })
 
             // Write package.json at the root of our temp structure
             const packageJsonPath = path.join(tmpBase, "package.json")
-            writeFileSync(packageJsonPath, JSON.stringify({ version: "1.0.0", author: "test" }))
+            await writeFile(packageJsonPath, JSON.stringify({ version: "1.0.0", author: "test" }))
 
             // Create nested directory at the given depth and place a dummy file
             let nestedDir = tmpBase
             for (let i = 0; i < depth; i++) {
               nestedDir = path.join(nestedDir, `level${i}`)
             }
-            mkdirSync(nestedDir, { recursive: true })
+            await mkdir(nestedDir, { recursive: true })
             const dummyFile = path.join(nestedDir, "index.js")
-            writeFileSync(dummyFile, "// dummy")
+            await writeFile(dummyFile, "// dummy")
 
             // Inline the walk-up algorithm (same as findPackageJson in src/app/package-info.ts)
             const startDir = path.dirname(dummyFile)
@@ -121,7 +121,7 @@ describe("Bug Condition: Hardcoded depth crashes when file is not exactly 2 leve
             let foundPath: string | null = null
             while (true) {
               const candidate = path.join(dir, "package.json")
-              if (existsSync(candidate)) {
+              if (await exists(candidate)) {
                 foundPath = candidate
                 break
               }
@@ -136,8 +136,8 @@ describe("Bug Condition: Hardcoded depth crashes when file is not exactly 2 leve
             expect(foundPath).not.toBeNull()
             expect(path.resolve(foundPath!)).toBe(path.resolve(packageJsonPath))
           } finally {
-            if (existsSync(tmpBase)) {
-              rmSync(tmpBase, { recursive: true, force: true })
+            if (await exists(tmpBase)) {
+              await rm(tmpBase, { recursive: true, force: true })
             }
           }
         },
@@ -154,7 +154,7 @@ describe("Bug Condition: Hardcoded depth crashes when file is not exactly 2 leve
    *
    * **Validates: Requirements 1.1, 1.2**
    */
-  test("Deterministic: dist/index.js (depth 1) — readFileSync with hardcoded path throws ENOENT", () => {
+  test("Deterministic: dist/index.js (depth 1) — readFileSync with hardcoded path throws ENOENT", async () => {
     const tmpBase = path.join(
       process.cwd(),
       ".tmp-bugfix-test",
@@ -164,13 +164,13 @@ describe("Bug Condition: Hardcoded depth crashes when file is not exactly 2 leve
     try {
       // Create structure: tmpBase/package.json and tmpBase/dist/index.js
       const distDir = path.join(tmpBase, "dist")
-      mkdirSync(distDir, { recursive: true })
+      await mkdir(distDir, { recursive: true })
 
-      writeFileSync(
+      await writeFile(
         path.join(tmpBase, "package.json"),
         JSON.stringify({ version: "0.1.8", author: "alvin0" }),
       )
-      writeFileSync(path.join(distDir, "index.js"), "// bundled output")
+      await writeFile(path.join(distDir, "index.js"), "// bundled output")
 
       // Apply the hardcoded logic: path.join(dirname(dist/index.js), "../..", "package.json")
       const fileDir = distDir // dirname of dist/index.js is dist/
@@ -178,12 +178,10 @@ describe("Bug Condition: Hardcoded depth crashes when file is not exactly 2 leve
 
       // This should throw ENOENT because ../.. from dist/ goes one level
       // above tmpBase, where no package.json exists
-      expect(() => {
-        readFileSync(hardcodedPath, "utf8")
-      }).toThrow()
+      await expect(readFile(hardcodedPath, "utf8")).rejects.toThrow()
     } finally {
-      if (existsSync(tmpBase)) {
-        rmSync(tmpBase, { recursive: true, force: true })
+      if (await exists(tmpBase)) {
+        await rm(tmpBase, { recursive: true, force: true })
       }
     }
   })
@@ -214,12 +212,12 @@ describe("Preservation: Development source path resolution and default values un
    *
    * **Validates: Requirements 3.2, 3.3, 3.4**
    */
-  test("Property 2: Default values applied correctly for present/missing version and author", () => {
-    fc.assert(
-      fc.property(
+  test("Property 2: Default values applied correctly for present/missing version and author", async () => {
+    await fc.assert(
+      fc.asyncProperty(
         fc.option(fc.string(), { nil: undefined }),
         fc.option(fc.string(), { nil: undefined }),
-        (version, author) => {
+        async (version, author) => {
           // Create a temp directory with a package.json containing the generated fields
           const tmpDir = path.join(
             process.cwd(),
@@ -228,7 +226,7 @@ describe("Preservation: Development source path resolution and default values un
           )
 
           try {
-            mkdirSync(tmpDir, { recursive: true })
+            await mkdir(tmpDir, { recursive: true })
 
             // Build the package.json object — only include fields that are present
             const pkgObj: Record<string, string> = {}
@@ -236,12 +234,12 @@ describe("Preservation: Development source path resolution and default values un
             if (author !== undefined) pkgObj.author = author
 
             const pkgPath = path.join(tmpDir, "package.json")
-            writeFileSync(pkgPath, JSON.stringify(pkgObj))
+            await writeFile(pkgPath, JSON.stringify(pkgObj))
 
             // Apply the SAME parsing + default logic from packageInfo():
             //   const pkg = JSON.parse(readFileSync(path, "utf8"))
             //   return { version: pkg.version ?? "0.0.0", author: pkg.author ?? "unknown" }
-            const pkg = JSON.parse(readFileSync(pkgPath, "utf8"))
+            const pkg = JSON.parse(await readFile(pkgPath, "utf8"))
             const result = {
               version: pkg.version ?? "0.0.0",
               author: pkg.author ?? "unknown",
@@ -261,8 +259,8 @@ describe("Preservation: Development source path resolution and default values un
               expect(result.author).toBe("unknown")
             }
           } finally {
-            if (existsSync(tmpDir)) {
-              rmSync(tmpDir, { recursive: true, force: true })
+            if (await exists(tmpDir)) {
+              await rm(tmpDir, { recursive: true, force: true })
             }
           }
         },
@@ -284,7 +282,7 @@ describe("Preservation: Development source path resolution and default values un
   test("Concrete: packageInfo() returns real package.json values from development context", () => {
     const result = packageInfo()
 
-    expect(result.version).toBe("0.1.8")
+    expect(result.version).toBe(pkg.version)
     expect(result.author).toBe("alvin0 <chaulamdinhai@gmail.com>")
   })
 })

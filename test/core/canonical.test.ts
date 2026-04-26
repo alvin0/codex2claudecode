@@ -64,7 +64,7 @@ describe("canonical types", () => {
       { type: "server_tool_block", blocks: [{ type: "server_tool_use" }] },
       { type: "thinking_delta", label: "Thinking", text: "Considering" },
       { type: "thinking_signature", signature: "sig_1" },
-      { type: "usage", usage: usage.serverToolUse ?? {} },
+      { type: "usage", usage: { serverToolUse: usage.serverToolUse } },
       { type: "message_item_done", item: { type: "message" } },
       { type: "content_block_stop", index: 0 },
       { type: "lifecycle", label: "Queued" },

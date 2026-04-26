@@ -1,13 +1,13 @@
 import type { JsonObject } from "./types"
 
-export function normalizeReasoningBody(body: JsonObject) {
+export function normalizeReasoningBody(body: JsonObject): JsonObject {
   return {
     ...Object.fromEntries(Object.entries(body).filter((entry) => entry[0] !== "reasoning_effort")),
     ...normalizeReasoningModel(body),
   }
 }
 
-function normalizeReasoningModel(body: JsonObject) {
+function normalizeReasoningModel(body: JsonObject): JsonObject {
   if (typeof body.model !== "string") return {}
 
   const match = body.model.match(/^(gpt-5(?:\.[^_]+)?)(?:_(none|low|medium|high|xhigh))?$/)

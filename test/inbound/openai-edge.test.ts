@@ -156,7 +156,7 @@ describe("OpenAI normalizeCanonicalRequest edge cases", () => {
 
     expect(request.instructions).toBe("You are a pirate")
     // system messages are filtered from input
-    expect(request.input.every((m) => m.role !== "system")).toBe(true)
+    expect(request.input.every((m) => (m as { role: string }).role !== "system")).toBe(true)
   })
 
   test("chat: developer messages become instructions", () => {

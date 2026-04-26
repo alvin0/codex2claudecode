@@ -4,4 +4,8 @@ node_modules
 auth-codex.json
 *.tgz
 .omx
+.omc
 .temp
+.claude
+.kiro/specs
+.vscode

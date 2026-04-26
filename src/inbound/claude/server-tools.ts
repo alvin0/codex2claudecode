@@ -9,6 +9,7 @@ export interface ResolvedClaudeTools {
   tools?: JsonObject[]
   include?: string[]
   hasWebTool: boolean
+  clientWebSearchToolName?: string
   toolChoiceNames: Set<string>
   toolChoices: Map<string, JsonObject>
 }
@@ -22,6 +23,7 @@ export function resolveClaudeTools(body: ClaudeMessagesRequest): ResolvedClaudeT
   const toolChoiceNames = new Set<string>()
   const toolChoices = new Map<string, JsonObject>()
   let hasWebTool = false
+  let clientWebSearchToolName: string | undefined
 
   for (const tool of body.tools ?? []) {
     const adapter = SERVER_TOOL_ADAPTERS.find((item) => item.matchesTool(tool))
@@ -40,15 +42,30 @@ export function resolveClaudeTools(body: ClaudeMessagesRequest): ResolvedClaudeT
     mappedTools.push(claudeFunctionToolToResponsesTool(tool))
     toolChoiceNames.add(toolName)
     toolChoices.set(toolName, { type: "function", name: toolName })
+    if (isClientWebSearchToolName(toolName)) {
+      clientWebSearchToolName = preferClientWebSearchTool(clientWebSearchToolName, toolName)
+    }
   }
 
   return {
     ...(mappedTools.length && { tools: dedupeTools(mappedTools) }),
     ...(include.size && { include: [...include] }),
     hasWebTool,
+    ...(clientWebSearchToolName && { clientWebSearchToolName }),
     toolChoiceNames,
     toolChoices,
   }
+}
+
+function isClientWebSearchToolName(name: string) {
+  return /^web[_-]?(search|fetch)(?:_\d+)?$/i.test(name)
+}
+
+function preferClientWebSearchTool(current: string | undefined, next: string) {
+  if (!current) return next
+  const currentIsSearch = /web[_-]?search/i.test(current)
+  const nextIsSearch = /web[_-]?search/i.test(next)
+  return !currentIsSearch && nextIsSearch ? next : current
 }
 
 export function claudeToolChoiceToResponsesToolChoice(

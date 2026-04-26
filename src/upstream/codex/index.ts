@@ -28,6 +28,7 @@ export class Codex_Upstream_Provider implements Upstream_Provider, TokenCredenti
 
   async proxy(request: Canonical_Request, options?: RequestOptions): Promise<UpstreamResult> {
     const body = await this.applyFastMode(canonicalToCodexBody(request))
+    options?.onRequestBody?.(JSON.stringify(body))
     const response = withLoggedResponseBody(await this.client.proxy(body, options), options?.onResponseBodyChunk)
     if (!response.ok) return toCanonicalError(response)
     if (request.passthrough) return toCanonicalPassthrough(response)

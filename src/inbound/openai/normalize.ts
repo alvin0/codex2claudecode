@@ -14,7 +14,7 @@ export function normalizeCanonicalRequest(pathname: string, body: JsonObject): C
 
     return {
       model: typeof normalizedBody.model === "string" ? normalizedBody.model : "",
-      instructions: normalizedBody.instructions ?? (instructions || "You are a helpful assistant."),
+      instructions: typeof normalizedBody.instructions === "string" ? normalizedBody.instructions : (instructions || "You are a helpful assistant."),
       input: messages.map((message) => normalizeMessage(message)).filter((message): message is NonNullable<ReturnType<typeof normalizeMessage>> => message !== undefined),
       tools: Array.isArray(normalizedBody.tools) ? (normalizedBody.tools as JsonObject[]) : undefined,
       toolChoice: normalizedBody.tool_choice as JsonObject | string | undefined,
@@ -31,9 +31,7 @@ export function normalizeCanonicalRequest(pathname: string, body: JsonObject): C
     const input = typeof normalizedBody.input === "string"
       ? [{ role: "user" as const, content: [{ type: "input_text", text: normalizedBody.input }] }]
       : Array.isArray(normalizedBody.input)
-        ? normalizedBody.input.filter((message): message is Canonical_Request["input"][number] => {
-          return Boolean(message) && typeof message === "object" && !Array.isArray(message) && typeof (message as { role?: unknown }).role === "string" && Array.isArray((message as { content?: unknown }).content)
-        })
+        ? normalizedBody.input.filter(isCanonicalInputMessage)
         : []
 
     return {
@@ -54,11 +52,7 @@ export function normalizeCanonicalRequest(pathname: string, body: JsonObject): C
   return {
     model: typeof normalizedBody.model === "string" ? normalizedBody.model : "",
     instructions: typeof normalizedBody.instructions === "string" ? normalizedBody.instructions : undefined,
-    input: Array.isArray(normalizedBody.input)
-      ? normalizedBody.input.filter((message): message is Canonical_Request["input"][number] => {
-        return Boolean(message) && typeof message === "object" && !Array.isArray(message) && typeof (message as { role?: unknown }).role === "string" && Array.isArray((message as { content?: unknown }).content)
-      })
-      : [],
+    input: Array.isArray(normalizedBody.input) ? normalizedBody.input.filter(isCanonicalInputMessage) : [],
     stream: normalizedBody.stream !== undefined ? Boolean(normalizedBody.stream) : true,
     passthrough: true,
     metadata: { source: "openai", path: pathname },
@@ -117,6 +111,15 @@ function extractReasoningEffort(body: JsonObject) {
   return typeof body.reasoning_effort === "string" ? body.reasoning_effort : undefined
 }
 
+function isCanonicalInputMessage(message: unknown): message is Canonical_Request["input"][number] {
+  if (!message || typeof message !== "object" || Array.isArray(message)) return false
+  const item = message as { role?: unknown; content?: unknown }
+  return (
+    (item.role === "user" || item.role === "assistant" || item.role === "tool") &&
+    Array.isArray(item.content)
+  )
+}
+
 function instructionFromMessage(message: unknown) {
   if (!message || typeof message !== "object") return
   const item = message as { role?: unknown; content?: unknown }
@@ -125,7 +128,7 @@ function instructionFromMessage(message: unknown) {
   return JSON.stringify(item.content)
 }
 
-function normalizeMessage(message: unknown) {
+function normalizeMessage(message: unknown): Canonical_Request["input"][number] | undefined {
   if (!message || typeof message !== "object") return
 
   const item = message as {
@@ -136,13 +139,11 @@ function normalizeMessage(message: unknown) {
   if (role === "system" || role === "developer") return
   if (role !== "user" && role !== "assistant" && role !== "tool") return
 
-  return {
-    role,
-    content:
-      typeof item.content === "string"
-        ? [{ type: role === "assistant" ? "output_text" : "input_text", text: item.content }]
-        : Array.isArray(item.content)
-          ? (item.content as JsonObject[])
-          : [],
-  }
+  const content: JsonObject[] = typeof item.content === "string"
+    ? [{ type: role === "assistant" ? "output_text" : "input_text", text: item.content }]
+    : Array.isArray(item.content)
+      ? (item.content as JsonObject[])
+      : []
+
+  return { role, content }
 }

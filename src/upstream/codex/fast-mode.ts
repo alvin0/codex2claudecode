@@ -1,7 +1,6 @@
-import { readFile, writeFile } from "node:fs/promises"
-import path from "node:path"
-
-import { ensureParentDir, resolveAuthFile } from "../../core/paths"
+import { readTextFile, writeTextFile } from "../../core/bun-fs"
+import { resolveAuthFile } from "../../core/paths"
+import { bunPath as path } from "../../core/paths"
 
 export interface CodexFastModeConfig {
   enabled: boolean
@@ -17,7 +16,7 @@ export function codexConfigPath(authFile = resolveAuthFile()) {
 
 export async function readCodexFastModeConfig(authFile?: string): Promise<CodexFastModeConfig> {
   try {
-    const parsed = JSON.parse(await readFile(codexConfigPath(authFile), "utf8")) as CodexConfigFile
+    const parsed = JSON.parse(await readTextFile(codexConfigPath(authFile))) as CodexConfigFile
     return { enabled: parsed.fastMode?.enabled === true }
   } catch {
     return { enabled: false }
@@ -27,13 +26,12 @@ export async function readCodexFastModeConfig(authFile?: string): Promise<CodexF
 export async function writeCodexFastModeConfig(authFile: string | undefined, config: CodexFastModeConfig) {
   const file = codexConfigPath(authFile)
   const current = await readCodexConfigFile(authFile)
-  await ensureParentDir(file)
-  await writeFile(file, `${JSON.stringify({ ...current, fastMode: { enabled: config.enabled } }, null, 2)}\n`)
+  await writeTextFile(file, `${JSON.stringify({ ...current, fastMode: { enabled: config.enabled } }, null, 2)}\n`)
 }
 
 async function readCodexConfigFile(authFile?: string): Promise<CodexConfigFile> {
   try {
-    const parsed = JSON.parse(await readFile(codexConfigPath(authFile), "utf8")) as CodexConfigFile
+    const parsed = JSON.parse(await readTextFile(codexConfigPath(authFile))) as CodexConfigFile
     return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {}
   } catch {
     return {}

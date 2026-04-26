@@ -1,13 +1,10 @@
 import { afterEach, describe, expect, test } from "bun:test"
-import { mkdtemp, rm, writeFile } from "node:fs/promises"
-import { tmpdir } from "node:os"
-import path from "node:path"
 
 import { normalizeReasoningBody } from "../../src/core/reasoning"
-import { jwt, sse } from "../helpers"
+import { jwt, mkdtemp, path, rm, sse, tmpdir, writeFile } from "../helpers"
 import { Codex_Upstream_Provider } from "../../src/upstream/codex"
 import { canonicalToCodexBody, collectCodexResponse } from "../../src/upstream/codex/parse"
-import type { Canonical_Request } from "../../src/core/canonical"
+import type { Canonical_Event, Canonical_Request } from "../../src/core/canonical"
 import { writeCodexFastModeConfig } from "../../src/upstream/codex/fast-mode"
 
 const tempDirs: string[] = []
@@ -106,7 +103,7 @@ describe("Codex SSE parsing", () => {
       usage: { inputTokens: 3, outputTokens: 4 },
     })
     expect(response.content).toEqual([
-      { type: "thinking", thinking: "Initializing…", signature: expect.stringMatching(/^sig_/) },
+      { type: "thinking", thinking: "**Codex** session opened\n", signature: expect.stringMatching(/^sig_/) },
       { type: "text", text: "hello" },
       { type: "tool_call", id: "fc_1", callId: "call_1", name: "save", arguments: "{\"ok\":true}" },
     ])
@@ -169,7 +166,7 @@ describe("Codex upstream provider", () => {
             sse([{ type: "response.output_text.done", text: "ok" }, { type: "response.completed", response: { usage: { input_tokens: 1, output_tokens: 2 } } }]),
           ),
         )
-      }) as typeof fetch,
+      }) as unknown as typeof fetch,
     })
 
     const result = await provider.proxy(canonicalRequest())
@@ -181,7 +178,7 @@ describe("Codex upstream provider", () => {
     const passthrough = new Codex_Upstream_Provider({
       accessToken: "access",
       refreshToken: "refresh",
-      fetch: (() => Promise.resolve(new Response("raw", { status: 200, statusText: "OK", headers: { "content-type": "application/json" } }))) as typeof fetch,
+      fetch: (() => Promise.resolve(new Response("raw", { status: 200, statusText: "OK", headers: { "content-type": "application/json" } }))) as unknown as typeof fetch,
     })
     const success = await passthrough.proxy(canonicalRequest({ passthrough: true, stream: true }))
     expect(success).toMatchObject({ type: "canonical_passthrough", status: 200, statusText: "OK" })
@@ -189,7 +186,7 @@ describe("Codex upstream provider", () => {
     const failing = new Codex_Upstream_Provider({
       accessToken: "access",
       refreshToken: "refresh",
-      fetch: (() => Promise.resolve(new Response("denied", { status: 418 }))) as typeof fetch,
+      fetch: (() => Promise.resolve(new Response("denied", { status: 418 }))) as unknown as typeof fetch,
     })
     const error = await failing.proxy(canonicalRequest())
     expect(error).toEqual({
@@ -213,13 +210,13 @@ describe("Codex upstream provider", () => {
               { type: "response.completed", response: { usage: { input_tokens: 1, output_tokens: 2 }, output: [{ type: "message", content: [{ type: "output_text", text: "ok" }] }] } },
             ]),
           ),
-        )) as typeof fetch,
+        )) as unknown as typeof fetch,
     })
 
     const result = await provider.proxy(canonicalRequest({ stream: true }))
     expect(result.type).toBe("canonical_stream")
 
-    const events = []
+    const events: Canonical_Event[] = []
     if (result.type === "canonical_stream") {
       for await (const event of result.events) events.push(event)
     }
@@ -246,7 +243,7 @@ describe("Codex upstream provider", () => {
               },
             }),
           ),
-        )) as typeof fetch,
+        )) as unknown as typeof fetch,
     })
 
     const result = await provider.proxy(canonicalRequest({ stream: true }))
@@ -280,7 +277,7 @@ describe("Codex upstream provider", () => {
                 ]),
               ),
             )
-          }) as typeof fetch,
+          }) as unknown as typeof fetch,
         })
       })(),
       authFile: file,
@@ -310,7 +307,7 @@ describe("Codex upstream provider", () => {
                 ]),
               ),
             )
-          }) as typeof fetch,
+          }) as unknown as typeof fetch,
         })
       })(),
       authFile: file,

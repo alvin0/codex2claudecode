@@ -3,6 +3,7 @@ export type JsonObject = Record<string, unknown>
 export interface RequestOptions {
   headers?: HeadersInit
   signal?: AbortSignal
+  onRequestBody?: (body: string) => void
   onResponseBodyChunk?: (chunk: string) => void
 }
 

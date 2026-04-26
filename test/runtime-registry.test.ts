@@ -1,11 +1,9 @@
 import { afterEach, describe, expect, test } from "bun:test"
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
-import { tmpdir } from "node:os"
-import path from "node:path"
 
 import { Provider_Registry } from "../src/core/registry"
 import type { Inbound_Provider, RequestHandlerContext, Route_Descriptor, Upstream_Provider } from "../src/core/interfaces"
 import { startRuntimeWithBootstrap } from "../src/app/runtime"
+import { mkdtemp, path, readFile, rm, tmpdir, writeFile } from "./helpers"
 
 const tempDirs: string[] = []
 const originalFetch = globalThis.fetch
@@ -72,7 +70,8 @@ describe("registry runtime integration", () => {
     expect(runtimeSource).not.toContain(`from "./claude"`)
     expect(runtimeSource).not.toContain(`from "./inbound/"`)
     expect(runtimeSource).not.toContain(`from "./upstream/"`)
-    expect(bootstrapSource).toContain(`from "../inbound/claude"`)
+    expect(bootstrapSource).toContain(`from "../inbound/claude/codex"`)
+    expect(bootstrapSource).toContain(`from "../inbound/claude/kiro"`)
     expect(bootstrapSource).toContain(`from "../inbound/openai"`)
     expect(bootstrapSource).toContain(`from "../upstream/codex"`)
   })
