@@ -48,7 +48,7 @@ jobs:
             echo "| Coverage | No coverage output captured |" >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
-          node - <<'NODE'
+          node -e '
             const fs = require("node:fs")
 
             const text = fs.readFileSync("coverage.log", "utf8")
@@ -62,7 +62,7 @@ jobs:
             for (const result of results) {
               console.log(`| ${result.name} | ${result.value} |`)
             }
-          NODE >> "$GITHUB_STEP_SUMMARY"
+          ' >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload evidence
         if: always()

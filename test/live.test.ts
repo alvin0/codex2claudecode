@@ -1,10 +1,16 @@
+import { existsSync } from "node:fs"
 import { describe, expect, test } from "bun:test"
 
 import { CodexStandaloneClient } from "../src/upstream/codex/client"
+import { resolveAuthFile } from "../src/core/paths"
 
 describe("live Codex smoke test", () => {
-  test("streams a simple response using auth-codex.json", async () => {
-    const client = await CodexStandaloneClient.fromAuthFile(process.env.CODEX_AUTH_FILE)
+  const authFile = resolveAuthFile(process.env.CODEX_AUTH_FILE)
+  const testOrSkip = existsSync(authFile) ? test : test.skip
+  const reason = `auth file not found at ${authFile}`
+
+  testOrSkip(`streams a simple response using auth-codex.json${testOrSkip === test.skip ? ` (skipped: ${reason})` : ""}`, async () => {
+    const client = await CodexStandaloneClient.fromAuthFile(authFile)
     const stream = await client.responsesStream({
       model: "gpt-5.4-mini_low",
       instructions: "You are a test responder.",
