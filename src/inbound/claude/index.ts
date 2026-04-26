@@ -2,7 +2,7 @@ import type { Canonical_ErrorResponse, Canonical_PassthroughResponse, Canonical_
 import type { Inbound_Provider, RequestHandlerContext, Route_Descriptor, UpstreamResult, Upstream_Provider } from "../../core/interfaces"
 import { LOG_BODY_PREVIEW_LIMIT } from "../../core/constants"
 import { createLogPreview } from "../../core/log-preview"
-import type { RequestProxyLog } from "../../core/types"
+import type { RequestOptions, RequestProxyLog } from "../../core/types"
 import { claudeToCanonicalRequest, countClaudeInputTokens } from "./convert"
 import { claudeErrorResponse } from "./errors"
 import { canonicalResponseToClaudeMessage, claudeCanonicalStreamResponse } from "./response"
@@ -92,19 +92,23 @@ export class Claude_Inbound_Provider implements Inbound_Provider {
 
     const shouldCaptureProxyBody = context.logBody && context.onProxy !== undefined
     let requestBody = shouldCaptureProxyBody ? previewText(JSON.stringify(canonicalRequest)) : undefined
+    let upstreamResponseBody: (() => string | undefined) | undefined
+    const proxyBodyOptions: RequestOptions = {}
+    if (shouldCaptureProxyBody) {
+      const upstreamResponsePreview = createLogPreview()
+      upstreamResponseBody = () => upstreamResponsePreview.text()
+      proxyBodyOptions.onRequestBody = (body) => {
+        requestBody = previewText(body)
+      }
+      proxyBodyOptions.onResponseBodyChunk = (chunk) => upstreamResponsePreview.append(chunk)
+    }
     const started = Date.now()
-    const upstreamResponsePreview = shouldCaptureProxyBody ? createLogPreview() : undefined
     let result: UpstreamResult
     try {
       result = await upstream.proxy(canonicalRequest, {
         headers: request.headers,
         signal: request.signal,
-        ...(upstreamResponsePreview ? {
-          onRequestBody: (body) => {
-            requestBody = previewText(body)
-          },
-          onResponseBodyChunk: (chunk) => upstreamResponsePreview.append(chunk),
-        } : {}),
+        ...proxyBodyOptions,
       })
     } catch (error) {
       return claudeErrorResponse(error instanceof Error ? error.message : String(error), 500)
@@ -140,16 +144,16 @@ export class Claude_Inbound_Provider implements Inbound_Provider {
 
     if (isCanonicalStream(result)) {
       if (!proxyLog) return claudeCanonicalStreamResponse(result, body)
-      return claudeCanonicalStreamResponse(withLoggedCanonicalStream(result, proxyLog, started, upstreamResponsePreview ? () => upstreamResponsePreview.text() : undefined), body, {
+      return claudeCanonicalStreamResponse(withLoggedCanonicalStream(result, proxyLog, started, upstreamResponseBody), body, {
         onCancel: (reason) => {
           proxyLog.durationMs = Date.now() - started
           proxyLog.error = `stream cancelled: ${reasonText(reason)}`
-          if (upstreamResponsePreview) proxyLog.responseBody = upstreamResponsePreview.text()
+          if (shouldCaptureProxyBody) proxyLog.responseBody = upstreamResponseBody?.()
         },
       })
     }
     if (isCanonicalResponse(result)) {
-      if (proxyLog && upstreamResponsePreview) proxyLog.responseBody = upstreamResponsePreview.text()
+      if (proxyLog && shouldCaptureProxyBody) proxyLog.responseBody = upstreamResponseBody?.()
       return Response.json(await canonicalResponseToClaudeMessage(result, body))
     }
     if (isCanonicalPassthrough(result)) return claudeErrorResponse("Unexpected passthrough response for Claude inbound provider", 500)

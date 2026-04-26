@@ -41,7 +41,7 @@ import {
   REQUEST_LOG_DETAIL_SCROLL_STEP,
   requestLogDetailMaxScroll,
 } from "./components/request-logs-panel"
-import { ResourceUsageHeader } from "./components/resource-usage-header"
+import { StatusHeader } from "./components/resource-usage-header"
 import { SwitchProviderConfirm } from "./components/switch-provider-confirm"
 import { nextProviderDefinition, providerDefinition } from "./providers/registry"
 import type { ProviderAccountData, ProviderConnectDraft, ProviderConnectField } from "./providers/types"
@@ -191,9 +191,9 @@ export function CodexCodeApp(props: { port?: number }) {
   const dashboardInnerWidth = Math.max(32, contentWidth - 4)
   const commands = useMemo(() => getCommands(providerMode), [providerMode])
   const switchTarget = useMemo(() => nextProviderDefinition(providerMode), [providerMode])
-  const headerText = providerMode === "kiro" ? `v${pkg.version} · Kiro - Author: ${pkg.author}` : `v${pkg.version} - Author: ${pkg.author}`
+  const headerText = `v${pkg.version} · ${shortAuthor(pkg.author)}`
+  const dashboardWidth = dashboardCompact ? contentWidth : 2 + 42 + 1 + Math.min(58, Math.max(42, contentWidth - 48))
   const headerResourceWidth = contentWidth >= 104 ? 44 : contentWidth >= 88 ? 34 : 0
-  const headerTextWidth = Math.max(12, Math.min(headerText.length, contentWidth - 10 - headerResourceWidth))
   const visibleRequestLogs = useMemo(
     () => requestLogs.map((log) => requestLogDetails[log.id] ?? log),
     [requestLogDetails, requestLogs],
@@ -861,18 +861,7 @@ export function CodexCodeApp(props: { port?: number }) {
 
   return (
     <Box flexDirection="column" paddingX={1} paddingY={1}>
-      <Box marginLeft={1}>
-        <Text color="#d97757">─── </Text>
-        <Box width={headerTextWidth}>
-          <Text color="#aab3cf" wrap="truncate-end">{headerText}</Text>
-        </Box>
-        {headerResourceWidth > 0 && (
-          <Box width={headerResourceWidth}>
-            <ResourceUsageHeader />
-          </Box>
-        )}
-        <Text color="#d97757"> ───</Text>
-      </Box>
+      <StatusHeader width={dashboardWidth} text={headerText} resourceWidth={headerResourceWidth} />
       <ProviderDashboard
         hostname={hostname}
         port={activePort}
@@ -960,6 +949,10 @@ function updateClaudeEnvDraft(draft: ClaudeEnvironmentDraft, index: number, upda
 
 function baseUrl(hostname: string, port: number) {
   return `http://${hostname}:${port}`
+}
+
+function shortAuthor(author: string) {
+  return author.replace(/\s*<[^>]+>\s*$/, "").trim() || author
 }
 
 function initialLogsCaptureMode(): Exclude<RequestLogMode, "off"> {

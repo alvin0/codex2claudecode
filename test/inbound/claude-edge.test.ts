@@ -637,8 +637,8 @@ describe("Claude_Inbound_Provider edge cases", () => {
     let capturedProxy: any
     let sawCaptureHook = false
     const streamUpstream = {
-      proxy: (_request: unknown, options?: { onResponseBodyChunk?: (chunk: string) => void }) => {
-        sawCaptureHook = options?.onResponseBodyChunk !== undefined
+      proxy: (_request: unknown, options?: { onRequestBody?: (body: string) => void; onResponseBodyChunk?: (chunk: string) => void }) => {
+        sawCaptureHook = options?.onRequestBody !== undefined || options?.onResponseBodyChunk !== undefined
         return Promise.resolve({
           type: "canonical_stream" as const,
           status: 200,
@@ -670,6 +670,43 @@ describe("Claude_Inbound_Provider edge cases", () => {
     expect(events.length).toBeGreaterThan(0)
     expect(sawCaptureHook).toBe(false)
     expect(capturedProxy.responseBody).toBeUndefined()
+  })
+
+  test("streaming response skips capture hooks when proxy logging is disabled", async () => {
+    let sawCaptureHook = false
+    const streamUpstream = {
+      proxy: (_request: unknown, options?: { onRequestBody?: (body: string) => void; onResponseBodyChunk?: (chunk: string) => void }) => {
+        sawCaptureHook = options?.onRequestBody !== undefined || options?.onResponseBodyChunk !== undefined
+        return Promise.resolve({
+          type: "canonical_stream" as const,
+          status: 200,
+          id: "resp_1",
+          model: "gpt-5.4",
+          events: {
+            async *[Symbol.asyncIterator]() {
+              options?.onResponseBodyChunk?.('event: response.output_text.delta\ndata: {"type":"response.output_text.delta","delta":"hello"}\n\n')
+              yield { type: "message_start", id: "resp_1", model: "gpt-5.4" } as const
+              yield { type: "text_delta", delta: "hello" } as const
+              yield { type: "message_stop", stopReason: "end_turn" } as const
+            },
+          },
+        })
+      },
+      checkHealth: () => Promise.resolve({ ok: true }),
+    }
+
+    const provider = new Claude_Inbound_Provider()
+    const response = await provider.handle(
+      new Request("http://localhost/v1/messages", { method: "POST", body: JSON.stringify({ model: "gpt-5.4", messages: [{ role: "user", content: "hello" }], stream: true }) }),
+      { path: "/v1/messages", method: "POST" },
+      streamUpstream,
+      { requestId: "req_1", logBody: true, quiet: true },
+    )
+
+    expect(response.headers.get("content-type")).toContain("text/event-stream")
+    const events = await readSse(response)
+    expect(events.length).toBeGreaterThan(0)
+    expect(sawCaptureHook).toBe(false)
   })
 
   test("canonical stream is cancelled when Claude client disconnects", async () => {

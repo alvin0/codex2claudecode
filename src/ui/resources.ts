@@ -49,5 +49,5 @@ export function formatMemoryBytes(bytes: number) {
 }
 
 export function formatResourceUsageHeader(usage: ResourceUsageSnapshot) {
-  return `CPU ${formatCpuPercent(usage.cpuPercent)} · RAM ${formatMemoryBytes(usage.rssBytes)} RSS · Heap ${formatMemoryBytes(usage.heapUsedBytes)}`
+  return `CPU ${formatCpuPercent(usage.cpuPercent)} RAM ${formatMemoryBytes(usage.rssBytes)} (${formatMemoryBytes(usage.heapUsedBytes)} Heap)`
 }

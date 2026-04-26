@@ -16,6 +16,6 @@ describe("UI resource usage", () => {
     expect(formatMemoryBytes(512)).toBe("512 B")
     expect(formatMemoryBytes(1024 * 1024 * 128)).toBe("128 MB")
     expect(formatMemoryBytes(1024 * 1024 * 1.5)).toBe("1.50 MB")
-    expect(formatResourceUsageHeader({ cpuPercent: 2.345, rssBytes: 1024 * 1024 * 128, heapUsedBytes: 1024 * 1024 * 24 })).toBe("CPU 2.3% · RAM 128 MB RSS · Heap 24.0 MB")
+    expect(formatResourceUsageHeader({ cpuPercent: 2.345, rssBytes: 1024 * 1024 * 128, heapUsedBytes: 1024 * 1024 * 24 })).toBe("CPU 2.3% RAM 128 MB (24.0 MB Heap)")
   })
 })
