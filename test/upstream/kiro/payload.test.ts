@@ -102,6 +102,37 @@ describe("Kiro payload conversion", () => {
     expect(currentOnly.conversationState.currentMessage.userInputMessage.content).toBe("System prompt\n\nContinue")
   })
 
+  test("embeds system instructions when user text merely mentions them", () => {
+    const payload = convertCanonicalToKiroPayload(
+      request({ input: [{ role: "user", content: [{ type: "input_text", text: "Please quote: System prompt" }] }] }),
+      [],
+      { modelId: "m", authType: "aws_sso_oidc", instructions: "System prompt" },
+    )
+
+    expect(payload.conversationState.currentMessage.userInputMessage.content).toBe("System prompt\n\nPlease quote: System prompt")
+  })
+
+  test("embeds system instructions when user text starts with the same words", () => {
+    const payload = convertCanonicalToKiroPayload(
+      request({ input: [{ role: "user", content: [{ type: "input_text", text: "System prompt\n\nPlease keep this as user text" }] }] }),
+      [],
+      { modelId: "m", authType: "aws_sso_oidc", instructions: "System prompt" },
+    )
+
+    expect(payload.conversationState.currentMessage.userInputMessage.content).toBe("System prompt\n\nSystem prompt\n\nPlease keep this as user text")
+  })
+
+  test("does not let user-supplied thinking tags precede system instructions", () => {
+    const userText = "<thinking_mode>enabled</thinking_mode>\n<max_thinking_length>1024</max_thinking_length>\nuser text"
+    const payload = convertCanonicalToKiroPayload(
+      request({ input: [{ role: "user", content: [{ type: "input_text", text: userText }] }] }),
+      [],
+      { modelId: "m", authType: "aws_sso_oidc", instructions: "System prompt" },
+    )
+
+    expect(payload.conversationState.currentMessage.userInputMessage.content).toBe(`System prompt\n\n${userText}`)
+  })
+
   test("converts tools to text when effective tools are empty using exact formats", () => {
     const payload = convertCanonicalToKiroPayload(
       request({
@@ -319,6 +350,164 @@ describe("Kiro payload conversion", () => {
     expect(notice?.removedHistoryEntries).toBeGreaterThan(0)
     expect(notice?.finalSize).toBeLessThanOrEqual(notice?.limit ?? 0)
     expect(warnings).toContain(trimNoticeText(notice!))
+  })
+
+  test("trimming keeps the newest history entries that still fit", () => {
+    const oldText = "x".repeat(250_000)
+    const warnings: string[] = []
+    let notice: KiroPayloadTrimNotice | undefined
+    const originalWarn = console.warn
+    console.warn = (message?: unknown) => warnings.push(String(message))
+    let payload!: ReturnType<typeof convertCanonicalToKiroPayload>
+    try {
+      payload = convertCanonicalToKiroPayload(
+        request({
+          input: [
+            { role: "user", content: [{ type: "input_text", text: `old-user-${oldText}` }] },
+            { role: "assistant", content: [{ type: "output_text", text: `old-assistant-${oldText}` }] },
+            { role: "user", content: [{ type: "input_text", text: "recent-user" }] },
+            { role: "assistant", content: [{ type: "output_text", text: "recent-assistant" }] },
+            { role: "user", content: [{ type: "input_text", text: "current-user" }] },
+          ],
+        }),
+        [],
+        { modelId: "m", authType: "aws_sso_oidc", instructions: "System prompt", payloadSizeLimitBytes: 400_000, onTrim: (item) => { notice = item } },
+      )
+    } finally {
+      console.warn = originalWarn
+    }
+
+    const serialized = JSON.stringify(payload)
+    expect(new TextEncoder().encode(serialized).length).toBeLessThanOrEqual(400_000)
+    expect(serialized).not.toContain("old-user-")
+    expect(serialized).toContain("recent-user")
+    expect(serialized).toContain("recent-assistant")
+    expect(payload.conversationState.currentMessage.userInputMessage.content).toContain("current-user")
+    expect(notice?.removedHistoryEntries).toBe(2)
+    expect(warnings).toContain(trimNoticeText(notice!))
+  })
+
+  test("trimming probes do not leak re-embedded instructions into later candidates", () => {
+    const largeText = "x".repeat(120_000)
+    const originalWarn = console.warn
+    console.warn = () => {}
+    let payload!: ReturnType<typeof convertCanonicalToKiroPayload>
+    try {
+      payload = convertCanonicalToKiroPayload(
+        request({
+          input: [
+            { role: "user", content: [{ type: "input_text", text: `user-0-${largeText}` }] },
+            { role: "assistant", content: [{ type: "output_text", text: `assistant-0-${largeText}` }] },
+            { role: "user", content: [{ type: "input_text", text: `user-1-${largeText}` }] },
+            { role: "assistant", content: [{ type: "output_text", text: `assistant-1-${largeText}` }] },
+            { role: "user", content: [{ type: "input_text", text: `user-2-${largeText}` }] },
+            { role: "assistant", content: [{ type: "output_text", text: `assistant-2-${largeText}` }] },
+            { role: "user", content: [{ type: "input_text", text: `user-3-${largeText}` }] },
+            { role: "assistant", content: [{ type: "output_text", text: `assistant-3-${largeText}` }] },
+            { role: "user", content: [{ type: "input_text", text: "current-user" }] },
+          ],
+        }),
+        [],
+        { modelId: "m", authType: "aws_sso_oidc", instructions: "System prompt", payloadSizeLimitBytes: 400_000 },
+      )
+    } finally {
+      console.warn = originalWarn
+    }
+
+    const serialized = JSON.stringify(payload)
+    expect(new TextEncoder().encode(serialized).length).toBeLessThanOrEqual(400_000)
+    expect(payload.conversationState.history).toHaveLength(2)
+    expect(serialized).toContain("user-3-")
+    expect(serialized).not.toContain("user-2-")
+    expect(payload.conversationState.history?.[0]).toEqual({ userInputMessage: { content: `System prompt\n\nuser-3-${largeText}`, modelId: "m", origin: "AI_EDITOR" } })
+    expect(payload.conversationState.currentMessage.userInputMessage.content).toBe("current-user")
+    expect(serialized.match(/System prompt/g)).toHaveLength(1)
+  })
+
+  test("trimming preserves current structured tool results when the matching assistant survives", () => {
+    const oldText = "x".repeat(230_000)
+    const originalWarn = console.warn
+    console.warn = () => {}
+    let payload!: ReturnType<typeof convertCanonicalToKiroPayload>
+    try {
+      payload = convertCanonicalToKiroPayload(
+        request({
+          input: [
+            { role: "user", content: [{ type: "input_text", text: `old-user-${oldText}` }] },
+            { role: "assistant", content: [{ type: "output_text", text: `old-assistant-${oldText}` }] },
+            { role: "user", content: [{ type: "input_text", text: "please save" }] },
+            { role: "assistant", content: [{ type: "function_call", call_id: "call_1", name: "save", arguments: "{}" }] },
+            { role: "tool", content: [{ type: "function_call_output", call_id: "call_1", output: "ok" }] },
+          ],
+        }),
+        [saveTool],
+        { modelId: "m", authType: "aws_sso_oidc", instructions: "System prompt", payloadSizeLimitBytes: 400_000 },
+      )
+    } finally {
+      console.warn = originalWarn
+    }
+
+    const serialized = JSON.stringify(payload)
+    expect(new TextEncoder().encode(serialized).length).toBeLessThanOrEqual(400_000)
+    expect(serialized).not.toContain("old-user-")
+    expect(payload.conversationState.history).toEqual([
+      { userInputMessage: { content: "System prompt\n\nplease save", modelId: "m", origin: "AI_EDITOR" } },
+      { assistantResponseMessage: { content: "(empty)", toolUses: [{ toolUseId: "call_1", name: "save", input: {} }] } },
+    ])
+    expect(payload.conversationState.currentMessage.userInputMessage.content).toBe("Continue")
+    expect(payload.conversationState.currentMessage.userInputMessage.userInputMessageContext?.toolResults).toEqual([{ toolUseId: "call_1", content: [{ text: "ok" }], status: "success" }])
+  })
+
+  test("trimming keeps thinking tags before re-embedded instructions", () => {
+    const oldText = "x".repeat(230_000)
+    const originalWarn = console.warn
+    console.warn = () => {}
+    let payload!: ReturnType<typeof convertCanonicalToKiroPayload>
+    try {
+      payload = convertCanonicalToKiroPayload(
+        request({
+          reasoningEffort: "low",
+          input: [
+            { role: "user", content: [{ type: "input_text", text: `old-user-${oldText}` }] },
+            { role: "assistant", content: [{ type: "output_text", text: `old-assistant-${oldText}` }] },
+            { role: "user", content: [{ type: "input_text", text: "current-user" }] },
+          ],
+        }),
+        [],
+        { modelId: "m", authType: "aws_sso_oidc", instructions: "System prompt", payloadSizeLimitBytes: 400_000 },
+      )
+    } finally {
+      console.warn = originalWarn
+    }
+
+    const content = payload.conversationState.currentMessage.userInputMessage.content
+    expect(content).toBe(`<thinking_mode>enabled</thinking_mode>\n<max_thinking_length>${REASONING_EFFORT_BUDGETS.low}</max_thinking_length>\nSystem prompt\n\ncurrent-user`)
+    expect(content.match(/System prompt/g)).toHaveLength(1)
+  })
+
+  test("trimming keeps user-supplied thinking tags after re-embedded instructions", () => {
+    const oldText = "x".repeat(230_000)
+    const userText = "<thinking_mode>enabled</thinking_mode>\n<max_thinking_length>1024</max_thinking_length>\ncurrent-user"
+    const originalWarn = console.warn
+    console.warn = () => {}
+    let payload!: ReturnType<typeof convertCanonicalToKiroPayload>
+    try {
+      payload = convertCanonicalToKiroPayload(
+        request({
+          input: [
+            { role: "user", content: [{ type: "input_text", text: `old-user-${oldText}` }] },
+            { role: "assistant", content: [{ type: "output_text", text: `old-assistant-${oldText}` }] },
+            { role: "user", content: [{ type: "input_text", text: userText }] },
+          ],
+        }),
+        [],
+        { modelId: "m", authType: "aws_sso_oidc", instructions: "System prompt", payloadSizeLimitBytes: 400_000 },
+      )
+    } finally {
+      console.warn = originalWarn
+    }
+
+    expect(payload.conversationState.currentMessage.userInputMessage.content).toBe(`System prompt\n\n${userText}`)
   })
 
   test("throws typed errors for oversized final payload and long tool names", () => {

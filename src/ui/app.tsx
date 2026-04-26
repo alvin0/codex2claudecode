@@ -41,6 +41,7 @@ import {
   REQUEST_LOG_DETAIL_SCROLL_STEP,
   requestLogDetailMaxScroll,
 } from "./components/request-logs-panel"
+import { ResourceUsageHeader } from "./components/resource-usage-header"
 import { SwitchProviderConfirm } from "./components/switch-provider-confirm"
 import { nextProviderDefinition, providerDefinition } from "./providers/registry"
 import type { ProviderAccountData, ProviderConnectDraft, ProviderConnectField } from "./providers/types"
@@ -191,7 +192,8 @@ export function CodexCodeApp(props: { port?: number }) {
   const commands = useMemo(() => getCommands(providerMode), [providerMode])
   const switchTarget = useMemo(() => nextProviderDefinition(providerMode), [providerMode])
   const headerText = providerMode === "kiro" ? `v${pkg.version} · Kiro - Author: ${pkg.author}` : `v${pkg.version} - Author: ${pkg.author}`
-  const headerTextWidth = Math.max(12, Math.min(headerText.length, contentWidth - 10))
+  const headerResourceWidth = contentWidth >= 104 ? 44 : contentWidth >= 88 ? 34 : 0
+  const headerTextWidth = Math.max(12, Math.min(headerText.length, contentWidth - 10 - headerResourceWidth))
   const visibleRequestLogs = useMemo(
     () => requestLogs.map((log) => requestLogDetails[log.id] ?? log),
     [requestLogDetails, requestLogs],
@@ -864,6 +866,11 @@ export function CodexCodeApp(props: { port?: number }) {
         <Box width={headerTextWidth}>
           <Text color="#aab3cf" wrap="truncate-end">{headerText}</Text>
         </Box>
+        {headerResourceWidth > 0 && (
+          <Box width={headerResourceWidth}>
+            <ResourceUsageHeader />
+          </Box>
+        )}
         <Text color="#d97757"> ───</Text>
       </Box>
       <ProviderDashboard

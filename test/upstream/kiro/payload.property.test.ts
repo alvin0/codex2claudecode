@@ -3,7 +3,6 @@ import fc from "fast-check"
 
 import type { Canonical_Request } from "../../../src/core/canonical"
 import { convertCanonicalToKiroPayload, sanitizeToolSchema } from "../../../src/upstream/kiro"
-import { PAYLOAD_SIZE_LIMIT_BYTES } from "../../../src/upstream/kiro/constants"
 
 const tool = { type: "function", name: "save", description: "save", parameters: { type: "object", properties: {} } }
 const textChars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 .,_-".split("")
@@ -122,6 +121,7 @@ describe("Kiro payload properties", () => {
     console.warn = () => {}
     try {
       fc.assert(fc.property(fc.integer({ min: 2, max: 3 }), (pairCount) => {
+        const limit = 400_000
         const largeText = "x".repeat(110_000)
         const input: Canonical_Request["input"] = []
         for (let index = 0; index < pairCount; index += 1) {
@@ -130,12 +130,12 @@ describe("Kiro payload properties", () => {
         }
         input.push({ role: "tool", content: [{ type: "function_call_output", call_id: "missing", output: "orphan" }] })
 
-        const payload = convertCanonicalToKiroPayload(request(input), [tool], { modelId: "m", authType: "aws_sso_oidc", instructions: "System prompt", payloadSizeLimitBytes: 400_000 })
+        const payload = convertCanonicalToKiroPayload(request(input), [tool], { modelId: "m", authType: "aws_sso_oidc", instructions: "System prompt", payloadSizeLimitBytes: limit })
         const serialized = JSON.stringify(payload)
         const history = payload.conversationState.history ?? []
         const instructionTarget = history.find((entry) => "userInputMessage" in entry)?.userInputMessage.content ?? payload.conversationState.currentMessage.userInputMessage.content
 
-        expect(encoder.encode(serialized).length).toBeLessThanOrEqual(PAYLOAD_SIZE_LIMIT_BYTES)
+        expect(encoder.encode(serialized).length).toBeLessThanOrEqual(limit)
         if (history.length) expect("userInputMessage" in history[0]).toBe(true)
         for (let index = 1; index < history.length; index += 1) expect("userInputMessage" in history[index]).not.toBe("userInputMessage" in history[index - 1])
         expect(instructionTarget).toContain("System prompt")
