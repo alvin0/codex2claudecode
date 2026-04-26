@@ -242,6 +242,11 @@ GET  /environments
 GET  /health
 ```
 
+In Kiro mode, `/v1/responses` and `/v1/chat/completions` are supported.
+`/v1/responses` expects Responses-style `input` and `text.format`; `/v1/chat/completions`
+expects Chat Completions-style `messages` and `response_format`. Codex mode keeps its
+existing OpenAI-compatible passthrough routes.
+
 ## Kiro Payload Limit
 
 Kiro requests are preflight-checked before sending upstream. The default body

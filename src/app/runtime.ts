@@ -3,7 +3,7 @@ import { LOG_BODY_PREVIEW_LIMIT } from "../core/constants"
 import { cors, responseHeaders } from "../core/http"
 import type { Upstream_Provider } from "../core/interfaces"
 import { createLogPreview } from "../core/log-preview"
-import { appendRequestLog, ensureRequestLogFile, requestLogFilePath } from "../core/request-logs"
+import { appendRequestLog, ensureRequestLogFile, requestLogFilePath, requestLogModel } from "../core/request-logs"
 import type { Provider_Registry } from "../core/registry"
 import type { HealthStatus, JsonObject, RequestLogEntry, RequestProxyLog, RuntimeOptions } from "../core/types"
 
@@ -70,6 +70,7 @@ export async function startRuntimeWithBootstrap(
             status: response.status,
             durationMs,
             error: error ?? (response.status >= 400 && responseBody !== undefined ? responseErrorText(responseBody) : await responseErrorMessage(response)),
+            model: requestLogModel({ requestBody, proxy }),
             requestHeaders: headersPreview,
             requestBody,
             responseBody,
@@ -87,6 +88,7 @@ export async function startRuntimeWithBootstrap(
             status: 0,
             durationMs: 0,
             error: "-",
+            model: requestLogModel({ requestBody }),
             requestHeaders: headersPreview,
             requestBody,
           }

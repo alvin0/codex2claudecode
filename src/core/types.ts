@@ -28,6 +28,7 @@ export interface RequestLogEntry {
   status: number
   durationMs: number
   error: string
+  model?: string
   requestHeaders: Record<string, string>
   requestBody?: string
   responseBody?: string

@@ -64,6 +64,10 @@ export async function readRequestLogDetail(authFile: string, entry: RequestLogEn
   }
 }
 
+export function requestLogModel(entry: Pick<RequestLogEntry, "model" | "requestBody" | "proxy">) {
+  return normalizeModel(entry.model) ?? modelFromBody(entry.requestBody) ?? modelFromBody(entry.proxy?.requestBody)
+}
+
 async function readRecentRequestLogsRaw(authFile: string, limit: number): Promise<RequestLogEntry[]> {
   let content: string
   try {
@@ -134,6 +138,7 @@ function toRequestLogSummary(entry: RequestLogEntry): RequestLogEntry {
     status: entry.status,
     durationMs: entry.durationMs,
     error: entry.error,
+    model: requestLogModel(entry),
     requestHeaders: entry.requestHeaders,
     proxy: entry.proxy
       ? {
@@ -167,4 +172,23 @@ async function removeOrphanedRequestLogDetails(authFile: string, keptIds: Set<st
 
 function safeLogId(id: string) {
   return id.replace(/[^A-Za-z0-9._-]/g, "_")
+}
+
+function modelFromBody(body?: string) {
+  if (!body) return
+  try {
+    return modelFromJson(JSON.parse(body))
+  } catch {
+    return normalizeModel(body.match(/"model"\s*:\s*"([^"]+)"/)?.[1])
+  }
+}
+
+function modelFromJson(value: unknown): string | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return
+  const model = (value as { model?: unknown }).model
+  return normalizeModel(model)
+}
+
+function normalizeModel(value: unknown) {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined
 }

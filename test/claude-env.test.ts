@@ -55,6 +55,7 @@ test("formats preview lines for Claude settings updates", async () => {
   expect(claudeEnvironmentCommands(value, "http://127.0.0.1:8787", "posix")).toContain('ANTHROPIC_AUTH_TOKEN = "codex2claudecode"')
   await expect(echoClaudeEnvironment(value, "http://127.0.0.1:8787", "posix")).resolves.toContain('ANTHROPIC_DEFAULT_HAIKU_MODEL = "gpt-5.4-mini"')
   await expect(echoClaudeEnvironment(value, "http://127.0.0.1:8787", "posix")).resolves.toContain('CLAUDE_CODE_DISABLE_1M_CONTEXT = "1"')
+  await expect(echoClaudeEnvironment(value, "http://127.0.0.1:8787", "posix")).resolves.toContain('CLAUDE_AUTOCOMPACT_PCT_OVERRIDE = "64"')
   await expect(runClaudeEnvironmentSet(value, "http://127.0.0.1:8787", "posix", { persist: false })).resolves.toContain("ANTHROPIC_BASE_URL=http://127.0.0.1:8787")
 })
 
@@ -70,6 +71,7 @@ test("formats unset preview lines for Claude settings env keys", async () => {
     "ANTHROPIC_DEFAULT_SONNET_MODEL",
     "ANTHROPIC_DEFAULT_HAIKU_MODEL",
     "CLAUDE_CODE_DISABLE_1M_CONTEXT",
+    "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE",
     "NODE_TLS_REJECT_UNAUTHORIZED",
   ])
   await expect(echoClaudeEnvironmentUnset(value, "posix")).resolves.toContain("ANTHROPIC_BASE_URL")
@@ -159,6 +161,7 @@ test("merges env updates into ~/.claude/settings.json without changing other fie
     expect(saved.env.ANTHROPIC_API_KEY).toBe("codex2claudecode")
     expect(saved.env.CUSTOM_ENV).toBe("custom-value")
     expect(saved.env.CLAUDE_CODE_DISABLE_1M_CONTEXT).toBe("1")
+    expect(saved.env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE).toBe("64")
     expect(saved.env.NODE_TLS_REJECT_UNAUTHORIZED).toBe("0")
     expect(saved.env.REMOVE_ME).toBeUndefined()
   })
@@ -180,6 +183,7 @@ test("removes only managed env keys from ~/.claude/settings.json", async () => {
         ANTHROPIC_API_KEY: "codex2claudecode",
         ANTHROPIC_MODEL: "gpt-5.4",
         CLAUDE_CODE_DISABLE_1M_CONTEXT: "1",
+        CLAUDE_AUTOCOMPACT_PCT_OVERRIDE: "64",
         NODE_TLS_REJECT_UNAUTHORIZED: "0",
         CUSTOM_ENV: "custom-value",
         REMOVE_ME: "legacy",
@@ -197,6 +201,7 @@ test("removes only managed env keys from ~/.claude/settings.json", async () => {
     expect(saved.env.ANTHROPIC_API_KEY).toBeUndefined()
     expect(saved.env.ANTHROPIC_MODEL).toBeUndefined()
     expect(saved.env.CLAUDE_CODE_DISABLE_1M_CONTEXT).toBeUndefined()
+    expect(saved.env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE).toBeUndefined()
     expect(saved.env.NODE_TLS_REJECT_UNAUTHORIZED).toBeUndefined()
     expect(saved.env.CUSTOM_ENV).toBeUndefined()
     expect(saved.env.REMOVE_ME).toBeUndefined()
@@ -218,6 +223,7 @@ test("creates ~/.claude/settings.json if it does not exist", async () => {
     expect(saved.env.ANTHROPIC_API_KEY).toBe("codex2claudecode")
     expect(saved.env.CUSTOM_ENV).toBe("custom-value")
     expect(saved.env.CLAUDE_CODE_DISABLE_1M_CONTEXT).toBe("1")
+    expect(saved.env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE).toBe("64")
     expect(saved.env.NODE_TLS_REJECT_UNAUTHORIZED).toBe("0")
   })
 })

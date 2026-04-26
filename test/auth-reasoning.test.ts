@@ -119,7 +119,7 @@ describe("request normalization", () => {
       }),
     ).toMatchObject({
       model: "gpt-5.4",
-      instructions: 'sys\n\n{"text":"dev"}',
+      instructions: "sys\n\ndev",
       messages: undefined,
       store: false,
       stream: true,

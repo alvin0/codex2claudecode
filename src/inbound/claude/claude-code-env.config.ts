@@ -13,6 +13,7 @@ export const CLAUDE_CODE_ENV_CONFIG = {
   },
   defaultExtraEnv: {
     CLAUDE_CODE_DISABLE_1M_CONTEXT: "1",
+    CLAUDE_AUTOCOMPACT_PCT_OVERRIDE: "64",
     NODE_TLS_REJECT_UNAUTHORIZED: "0",
   },
   defaultUnsetEnv: [] as string[],

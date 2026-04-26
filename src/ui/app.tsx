@@ -1,5 +1,5 @@
 import { Box, Text, useApp, useInput, useStdout } from "ink"
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
 import { packageInfo } from "../app/package-info"
 import { clearRequestLogs, MAX_REQUEST_LOG_ENTRIES, readRecentRequestLogs, readRequestLogDetail } from "../core/request-logs"
@@ -33,7 +33,14 @@ import { CodexFastModeSelector } from "./components/codex-fast-mode"
 import { ConnectAccountWizard } from "./components/connect-account-wizard"
 import { ConnectSourceSelector } from "./components/connect-source-selector"
 import { ProviderDashboard } from "./components/provider-dashboard"
-import { formatAllRequestLogs, formatRequestLogDetail, RequestLogsPanel } from "./components/request-logs-panel"
+import {
+  formatAllRequestLogs,
+  formatRequestLogDetail,
+  RequestLogsPanel,
+  REQUEST_LOG_DETAIL_FAST_SCROLL_STEP,
+  REQUEST_LOG_DETAIL_SCROLL_STEP,
+  requestLogDetailMaxScroll,
+} from "./components/request-logs-panel"
 import { SwitchProviderConfirm } from "./components/switch-provider-confirm"
 import { nextProviderDefinition, providerDefinition } from "./providers/registry"
 import type { ProviderAccountData, ProviderConnectDraft, ProviderConnectField } from "./providers/types"
@@ -82,6 +89,7 @@ export function CodexCodeApp(props: { port?: number }) {
   const [claudeEnvPresetIndex, setClaudeEnvPresetIndex] = useState(0)
   const [claudeEnvAction, setClaudeEnvAction] = useState<"set" | "unset">("set")
   const [commandOutput, setCommandOutput] = useState<{ title: string; output: string }>()
+  const commandOutputRevision = useRef(0)
   const shell = useMemo(() => detectShell(), [])
   const [connectDraft, setConnectDraft] = useState<ProviderConnectDraft>({})
   const [connectSourceIndex, setConnectSourceIndex] = useState(0)
@@ -92,6 +100,18 @@ export function CodexCodeApp(props: { port?: number }) {
   const resetRuntimeLogs = useCallback(() => {
     setRequestLogs([])
     setRequestLogDetails({})
+  }, [])
+  const clearCommandOutput = useCallback(() => {
+    commandOutputRevision.current += 1
+    setCommandOutput(undefined)
+  }, [])
+  const beginCommandOutput = useCallback(() => {
+    commandOutputRevision.current += 1
+    setCommandOutput(undefined)
+    return commandOutputRevision.current
+  }, [])
+  const setCommandOutputForRevision = useCallback((revision: number, output: { title: string; output: string }) => {
+    if (commandOutputRevision.current === revision) setCommandOutput(output)
   }, [])
   const appendRuntimeLog = useCallback((entry: RequestLogEntry) => {
     setRequestLogs((logs) => {
@@ -151,13 +171,13 @@ export function CodexCodeApp(props: { port?: number }) {
   const resetForProviderSwitch = useCallback((_targetMode: ProviderMode) => {
     resetRuntimeLogs()
     resetLimits()
-    setCommandOutput(undefined)
+    clearCommandOutput()
     setLoadError(undefined)
     setAccountData(undefined)
     setAccountKey(undefined)
     setSelected(0)
     setAuthRevision((value) => value + 1)
-  }, [resetLimits, resetRuntimeLogs])
+  }, [clearCommandOutput, resetLimits, resetRuntimeLogs])
   const pkg = useMemo(() => packageInfo(), [])
   const activePort = runtime.status === "running" ? runtime.server.port ?? port : port
   const terminalColumns = stdout.columns ?? 120
@@ -167,8 +187,7 @@ export function CodexCodeApp(props: { port?: number }) {
   const commands = useMemo(() => getCommands(providerMode), [providerMode])
   const switchTarget = useMemo(() => nextProviderDefinition(providerMode), [providerMode])
   const headerText = providerMode === "kiro" ? `v${pkg.version} · Kiro - Author: ${pkg.author}` : `v${pkg.version} - Author: ${pkg.author}`
-  const headerTextWidth = Math.max(12, Math.min(headerText.length, contentWidth - 8))
-  const headerRuleWidth = Math.max(0, contentWidth - headerTextWidth - 5)
+  const headerTextWidth = Math.max(12, Math.min(headerText.length, contentWidth - 10))
   const visibleRequestLogs = useMemo(
     () => requestLogs.map((log) => requestLogDetails[log.id] ?? log),
     [requestLogDetails, requestLogs],
@@ -399,7 +418,7 @@ export function CodexCodeApp(props: { port?: number }) {
         return
       }
       if (commandOutput) {
-        setCommandOutput(undefined)
+        clearCommandOutput()
         setInputMessage("Type / for commands")
         return
       }
@@ -542,20 +561,22 @@ export function CodexCodeApp(props: { port?: number }) {
       if (mode === "claude-env-confirm") {
         setMode("home")
         setInputMessage("Claude settings updated")
+        const outputRevision = beginCommandOutput()
         void writeClaudeEnvironmentConfig(authFile, claudeEnvDraft, providerMode).catch((error) =>
           setInputMessage(`Claude environment saved failed: ${error instanceof Error ? error.message : String(error)}`),
         )
         void runClaudeEnvironmentSet(claudeEnvDraft, baseUrl(hostname, activePort), shell, { authFile, settingsFile: claudeSettingsFile })
-          .then((output) => setCommandOutput({ title: `Set Claude environment - ${claudeSettingsTarget}`, output }))
-          .catch((error) => setCommandOutput({ title: "Set Claude environment failed", output: error instanceof Error ? error.message : String(error) }))
+          .then((output) => setCommandOutputForRevision(outputRevision, { title: `Set Claude environment - ${claudeSettingsTarget}`, output }))
+          .catch((error) => setCommandOutputForRevision(outputRevision, { title: "Set Claude environment failed", output: error instanceof Error ? error.message : String(error) }))
         return
       }
       if (mode === "claude-env-unset-confirm") {
         setMode("home")
         setInputMessage("Claude settings env entries removed")
+        const outputRevision = beginCommandOutput()
         void runClaudeEnvironmentUnset(claudeEnvDraft, shell, { authFile, settingsFile: claudeSettingsFile })
-          .then((output) => setCommandOutput({ title: `Unset Claude environment - ${claudeSettingsTarget}`, output }))
-          .catch((error) => setCommandOutput({ title: "Unset Claude environment echo failed", output: error instanceof Error ? error.message : String(error) }))
+          .then((output) => setCommandOutputForRevision(outputRevision, { title: `Unset Claude environment - ${claudeSettingsTarget}`, output }))
+          .catch((error) => setCommandOutputForRevision(outputRevision, { title: "Unset Claude environment echo failed", output: error instanceof Error ? error.message : String(error) }))
         return
       }
       if (mode === "claude-env-editor") {
@@ -602,6 +623,7 @@ export function CodexCodeApp(props: { port?: number }) {
         return
       }
       if (command) {
+        clearCommandOutput()
         if (command.name === "/switch-provider") {
           if (runtime.status === "starting" || switchingProvider) {
             setInputMessage("Provider switch already in progress")
@@ -704,15 +726,28 @@ export function CodexCodeApp(props: { port?: number }) {
     }
     if (mode === "logs") {
       if (logsDetailOpen) {
-        if (key.upArrow) {
+        const detailLog = visibleRequestLogs[logsSelected]
+        const maxDetailScroll = detailLog ? requestLogDetailMaxScroll(detailLog, stdout.columns) : 0
+        const scrollStep = key.pageUp || key.pageDown || key.meta ? REQUEST_LOG_DETAIL_FAST_SCROLL_STEP : REQUEST_LOG_DETAIL_SCROLL_STEP
+        if (key.home) {
           setLogsCopyStatus(undefined)
           setLogsClearConfirm(false)
-          setLogsDetailScroll((value) => Math.max(0, value - 1))
+          setLogsDetailScroll(0)
         }
-        if (key.downArrow) {
+        if (key.end) {
           setLogsCopyStatus(undefined)
           setLogsClearConfirm(false)
-          setLogsDetailScroll((value) => value + 1)
+          setLogsDetailScroll(maxDetailScroll)
+        }
+        if (key.upArrow || key.pageUp) {
+          setLogsCopyStatus(undefined)
+          setLogsClearConfirm(false)
+          setLogsDetailScroll((value) => Math.max(0, Math.min(value, maxDetailScroll) - scrollStep))
+        }
+        if (key.downArrow || key.pageDown) {
+          setLogsCopyStatus(undefined)
+          setLogsClearConfirm(false)
+          setLogsDetailScroll((value) => Math.min(maxDetailScroll, value + scrollStep))
         }
         return
       }
@@ -748,12 +783,13 @@ export function CodexCodeApp(props: { port?: number }) {
       if (input === "y") {
         setMode("home")
         setInputMessage("Claude settings updated")
+        const outputRevision = beginCommandOutput()
         void writeClaudeEnvironmentConfig(authFile, claudeEnvDraft, providerMode).catch((error) =>
           setInputMessage(`Claude environment saved failed: ${error instanceof Error ? error.message : String(error)}`),
         )
         void runClaudeEnvironmentSet(claudeEnvDraft, baseUrl(hostname, activePort), shell, { authFile, settingsFile: claudeSettingsFile })
-          .then((output) => setCommandOutput({ title: `Set Claude environment - ${claudeSettingsTarget}`, output }))
-          .catch((error) => setCommandOutput({ title: "Set Claude environment failed", output: error instanceof Error ? error.message : String(error) }))
+          .then((output) => setCommandOutputForRevision(outputRevision, { title: `Set Claude environment - ${claudeSettingsTarget}`, output }))
+          .catch((error) => setCommandOutputForRevision(outputRevision, { title: "Set Claude environment failed", output: error instanceof Error ? error.message : String(error) }))
       }
       if (input === "n") {
         setMode("home")
@@ -765,9 +801,10 @@ export function CodexCodeApp(props: { port?: number }) {
       if (input === "y") {
         setMode("home")
         setInputMessage("Claude settings env entries removed")
+        const outputRevision = beginCommandOutput()
         void runClaudeEnvironmentUnset(claudeEnvDraft, shell, { authFile, settingsFile: claudeSettingsFile })
-          .then((output) => setCommandOutput({ title: `Unset Claude environment - ${claudeSettingsTarget}`, output }))
-          .catch((error) => setCommandOutput({ title: "Unset Claude environment echo failed", output: error instanceof Error ? error.message : String(error) }))
+          .then((output) => setCommandOutputForRevision(outputRevision, { title: `Unset Claude environment - ${claudeSettingsTarget}`, output }))
+          .catch((error) => setCommandOutputForRevision(outputRevision, { title: "Unset Claude environment echo failed", output: error instanceof Error ? error.message : String(error) }))
       }
       if (input === "n") {
         setMode("home")
@@ -789,10 +826,12 @@ export function CodexCodeApp(props: { port?: number }) {
     }
     if (mode === "home") {
       if (key.upArrow) {
+        clearCommandOutput()
         setCommandIndex((value) => (value - 1 + commands.length) % commands.length)
         return
       }
       if (key.downArrow) {
+        clearCommandOutput()
         setCommandIndex((value) => (value + 1) % commands.length)
         return
       }
@@ -801,12 +840,12 @@ export function CodexCodeApp(props: { port?: number }) {
 
   return (
     <Box flexDirection="column" paddingX={1} paddingY={1}>
-      <Box marginLeft={1} width={Math.max(1, contentWidth - 1)}>
+      <Box marginLeft={1}>
         <Text color="#d97757">─── </Text>
         <Box width={headerTextWidth}>
           <Text color="#aab3cf" wrap="truncate-end">{headerText}</Text>
         </Box>
-        <Text color="#d97757">{"─".repeat(headerRuleWidth)}</Text>
+        <Text color="#d97757"> ───</Text>
       </Box>
       <ProviderDashboard
         hostname={hostname}

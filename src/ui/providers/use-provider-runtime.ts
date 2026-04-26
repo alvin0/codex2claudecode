@@ -45,7 +45,6 @@ export function useProviderRuntime(options: UseProviderRuntimeOptions) {
   const [runtime, setRuntime] = useState<RuntimeState>({ status: "starting" })
   const [upstream, setUpstream] = useState<Upstream_Provider>()
   const pendingProviderSwitch = useRef<{ previousMode: ProviderMode; targetMode: ProviderMode; targetLabel: string } | undefined>(undefined)
-  const skipNextRuntimeStart = useRef(false)
   const lastRuntimeSignature = useRef<string | undefined>(undefined)
 
   useEffect(() => {
@@ -66,10 +65,6 @@ export function useProviderRuntime(options: UseProviderRuntimeOptions) {
 
   useEffect(() => {
     if (!providerReady) return
-    if (skipNextRuntimeStart.current) {
-      skipNextRuntimeStart.current = false
-      return
-    }
     if (loadError) return
     if (providerMode === "codex" && !accountKey) return
 
@@ -132,7 +127,7 @@ export function useProviderRuntime(options: UseProviderRuntimeOptions) {
           setSwitchingProvider(false)
           onMessage(`Switch to ${pendingSwitch.targetLabel} failed: ${message}`)
           if (!bootstrapSucceeded) {
-            skipNextRuntimeStart.current = true
+            setAuthFile(providerDefinition(pendingSwitch.previousMode).authFile())
             setProviderMode(pendingSwitch.previousMode)
             setProviderInfo(fallbackProviderInfo(pendingSwitch.previousMode))
           }

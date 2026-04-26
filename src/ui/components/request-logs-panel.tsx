@@ -1,22 +1,25 @@
 import React, { useEffect, useState } from "react"
 import { Box, Text, useStdout } from "ink"
 
+import { requestLogModel } from "../../core/request-logs"
 import type { RequestLogEntry } from "../../core/types"
 
 const LOG_HEIGHT = 15
-const DETAIL_HEIGHT = 16
+export const REQUEST_LOG_DETAIL_HEIGHT = 16
+export const REQUEST_LOG_DETAIL_SCROLL_STEP = 1
+export const REQUEST_LOG_DETAIL_FAST_SCROLL_STEP = REQUEST_LOG_DETAIL_HEIGHT - 2
 
-const COL_NUM = 4
 const COL_ICON = 3
 const COL_ID = 10
 const COL_TIME = 10
 const COL_METHOD = 7
 const COL_PATH = 30
+const COL_MODEL = 22
 const COL_CLIENT = 8
 const COL_PROXY = 8
 const COL_DURATION = 10
 const COL_SUMMARY = 48
-const FIXED_TABLE_WIDTH = COL_NUM + COL_ICON + COL_ID + COL_TIME + COL_METHOD + COL_CLIENT + COL_PROXY + COL_DURATION
+const FIXED_TABLE_WIDTH = COL_ICON + COL_ID + COL_TIME + COL_METHOD + COL_MODEL + COL_CLIENT + COL_PROXY + COL_DURATION
 const DEFAULT_TABLE_WIDTH = FIXED_TABLE_WIDTH + COL_PATH + COL_SUMMARY
 const MIN_TABLE_WIDTH = 44
 const TABLE_GUTTER = 6
@@ -30,9 +33,15 @@ interface TableLayout {
   summaryWidth: number
   showId: boolean
   showTime: boolean
+  showModel: boolean
   showProxy: boolean
   showDuration: boolean
   shortcuts: string
+}
+
+interface DetailLine {
+  text: string
+  color: string
 }
 
 export function RequestLogsPanel(props: {
@@ -84,7 +93,6 @@ export function RequestLogsPanel(props: {
             <LogRow
               key={`${log.id}-${log.at}`}
               log={log}
-              index={globalIndex + 1}
               selected={globalIndex === selected}
               table={table}
               loadingFrame={loadingFrame}
@@ -119,21 +127,21 @@ export function RequestLogsPanel(props: {
           </>
         )}
       </Box>
-      {props.detailOpen && detail && <LogDetailDialog log={detail} scroll={props.detailScroll ?? 0} />}
+      {props.detailOpen && detail && <LogDetailDialog log={detail} scroll={props.detailScroll ?? 0} width={table.width} />}
     </Box>
   )
 }
 
-function LogRow(props: { log: RequestLogEntry; index: number; selected: boolean; table: TableLayout; loadingFrame: string; now: number }) {
+function LogRow(props: { log: RequestLogEntry; selected: boolean; table: TableLayout; loadingFrame: string; now: number }) {
   const pending = props.log.state === "pending"
   const isNew = pending
 
-  const numStr = String(props.index).padStart(3, " ")
   const iconStr = props.selected ? `>${pending ? props.loadingFrame : " "}` : isNew ? ` ${props.loadingFrame}` : "  "
   const idStr = props.log.id
   const timeStr = new Date(props.log.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false })
   const methodStr = props.log.method
   const pathStr = truncate(props.log.path, props.table.pathWidth)
+  const modelStr = requestLogModel(props.log) ?? "-"
   const clientStr = pending ? "..." : String(props.log.status)
   const proxyStr = props.log.proxy ? String(props.log.proxy.status) : pending ? "..." : "-"
   const durationMs = pending ? elapsedDurationMs(props.log.at, props.now) : props.log.durationMs
@@ -143,12 +151,12 @@ function LogRow(props: { log: RequestLogEntry; index: number; selected: boolean;
 
   return (
     <Box width={props.table.width}>
-      <Text color={props.selected ? "#d97757" : "#4b5563"} wrap="truncate-end">{col(numStr, COL_NUM)}</Text>
       <Text color={props.selected ? "#d97757" : isNew ? "#facc15" : "gray"} wrap="truncate-end">{col(iconStr, COL_ICON)}</Text>
       {props.table.showId && <Text color={props.selected ? "#d97757" : isNew ? "#facc15" : "gray"} wrap="truncate-end">{col(idStr, COL_ID)}</Text>}
       {props.table.showTime && <Text color={isNew ? "#facc15" : "#aab3cf"} wrap="truncate-end">{col(timeStr, COL_TIME)}</Text>}
       <Text color={isNew ? "#facc15" : undefined} wrap="truncate-end">{col(methodStr, COL_METHOD)}</Text>
       <Text color={isNew ? "#facc15" : "#aab3cf"} wrap="truncate-end">{col(pathStr, props.table.pathWidth)}</Text>
+      {props.table.showModel && <Text color={modelStr === "-" ? "gray" : "#aab3cf"} wrap="truncate-end">{col(modelStr, COL_MODEL)}</Text>}
       <Text color={pending ? "yellow" : statusColor(props.log.status)} wrap="truncate-end">{col(clientStr, COL_CLIENT)}</Text>
       {props.table.showProxy && <Text color={props.log.proxy ? statusColor(props.log.proxy.status) : "gray"} wrap="truncate-end">{col(proxyStr, COL_PROXY)}</Text>}
       {props.table.showDuration && <Text color={durationColor(durationMs)} wrap="truncate-end">{col(durationStr, COL_DURATION)}</Text>}
@@ -157,17 +165,17 @@ function LogRow(props: { log: RequestLogEntry; index: number; selected: boolean;
   )
 }
 
-function LogDetailDialog(props: { log: RequestLogEntry; scroll: number }) {
+function LogDetailDialog(props: { log: RequestLogEntry; scroll: number; width: number }) {
   const { log } = props
-  const lines = buildDetailLines(log)
-  const maxScroll = Math.max(0, lines.length - DETAIL_HEIGHT)
+  const lines = buildDetailRows(log, detailContentWidth(props.width))
+  const maxScroll = Math.max(0, lines.length - REQUEST_LOG_DETAIL_HEIGHT)
   const scroll = Math.max(0, Math.min(props.scroll, maxScroll))
-  const visibleLines = lines.slice(scroll, scroll + DETAIL_HEIGHT)
+  const visibleLines = lines.slice(scroll, scroll + REQUEST_LOG_DETAIL_HEIGHT)
   return (
-    <Box flexDirection="column" marginTop={1} borderStyle="round" borderColor="#d97757" paddingX={1} paddingY={1}>
+    <Box width={props.width} flexDirection="column" marginTop={1} borderStyle="round" borderColor="#d97757" paddingX={1} paddingY={1}>
       <Box>
         <Text bold color="#c7d2fe">Request detail</Text>
-        <Text color="gray">  ↑/↓ scroll · Enter/Esc close</Text>
+        <Text color="gray" wrap="truncate-end">  ↑/↓ scroll · PgUp/PgDn fast · Home/End · Enter/Esc close</Text>
       </Box>
       <Box marginTop={1}>
         <Text color="#d97757">[c]</Text>
@@ -178,10 +186,10 @@ function LogDetailDialog(props: { log: RequestLogEntry; scroll: number }) {
         <Text color="gray"> clear logs</Text>
       </Box>
       <Text color="gray">
-        Lines {scroll + 1}-{Math.min(lines.length, scroll + DETAIL_HEIGHT)} / {lines.length}
+        Rows {scroll + 1}-{Math.min(lines.length, scroll + REQUEST_LOG_DETAIL_HEIGHT)} / {lines.length}
       </Text>
       {visibleLines.map((line, index) => (
-        <Text key={`${scroll}-${index}`} color={line.color}>
+        <Text key={`${scroll}-${index}`} color={line.color} wrap="truncate-end">
           {line.text}
         </Text>
       ))}
@@ -209,15 +217,16 @@ function tableLayout(columns?: number): TableLayout {
   const medium = availableWidth >= 76
   const showId = full
   const showTime = full || medium
+  const showModel = availableWidth >= 110
   const showProxy = full
   const showDuration = full || medium
   const fixedWidth =
-    COL_NUM +
     COL_ICON +
     COL_METHOD +
     COL_CLIENT +
     (showId ? COL_ID : 0) +
     (showTime ? COL_TIME : 0) +
+    (showModel ? COL_MODEL : 0) +
     (showProxy ? COL_PROXY : 0) +
     (showDuration ? COL_DURATION : 0)
   const flexibleWidth = Math.max(12, availableWidth - fixedWidth)
@@ -249,6 +258,7 @@ function tableLayout(columns?: number): TableLayout {
     width,
     showId,
     showTime,
+    showModel,
     showProxy,
     showDuration,
     shortcuts: width < 72 ? SHORT_SHORTCUTS : LONG_SHORTCUTS,
@@ -257,17 +267,26 @@ function tableLayout(columns?: number): TableLayout {
 
 function tableHeader(table: TableLayout) {
   return [
-    col("  #", COL_NUM),
     col("", COL_ICON),
     table.showId ? col("Id", COL_ID) : "",
     table.showTime ? col("Time", COL_TIME) : "",
     col("Method", COL_METHOD),
     col("Path", table.pathWidth),
+    table.showModel ? col("Model", COL_MODEL) : "",
     col("Client", COL_CLIENT),
     table.showProxy ? col("Proxy", COL_PROXY) : "",
     table.showDuration ? col("Duration", COL_DURATION) : "",
     col("Summary", table.summaryWidth),
   ].join("")
+}
+
+export function requestLogDetailMaxScroll(log: RequestLogEntry, columns?: number) {
+  const table = tableLayout(columns)
+  return Math.max(0, buildDetailRows(log, detailContentWidth(table.width)).length - REQUEST_LOG_DETAIL_HEIGHT)
+}
+
+function detailContentWidth(width: number) {
+  return Math.max(8, Math.floor(width) - 4)
 }
 
 function useSpinner(active?: boolean) {
@@ -344,10 +363,12 @@ function formatKeyValue(value: Record<string, string>) {
   return entries.map(([key, content]) => `${key}: ${content}`).join(" | ")
 }
 
-function buildDetailLines(log: RequestLogEntry) {
+function buildDetailLines(log: RequestLogEntry): DetailLine[] {
   const pending = log.state === "pending"
+  const model = requestLogModel(log) ?? "-"
   return [
     { text: `[${log.id}] ${formatTimestamp(log.at)} · ${log.method} ${log.path}`, color: "gray" },
+    { text: `Model: ${model}`, color: model === "-" ? "gray" : "#aab3cf" },
     { text: pending ? "Client status: in process" : `Client status: ${log.status} · ${log.durationMs}ms`, color: pending ? "yellow" : statusColor(log.status) },
     { text: `Client error: ${log.error}`, color: log.error === "-" ? "gray" : "red" },
     { text: "", color: "gray" },
@@ -375,6 +396,30 @@ function buildDetailLines(log: RequestLogEntry) {
         ]
       : [{ text: "No upstream proxy for this request", color: "gray" }]),
   ]
+}
+
+function buildDetailRows(log: RequestLogEntry, width: number) {
+  return buildDetailLines(log).flatMap((line) => wrapDetailLine(line, width))
+}
+
+function wrapDetailLine(line: DetailLine, width: number): DetailLine[] {
+  const rowWidth = Math.max(1, Math.floor(width))
+  if (line.text.length <= rowWidth) return [line]
+
+  const continuationIndent = line.text.match(/^\s*/)?.[0] ?? ""
+  const rows: DetailLine[] = []
+  let remaining = line.text
+  let first = true
+
+  while (remaining.length > 0) {
+    const prefix = first || continuationIndent.length >= rowWidth - 4 ? "" : continuationIndent
+    const chunkWidth = Math.max(1, rowWidth - prefix.length)
+    rows.push({ ...line, text: `${prefix}${remaining.slice(0, chunkWidth)}` })
+    remaining = remaining.slice(chunkWidth)
+    first = false
+  }
+
+  return rows
 }
 
 export function formatRequestLogDetail(log: RequestLogEntry) {

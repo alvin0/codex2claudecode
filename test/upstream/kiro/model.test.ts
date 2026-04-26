@@ -19,6 +19,7 @@ describe("Kiro model handling", () => {
     expect(normalizeKiroModelName("claude-sonnet-4-5")).toBe("claude-sonnet-4.5")
     expect(normalizeKiroModelName("claude-sonnet-4-20250514")).toBe("claude-sonnet-4")
     expect(normalizeKiroModelName("claude-sonnet-4-latest")).toBe("claude-sonnet-4")
+    expect(normalizeKiroModelName("claude-opus-latest")).toBe("claude-opus-latest")
     expect(normalizeKiroModelName("claude-3-7-sonnet")).toBe("claude-3.7-sonnet")
   })
 

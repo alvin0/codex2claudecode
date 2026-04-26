@@ -38,7 +38,7 @@ async function providerConfigFile(provider: "codex" | "kiro") {
 }
 
 describe("bootstrap Kiro integration", () => {
-  test("UPSTREAM_PROVIDER=kiro creates Kiro upstream, Claude-only registry, and synthetic auth path", async () => {
+  test("UPSTREAM_PROVIDER=kiro creates Kiro upstream, Kiro registry, and synthetic auth path", async () => {
     process.env.UPSTREAM_PROVIDER = "kiro"
     process.env.KIRO_AUTH_FILE = await kiroAuthFile()
 
@@ -48,8 +48,9 @@ describe("bootstrap Kiro integration", () => {
     expect(path.dirname(runtime.authFile)).toBe(path.join(homedir(), ".codex2claudecode"))
     expect(runtime.authAccount).toBeUndefined()
     expect(runtime.registry.match("POST", "/v1/messages", new Headers())?.provider.name).toBe("claude-kiro")
-    expect(runtime.registry.match("POST", "/v1/responses", new Headers())).toBeUndefined()
-    expect(runtime.registry.match("POST", "/v1/chat/completions", new Headers())).toBeUndefined()
+    expect(runtime.registry.match("POST", "/v1/responses", new Headers())?.provider.name).toBe("openai-kiro")
+    expect(runtime.registry.match("POST", "/v1/chat/completions", new Headers())?.provider.name).toBe("openai-kiro")
+    expect(runtime.registry.match("POST", "/v1/complete", new Headers())).toBeUndefined()
   })
 
   test("UPSTREAM_PROVIDER=codex creates Codex upstream and keeps OpenAI routes", async () => {
@@ -81,7 +82,8 @@ describe("bootstrap Kiro integration", () => {
     const runtime = await bootstrapRuntime({ providerConfigPath: await providerConfigFile("kiro") })
     expect(runtime.upstream.constructor.name).toBe("Kiro_Upstream_Provider")
     expect(runtime.registry.match("POST", "/v1/messages", new Headers())?.provider.name).toBe("claude-kiro")
-    expect(runtime.registry.match("POST", "/v1/responses", new Headers())).toBeUndefined()
+    expect(runtime.registry.match("POST", "/v1/responses", new Headers())?.provider.name).toBe("openai-kiro")
+    expect(runtime.registry.match("POST", "/v1/chat/completions", new Headers())?.provider.name).toBe("openai-kiro")
   })
 
   test("UPSTREAM_PROVIDER overrides provider config", async () => {

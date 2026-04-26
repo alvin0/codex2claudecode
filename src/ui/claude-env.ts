@@ -103,10 +103,7 @@ export function recommendedClaudeEnvironment(providerMode: ProviderMode = "codex
     ANTHROPIC_DEFAULT_OPUS_MODEL: rec.canEdit.ANTHROPIC_DEFAULT_OPUS_MODEL,
     ANTHROPIC_DEFAULT_SONNET_MODEL: rec.canEdit.ANTHROPIC_DEFAULT_SONNET_MODEL,
     ANTHROPIC_DEFAULT_HAIKU_MODEL: rec.canEdit.ANTHROPIC_DEFAULT_HAIKU_MODEL,
-    extraEnv: {
-      CLAUDE_CODE_DISABLE_1M_CONTEXT: rec.canEdit.CLAUDE_CODE_DISABLE_1M_CONTEXT,
-      NODE_TLS_REJECT_UNAUTHORIZED: rec.static.NODE_TLS_REJECT_UNAUTHORIZED,
-    },
+    extraEnv: extraEnvDefaultsForProvider(providerMode),
     unsetEnv: [...CLAUDE_CODE_ENV_CONFIG.defaultUnsetEnv],
   }
 }
@@ -269,9 +266,14 @@ function extraEnvDefaultsForProvider(providerMode: ProviderMode) {
   const rec = exportEnvConfigForProvider(providerMode)
   return {
     ...CLAUDE_CODE_ENV_CONFIG.defaultExtraEnv,
-    CLAUDE_CODE_DISABLE_1M_CONTEXT: rec.canEdit.CLAUDE_CODE_DISABLE_1M_CONTEXT,
+    ...extraEditableEnvDefaultsForProvider(providerMode),
     NODE_TLS_REJECT_UNAUTHORIZED: rec.static.NODE_TLS_REJECT_UNAUTHORIZED,
   }
+}
+
+function extraEditableEnvDefaultsForProvider(providerMode: ProviderMode) {
+  const canEdit = exportEnvConfigForProvider(providerMode).canEdit
+  return Object.fromEntries(EXPORT_ENV_EXTRA_EDITABLE_KEYS.map((key) => [key, canEdit[key]] as const))
 }
 
 function modelEnvValue(key: ClaudeCodeEditableEnvKey, fallback: string, providerMode: ProviderMode) {

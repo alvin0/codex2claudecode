@@ -280,7 +280,7 @@ export function computeEffectiveTools(tools: JsonObject[] = [], toolChoice?: Jso
 }
 
 export function normalizeKiroModelName(model: string) {
-  let normalized = model.replace(/-latest$/, "").replace(/-\d{8}$/, "")
+  let normalized = model.replace(/(-\d+(?:-\d+)?)-latest$/, "$1").replace(/-\d{8}$/, "")
   normalized = normalized.replace(/^(claude-[a-z]+-\d+)-(\d+)$/, "$1.$2")
   normalized = normalized.replace(/^(claude-\d+)-(\d+)(-[a-z]+.*)$/, "$1.$2$3")
   return normalized

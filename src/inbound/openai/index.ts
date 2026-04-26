@@ -1,19 +1,40 @@
-import type { Canonical_ErrorResponse, Canonical_PassthroughResponse } from "../../core/canonical"
+import type { Canonical_ErrorResponse, Canonical_PassthroughResponse, Canonical_Response, Canonical_StreamResponse } from "../../core/canonical"
 import type { Inbound_Provider, RequestHandlerContext, Route_Descriptor, UpstreamResult, Upstream_Provider } from "../../core/interfaces"
 import { responseHeaders } from "../../core/http"
 import { LOG_BODY_PREVIEW_LIMIT } from "../../core/constants"
 import { createLogPreview } from "../../core/log-preview"
-import type { RequestProxyLog } from "../../core/types"
+import type { JsonObject, RequestProxyLog } from "../../core/types"
 import { normalizeCanonicalRequest, normalizeRequestBody } from "./normalize"
+import { openAICanonicalResponse, openAICanonicalStreamResponse } from "./response"
+
+interface OpenAIInboundProviderOptions {
+  name?: string
+  routes?: Route_Descriptor[]
+  passthrough?: boolean
+  upstreamLogLabel?: string
+  upstreamTarget?: string
+}
 
 export class OpenAI_Inbound_Provider implements Inbound_Provider {
-  readonly name = "openai"
+  readonly name: string
+  private readonly routeDescriptors: Route_Descriptor[]
+  private readonly passthrough: boolean
+  private readonly upstreamLogLabel: string
+  private readonly upstreamTarget: string
 
-  routes(): Route_Descriptor[] {
-    return [
+  constructor(options: OpenAIInboundProviderOptions = {}) {
+    this.name = options.name ?? "openai"
+    this.routeDescriptors = options.routes ?? [
       { path: "/v1/responses", method: "POST" },
       { path: "/v1/chat/completions", method: "POST" },
     ]
+    this.passthrough = options.passthrough ?? true
+    this.upstreamLogLabel = options.upstreamLogLabel ?? "Codex responses"
+    this.upstreamTarget = options.upstreamTarget ?? "/v1/responses"
+  }
+
+  routes(): Route_Descriptor[] {
+    return this.routeDescriptors
   }
 
   async handle(request: Request, route: Route_Descriptor, upstream: Upstream_Provider, context: RequestHandlerContext): Promise<Response> {
@@ -21,6 +42,13 @@ export class OpenAI_Inbound_Provider implements Inbound_Provider {
     try {
       body = await request.json()
     } catch (error) {
+      if (!this.passthrough) {
+        return openAIErrorResponse(
+          `Invalid JSON: ${error instanceof Error ? error.message : String(error)}`,
+          400,
+          "invalid_request_error",
+        )
+      }
       return Response.json(
         {
           error: {
@@ -31,23 +59,40 @@ export class OpenAI_Inbound_Provider implements Inbound_Provider {
       )
     }
 
-    const requestBody = context.logBody ? previewText(JSON.stringify(normalizeRequestBody(route.path, body as Record<string, unknown>))) : undefined
+    if (!isJsonObject(body)) {
+      return openAIErrorResponse("Request body must be a JSON object", 400, "invalid_request_error")
+    }
+
+    const wireBody = body as JsonObject
+    if (!this.passthrough) {
+      const validationError = validateOpenAIRequestShape(route.path, wireBody)
+      if (validationError) return openAIErrorResponse(validationError, 400, "invalid_request_error")
+    }
+
+    const requestBody = context.logBody ? previewText(JSON.stringify(normalizeRequestBody(route.path, wireBody))) : undefined
+    const upstreamRequestPreview = createLogPreview()
+    const upstreamResponsePreview = createLogPreview()
     const started = Date.now()
-    const result = await upstream.proxy(normalizeCanonicalRequest(route.path, body as Record<string, unknown>), {
+    const result = await upstream.proxy(normalizeCanonicalRequest(route.path, wireBody, { passthrough: this.passthrough }), {
       headers: request.headers,
       signal: request.signal,
+      ...(context.logBody && !this.passthrough ? {
+        onRequestBody: (nextBody) => upstreamRequestPreview.append(nextBody),
+        onResponseBodyChunk: (chunk) => upstreamResponsePreview.append(chunk),
+      } : {}),
     })
     const durationMs = Date.now() - started
+    const proxyRequestBody = upstreamRequestPreview.text() || requestBody
 
     if (isCanonicalPassthrough(result)) {
       const proxyLog: RequestProxyLog = {
-        label: "Codex responses",
+        label: this.upstreamLogLabel,
         method: "POST",
-        target: "/v1/responses",
+        target: this.upstreamTarget,
         status: result.status,
         durationMs,
         error: "-",
-        requestBody,
+        requestBody: proxyRequestBody,
       }
       context.onProxy?.(proxyLog)
       const response = new Response(passthroughBodyInit(result.body), {
@@ -62,31 +107,75 @@ export class OpenAI_Inbound_Provider implements Inbound_Provider {
     }
 
     if (isCanonicalError(result)) {
-      context.onProxy?.({
-        label: "Codex responses",
+      const proxyLog = {
+        label: this.upstreamLogLabel,
         method: "POST",
-        target: "/v1/responses",
+        target: this.upstreamTarget,
         status: result.status,
         durationMs,
         error: previewText(result.body) || "-",
-        requestBody,
+        requestBody: proxyRequestBody,
         responseBody: previewText(result.body) || undefined,
-      })
+      } satisfies RequestProxyLog
+      context.onProxy?.(proxyLog)
+      if (!this.passthrough) {
+        return openAIErrorResponse(result.body, result.status, "upstream_error", result.headers)
+      }
       return new Response(result.body, {
         status: result.status,
         headers: responseHeaders(result.headers),
       })
     }
 
-    return Response.json(
-      {
-        error: {
-          message: "Unexpected non-passthrough response for OpenAI inbound provider",
-        },
-      },
-      { status: 500 },
-    )
+    if (isCanonicalResponse(result)) {
+      if (this.passthrough) return unexpectedNonPassthroughResponse()
+      const response = openAICanonicalResponse(result, route.path, wireBody)
+      context.onProxy?.({
+        label: this.upstreamLogLabel,
+        method: "POST",
+        target: this.upstreamTarget,
+        status: 200,
+        durationMs,
+        error: "-",
+        requestBody: proxyRequestBody,
+        responseBody: upstreamResponsePreview.text() || undefined,
+      })
+      return response
+    }
+
+    if (isCanonicalStream(result)) {
+      if (this.passthrough) return unexpectedNonPassthroughResponse()
+      const proxyLog: RequestProxyLog = {
+        label: this.upstreamLogLabel,
+        method: "POST",
+        target: this.upstreamTarget,
+        status: result.status,
+        durationMs,
+        error: "-",
+        requestBody: proxyRequestBody,
+        responseBody: upstreamResponsePreview.text() || undefined,
+      }
+      context.onProxy?.(proxyLog)
+      const response = openAICanonicalStreamResponse(result, route.path, wireBody)
+      if (!response.body) return response
+      return responseWithLoggedBody(response as Response & { body: ReadableStream<Uint8Array> }, (responseBody) => {
+        proxyLog.responseBody = upstreamResponsePreview.text() || responseBody
+      })
+    }
+
+    return unexpectedNonPassthroughResponse()
   }
+}
+
+function unexpectedNonPassthroughResponse() {
+  return Response.json(
+    {
+      error: {
+        message: "Unexpected non-passthrough response for OpenAI inbound provider",
+      },
+    },
+    { status: 500 },
+  )
 }
 
 function isCanonicalPassthrough(result: UpstreamResult): result is Canonical_PassthroughResponse {
@@ -97,8 +186,62 @@ function isCanonicalError(result: UpstreamResult): result is Canonical_ErrorResp
   return result.type === "canonical_error"
 }
 
+function isCanonicalResponse(result: UpstreamResult): result is Canonical_Response {
+  return result.type === "canonical_response"
+}
+
+function isCanonicalStream(result: UpstreamResult): result is Canonical_StreamResponse {
+  return result.type === "canonical_stream"
+}
+
 function previewText(text: string) {
   return text.slice(0, LOG_BODY_PREVIEW_LIMIT)
+}
+
+function openAIErrorResponse(message: string, status: number, type: string, sourceHeaders = new Headers()) {
+  const headers = responseHeaders(sourceHeaders)
+  headers.set("content-type", "application/json; charset=utf-8")
+  return Response.json(
+    {
+      error: {
+        message,
+        type,
+        param: null,
+        code: null,
+      },
+    },
+    { status, headers },
+  )
+}
+
+function validateOpenAIRequestShape(pathname: string, body: JsonObject): string | undefined {
+  if (!hasRequiredModel(body)) return "Missing required parameter: 'model'."
+
+  if (pathname === "/v1/responses") {
+    if ("messages" in body) return "Unsupported parameter: 'messages'. Use 'input' with /v1/responses."
+    if ("response_format" in body) return "Unsupported parameter: 'response_format'. Use 'text.format' with /v1/responses."
+    if (!hasResponsesInput(body.input)) return "Missing required parameter: 'input'."
+    return
+  }
+
+  if (pathname === "/v1/chat/completions") {
+    if ("input" in body) return "Unsupported parameter: 'input'. Use 'messages' with /v1/chat/completions."
+    if ("text" in body) return "Unsupported parameter: 'text'. Use 'response_format' with /v1/chat/completions."
+    if (!Array.isArray(body.messages) || body.messages.length === 0) return "Missing required parameter: 'messages'."
+  }
+}
+
+function hasRequiredModel(body: JsonObject) {
+  return typeof body.model === "string" && body.model.trim().length > 0
+}
+
+function hasResponsesInput(value: unknown) {
+  if (typeof value === "string") return value.length > 0
+  return Array.isArray(value) && value.length > 0
+}
+
+function isJsonObject(value: unknown): value is JsonObject {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value))
 }
 
 function passthroughBodyInit(body: Canonical_PassthroughResponse["body"]): BodyInit | null {
