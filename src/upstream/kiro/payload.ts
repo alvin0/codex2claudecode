@@ -10,8 +10,11 @@ interface ConvertOptions {
   profileArn?: string
   instructions?: string
   payloadSizeLimitBytes?: number
+  payloadOverflowMode?: "trim" | "context_error"
   onTrim?: (notice: KiroPayloadTrimNotice) => void
 }
+
+export const CLAUDE_CONTEXT_LIMIT_MESSAGE = "Your input exceeds the context window of this model. Please adjust your input and try again."
 
 export interface KiroPayloadTrimNotice {
   originalSize: number
@@ -343,6 +346,10 @@ function trimPayload(payload: KiroGeneratePayload, tools: KiroToolSpecification[
   let finalSize = originalSize
   const originalHistoryEntries = payload.conversationState.history?.length ?? 0
   const limit = payloadSizeLimitBytes(options.payloadSizeLimitBytes)
+
+  if (originalSize > limit && options.payloadOverflowMode === "context_error") {
+    throw new PayloadTooLargeError(CLAUDE_CONTEXT_LIMIT_MESSAGE, { status: 400 })
+  }
 
   if (originalSize > limit && originalHistoryEntries > 0) {
     const trimmed = findTrimmedPayload(payload, tools, options, instructions, limit, preserveCurrentThinkingPrefix)

@@ -4,6 +4,30 @@ All notable changes to this package are documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [0.2.1] - 2026-04-27
+
+### Added
+
+- Added provider-kind guards so Claude and OpenAI-compatible inbound adapters fail fast when wired to the wrong upstream provider.
+- Added shared canonical usage accounting for input, output, cached-input, reasoning-output, and server-tool usage fields.
+- Added Kiro usage parsing for object-shaped session `usage` events, including cache and server-tool fields when Kiro returns them.
+- Added tests for Codex and Kiro `/v1/messages` separation, OpenAI-compatible Kiro routing, streamed usage merging, and Kiro context-limit behavior.
+
+### Changed
+
+- Codex/OpenAI usage is now preserved through canonical responses and streams instead of dropping cached-token or reasoning-token details.
+- Kiro streaming and non-streaming responses now prefer concrete Kiro usage data over local estimates when upstream usage is available.
+- OpenAI-compatible streaming responses now merge usage updates across usage and completion events instead of replacing earlier token details.
+- Rebuilt the bundled `dist/index.js` artifact for this release.
+
+### Fixed
+
+- Fixed Claude Code over-Kiro oversized payload handling by returning a Claude-style context-window error instead of proxy-side compacting or trimming Claude Code history.
+- Fixed context-limit error forwarding so Claude Code can see actionable upstream context-window messages and trigger its own recovery behavior.
+- Fixed accidental Codex/Kiro adapter mixing for `/v1/messages`, `/v1/responses`, and `/v1/chat/completions`.
+- Fixed Kiro server-tool usage accounting so repeated usage events and locally emitted server-tool blocks keep the larger observed count without double counting.
+- Fixed Kiro missing-body streams with preflight server-tool blocks so final usage still reports server-tool usage.
+
 ## [0.2.0] - 2026-04-26
 
 ### Added

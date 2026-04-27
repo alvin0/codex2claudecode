@@ -4,6 +4,8 @@ import type { ClaudeMessagesRequest, JsonObject } from "../types"
 import { parseJsonObject } from "./sse"
 import { claudeStreamErrorEvent } from "./errors"
 import { responseOutputTextToClaudeBlocks } from "./content"
+import { countClaudeInputTokens } from "./convert"
+import { mergeCanonicalUsage } from "../../core/usage"
 
 export async function canonicalResponseToClaudeMessage(response: Canonical_Response, request: ClaudeMessagesRequest) {
   return {
@@ -31,8 +33,11 @@ export function claudeCanonicalStreamResponse(response: Canonical_StreamResponse
   let thinkingOpen = false
   let thinkingSignature = ""
   let contentIndex = 0
+  let inputTokens = initialStreamInputTokens(request)
   let outputTokens = 0
-  let serverToolUse: { web_search_requests?: number; web_fetch_requests?: number } | undefined
+  let cacheCreationInputTokens = 0
+  let cacheReadInputTokens = 0
+  let serverToolUse: Canonical_Response["usage"]["serverToolUse"] | undefined
   let stopReason = "end_turn"
 
   function clearHeartbeat() {
@@ -81,7 +86,12 @@ export function claudeCanonicalStreamResponse(response: Canonical_StreamResponse
               content: [],
               stop_reason: null,
               stop_sequence: null,
-              usage: { input_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, output_tokens: 0 },
+              usage: {
+                input_tokens: inputTokens,
+                cache_creation_input_tokens: cacheCreationInputTokens,
+                cache_read_input_tokens: cacheReadInputTokens,
+                output_tokens: outputTokens,
+              },
             },
           })
         }
@@ -252,16 +262,23 @@ export function claudeCanonicalStreamResponse(response: Canonical_StreamResponse
               continue
             }
             if (event.type === "usage") {
-              outputTokens = event.usage.outputTokens ?? outputTokens
-              if (event.usage.serverToolUse) {
-                serverToolUse = {
-                  ...(event.usage.serverToolUse.webSearchRequests ? { web_search_requests: event.usage.serverToolUse.webSearchRequests } : {}),
-                  ...(event.usage.serverToolUse.webFetchRequests ? { web_fetch_requests: event.usage.serverToolUse.webFetchRequests } : {}),
-                }
-              }
+              const usage = { inputTokens, outputTokens, cacheCreationInputTokens, cacheReadInputTokens }
+              mergeCanonicalUsage(usage, event.usage)
+              inputTokens = usage.inputTokens
+              outputTokens = usage.outputTokens
+              cacheCreationInputTokens = usage.cacheCreationInputTokens ?? 0
+              cacheReadInputTokens = usage.cacheReadInputTokens ?? 0
+              serverToolUse = mergeServerToolUse(serverToolUse, event.usage.serverToolUse)
               continue
             }
             if (event.type === "completion") {
+              const usage = { inputTokens, outputTokens, cacheCreationInputTokens, cacheReadInputTokens }
+              mergeCanonicalUsage(usage, event.usage ?? {})
+              inputTokens = usage.inputTokens
+              outputTokens = usage.outputTokens
+              cacheCreationInputTokens = usage.cacheCreationInputTokens ?? 0
+              cacheReadInputTokens = usage.cacheReadInputTokens ?? 0
+              serverToolUse = mergeServerToolUse(serverToolUse, event.usage?.serverToolUse)
               stopReason = event.stopReason ?? stopReason
               continue
             }
@@ -280,12 +297,16 @@ export function claudeCanonicalStreamResponse(response: Canonical_StreamResponse
 
           stopThinkingBlock()
           stopTextBlock()
+          const wireServerToolUse = claudeServerToolUse(serverToolUse)
           send("message_delta", {
             type: "message_delta",
             delta: { stop_reason: stopReason, stop_sequence: null },
             usage: {
+              input_tokens: inputTokens,
+              cache_creation_input_tokens: cacheCreationInputTokens,
+              cache_read_input_tokens: cacheReadInputTokens,
               output_tokens: outputTokens,
-              ...(serverToolUse ? { server_tool_use: serverToolUse } : {}),
+              ...(wireServerToolUse ? { server_tool_use: wireServerToolUse } : {}),
             },
           })
           send("message_stop", { type: "message_stop" })
@@ -333,19 +354,53 @@ function canonicalContentToClaudeBlocks(block: Canonical_ContentBlock): JsonObje
 }
 
 function canonicalUsageToClaudeUsage(usage: Canonical_Response["usage"]) {
+  const serverToolUse = claudeServerToolUse(usage.serverToolUse)
   return {
     input_tokens: usage.inputTokens,
-    cache_creation_input_tokens: 0,
-    cache_read_input_tokens: 0,
+    cache_creation_input_tokens: usage.cacheCreationInputTokens ?? 0,
+    cache_read_input_tokens: usage.cacheReadInputTokens ?? 0,
     output_tokens: usage.outputTokens,
-    ...(usage.serverToolUse
-      ? {
-          server_tool_use: {
-            ...(usage.serverToolUse.webSearchRequests ? { web_search_requests: usage.serverToolUse.webSearchRequests } : {}),
-            ...(usage.serverToolUse.webFetchRequests ? { web_fetch_requests: usage.serverToolUse.webFetchRequests } : {}),
-            ...(usage.serverToolUse.mcpCalls ? { mcp_calls: usage.serverToolUse.mcpCalls } : {}),
-          },
-        }
-      : {}),
+    ...(serverToolUse ? { server_tool_use: serverToolUse } : {}),
   }
+}
+
+function claudeServerToolUse(usage: Canonical_Response["usage"]["serverToolUse"] | undefined) {
+  if (!usage) return
+  const wire = {
+    ...(usage.webSearchRequests ? { web_search_requests: usage.webSearchRequests } : {}),
+    ...(usage.webFetchRequests ? { web_fetch_requests: usage.webFetchRequests } : {}),
+    ...(usage.mcpCalls ? { mcp_calls: usage.mcpCalls } : {}),
+  }
+  return Object.keys(wire).length ? wire : undefined
+}
+
+function mergeServerToolUse(
+  left: Canonical_Response["usage"]["serverToolUse"] | undefined,
+  right: Canonical_Response["usage"]["serverToolUse"] | undefined,
+): Canonical_Response["usage"]["serverToolUse"] | undefined {
+  const webSearchRequests = maxDefined(left?.webSearchRequests, right?.webSearchRequests)
+  const webFetchRequests = maxDefined(left?.webFetchRequests, right?.webFetchRequests)
+  const mcpCalls = maxDefined(left?.mcpCalls, right?.mcpCalls)
+  if (webSearchRequests === undefined && webFetchRequests === undefined && mcpCalls === undefined) return
+  return {
+    ...(webSearchRequests !== undefined ? { webSearchRequests } : {}),
+    ...(webFetchRequests !== undefined ? { webFetchRequests } : {}),
+    ...(mcpCalls !== undefined ? { mcpCalls } : {}),
+  }
+}
+
+function maxDefined(...values: Array<number | undefined>) {
+  const numbers = values.filter((value): value is number => typeof value === "number")
+  return numbers.length ? Math.max(...numbers) : undefined
+}
+
+function initialStreamInputTokens(request: ClaudeMessagesRequest) {
+  const hasCountableInput = request.messages.length > 0
+    || Boolean(request.system)
+    || Boolean(request.tools?.length)
+    || Boolean(request.mcp_servers?.length)
+    || Boolean(request.tool_choice)
+    || Boolean(request.thinking)
+    || Boolean(request.output_config)
+  return hasCountableInput ? countClaudeInputTokens(request) : 0
 }

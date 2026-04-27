@@ -501,6 +501,41 @@ describe("SSE and Claude response mapping", () => {
     expect((message as any).content.some((item: any) => item.type === "tool_use")).toBe(true)
   })
 
+  test("maps Codex cached usage into Claude usage fields", async () => {
+    const response = responseFromEvents([
+      {
+        type: "response.completed",
+        response: {
+          usage: {
+            input_tokens: 10,
+            input_tokens_details: { cached_tokens: 4 },
+            output_tokens: 3,
+            output_tokens_details: { reasoning_tokens: 2 },
+          },
+          output: [{ type: "message", content: [{ type: "output_text", text: "ok" }] }],
+        },
+      },
+    ])
+
+    const message = await collectClaudeMessage(response, { model: "m", messages: [] })
+    expect((message as any).usage).toMatchObject({
+      input_tokens: 6,
+      cache_creation_input_tokens: 0,
+      cache_read_input_tokens: 4,
+      output_tokens: 3,
+    })
+  })
+
+  test("uses local input token count when Codex omits non-streaming input usage", async () => {
+    const response = responseFromEvents([
+      { type: "response.completed", response: { usage: { output_tokens: 2 }, output: [{ type: "message", content: [{ type: "output_text", text: "ok" }] }] } },
+    ])
+
+    const message = await collectClaudeMessage(response, { model: "m", messages: [{ role: "user", content: "hello" }] })
+    expect((message as any).usage.input_tokens).toBeGreaterThan(0)
+    expect((message as any).usage.output_tokens).toBe(2)
+  })
+
   test("collects web calls, message output items, and completed output overrides", async () => {
     const response = responseFromEvents([
       { type: "response.output_item.done", item: { type: "web_search_call", id: "ws", action: { type: "search", query: "q", sources: [{ type: "url", url: "https://a" }] } } },
@@ -532,6 +567,7 @@ describe("SSE and Claude response mapping", () => {
     const message = await collectClaudeMessage(response, { model: "m", messages: [] })
     expect((message as any).content.some((item: any) => item.type === "mcp_tool_use")).toBe(true)
     expect((message as any).content.some((item: any) => item.type === "mcp_tool_result")).toBe(true)
+    expect((message as any).usage.server_tool_use).toEqual({ mcp_calls: 1 })
   })
 
   test("streams text, function calls, immediate web results, deferred web results, and empty streams", async () => {
@@ -547,6 +583,27 @@ describe("SSE and Claude response mapping", () => {
     )
     expect(textEvents.some((event) => event.data.type === "message_stop")).toBe(true)
     expect(textEvents.some((event) => event.data.content_block?.type === "tool_use")).toBe(true)
+    expect(textEvents.find((event) => event.data.type === "message_delta")?.data.usage).toMatchObject({ input_tokens: 1, output_tokens: 2 })
+
+    const cachedUsageEvents = await readSse(
+      claudeStreamResponse(
+        responseFromEvents([
+          {
+            type: "response.completed",
+            response: {
+              usage: { input_tokens: 9, input_tokens_details: { cached_tokens: 5 }, output_tokens: 4 },
+              output: [{ type: "message", content: [{ type: "output_text", text: "cached" }] }],
+            },
+          },
+        ]),
+        { model: "m", messages: [], stream: true },
+      ),
+    )
+    expect(cachedUsageEvents.find((event) => event.data.type === "message_delta")?.data.usage).toMatchObject({
+      input_tokens: 4,
+      cache_read_input_tokens: 5,
+      output_tokens: 4,
+    })
 
     const doneOnlyEvents = await readSse(
       claudeStreamResponse(
@@ -615,6 +672,7 @@ describe("SSE and Claude response mapping", () => {
     )
     expect(mcpEvents.some((event) => event.data.content_block?.type === "mcp_tool_use")).toBe(true)
     expect(mcpEvents.some((event) => event.data.content_block?.type === "mcp_tool_result")).toBe(true)
+    expect(mcpEvents.find((event) => event.data.type === "message_delta")?.data.usage.server_tool_use).toEqual({ mcp_calls: 1 })
 
     const emptyEvents = await readSse(claudeStreamResponse(responseFromEvents([]), { model: "m", messages: [], stream: true }))
     expect(emptyEvents.some((event) => event.data.type === "message_start")).toBe(true)
@@ -695,6 +753,7 @@ describe("SSE and Claude response mapping", () => {
     expect(await claudeErrorResponse("no", 500).json()).toEqual({ type: "error", error: { type: "api_error", message: "no" } })
     expect(await claudeErrorResponse("auth", 401).json()).toEqual({ type: "error", error: { type: "authentication_error", message: "auth" } })
     expect(await claudeErrorResponse("rate", 429).json()).toEqual({ type: "error", error: { type: "rate_limit_error", message: "rate" } })
+    expect(await claudeErrorResponse("large", 413).json()).toEqual({ type: "error", error: { type: "request_too_large", message: "large" } })
   })
 
   test("handles Claude endpoint errors and successes", async () => {
@@ -720,6 +779,22 @@ describe("SSE and Claude response mapping", () => {
     const upstream = await handleClaudeMessages(badUpstream as any, new Request("http://x", { method: "POST", body: JSON.stringify({ model: "m", messages: [] }) }), "id")
     expect(upstream.status).toBe(503)
     expect(await upstream.json()).toEqual({ type: "error", error: { type: "api_error", message: "Upstream request failed: 503 bad" } })
+
+    const contextClient = {
+      proxy: () =>
+        Promise.resolve(new Response(JSON.stringify({
+          error: { message: "This model's maximum context length is 200000 tokens. Please reduce your prompt." },
+        }), { status: 413 })),
+    }
+    const contextError = await handleClaudeMessages(contextClient as any, new Request("http://x", { method: "POST", body: JSON.stringify({ model: "m", messages: [] }) }), "id")
+    expect(contextError.status).toBe(413)
+    expect(await contextError.json()).toEqual({
+      type: "error",
+      error: {
+        type: "request_too_large",
+        message: "This model's maximum context length is 200000 tokens. Please reduce your prompt.",
+      },
+    })
 
     const throwingClient = { proxy: () => Promise.reject(new Error("network down")) }
     const thrown = await handleClaudeMessages(throwingClient as any, new Request("http://x", { method: "POST", body: JSON.stringify({ model: "m", messages: [] }) }), "id")

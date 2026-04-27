@@ -9,6 +9,7 @@ import type {
 } from "../../core/canonical"
 import { consumeCodexSse, parseJsonObject, parseSseJson } from "../../core/sse"
 import type { JsonObject, SseEvent } from "../../core/types"
+import { canonicalUsageFromWireUsage, mergeCanonicalUsage } from "../../core/usage"
 import type { InputTokensRequest } from "./types"
 
 const THINKING_SIGNATURE_PREFIX = "sig_"
@@ -386,7 +387,7 @@ function applyEventToState(data: JsonObject, state: ParserState, emitStreamEvent
     if (Array.isArray(response.output)) {
       const content = outputToCanonicalContent(response.output)
       if (content.length) state.content = content
-      updateUsageFromOutput(state, response.output)
+      updateUsageFromOutput(state, response.output, "max")
       state.pendingServerCalls.length = 0
       state.deferredText = ""
       state.textBlockOpen = false
@@ -516,19 +517,17 @@ function finalizeState(state: ParserState) {
 }
 
 function updateUsageFromResponse(state: ParserState, response: JsonObject) {
-  const usage = asJsonObject(response.usage)
-  if (typeof usage.input_tokens === "number") state.usage.inputTokens = usage.input_tokens
-  if (typeof usage.output_tokens === "number") state.usage.outputTokens = usage.output_tokens
+  const existingServerToolUse = state.usage.serverToolUse
+  mergeCanonicalUsage(state.usage, canonicalUsageFromWireUsage(response.usage))
+  state.usage.serverToolUse = mergeServerToolUse(existingServerToolUse, state.usage.serverToolUse)
 }
 
-function updateUsageFromOutput(state: ParserState, output: unknown[]) {
+function updateUsageFromOutput(state: ParserState, output: unknown[], mode: "add" | "max" = "add") {
   const counts = countServerToolUse(output)
   if (!counts.webSearchRequests && !counts.webFetchRequests && !counts.mcpCalls) return
-  state.usage.serverToolUse = {
-    webSearchRequests: (state.usage.serverToolUse?.webSearchRequests ?? 0) + counts.webSearchRequests,
-    webFetchRequests: (state.usage.serverToolUse?.webFetchRequests ?? 0) + counts.webFetchRequests,
-    mcpCalls: (state.usage.serverToolUse?.mcpCalls ?? 0) + counts.mcpCalls,
-  }
+  state.usage.serverToolUse = mode === "max"
+    ? mergeServerToolUse(state.usage.serverToolUse, counts)
+    : addServerToolUse(state.usage.serverToolUse, counts)
 }
 
 function outputToCanonicalContent(output: unknown[]): Canonical_ContentBlock[] {
@@ -605,6 +604,34 @@ function countServerToolUse(output: unknown[]): ServerToolUseCounts {
     },
     { webSearchRequests: 0, webFetchRequests: 0, mcpCalls: 0 },
   )
+}
+
+function addServerToolUse(left: Canonical_Usage["serverToolUse"] | undefined, right: ServerToolUseCounts): Canonical_Usage["serverToolUse"] {
+  return {
+    webSearchRequests: (left?.webSearchRequests ?? 0) + right.webSearchRequests,
+    webFetchRequests: (left?.webFetchRequests ?? 0) + right.webFetchRequests,
+    mcpCalls: (left?.mcpCalls ?? 0) + right.mcpCalls,
+  }
+}
+
+function mergeServerToolUse(
+  left: Canonical_Usage["serverToolUse"] | undefined,
+  right: Canonical_Usage["serverToolUse"] | undefined,
+): Canonical_Usage["serverToolUse"] | undefined {
+  const webSearchRequests = maxDefined(left?.webSearchRequests, right?.webSearchRequests)
+  const webFetchRequests = maxDefined(left?.webFetchRequests, right?.webFetchRequests)
+  const mcpCalls = maxDefined(left?.mcpCalls, right?.mcpCalls)
+  if (webSearchRequests === undefined && webFetchRequests === undefined && mcpCalls === undefined) return
+  return {
+    ...(webSearchRequests !== undefined ? { webSearchRequests } : {}),
+    ...(webFetchRequests !== undefined ? { webFetchRequests } : {}),
+    ...(mcpCalls !== undefined ? { mcpCalls } : {}),
+  }
+}
+
+function maxDefined(...values: Array<number | undefined>) {
+  const numbers = values.filter((value): value is number => typeof value === "number")
+  return numbers.length ? Math.max(...numbers) : undefined
 }
 
 function serverToolBlocksFromOutputItem(item: unknown, fallbackOutput?: unknown): JsonObject[] {

@@ -248,13 +248,31 @@ In Kiro mode, `/v1/responses` and `/v1/chat/completions` are supported.
 expects Chat Completions-style `messages` and `response_format`. Codex mode keeps its
 existing OpenAI-compatible passthrough routes.
 
+## Usage Accounting
+
+When Codex/OpenAI Responses or Chat/Completions streams return usage metadata,
+codex2claudecode preserves input, output, cached-input, and reasoning-output
+token counts through the canonical response layer. Claude `/v1/messages`
+responses split cached input into `cache_read_input_tokens` and keep uncached
+input in `input_tokens`, matching Claude's usage shape.
+
+Kiro streaming responses usually do not expose the same cache breakdown. For
+Kiro, codex2claudecode uses Kiro's session `usage` event for output tokens and
+forwards input, cache, and server-tool usage fields when Kiro includes them in
+an object-shaped `usage` event. If Kiro does not return concrete input tokens,
+`contextUsagePercentage` is used as the session input estimate when available.
+
 ## Kiro Payload Limit
 
 Kiro requests are preflight-checked before sending upstream. The default body
 limit is `1_200_000` bytes, matching the observed safe range before Kiro starts
 returning opaque `400 Improperly formed request` errors. When a request exceeds
 the limit, the gateway removes the oldest conversation history until the payload
-fits and emits a visible warning in the response.
+fits and emits a visible warning in the response for non-Claude clients.
+
+If a Claude Code request exceeds Kiro's byte limit, the gateway returns a
+Claude-style context-window error instead of trimming the history itself,
+allowing Claude Code to run its own recovery compact.
 
 You can override the limit with either:
 

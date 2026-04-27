@@ -140,6 +140,41 @@ describe("OpenAI inbound provider", () => {
     expect(await invalid.json()).toEqual({ error: { message: expect.stringContaining("Invalid JSON") } })
   })
 
+  test("rejects configured Codex OpenAI provider and upstream mismatches before proxying", async () => {
+    const provider = new OpenAI_Inbound_Provider({ expectedUpstreamKind: "codex" })
+    let proxyCalls = 0
+    const upstream = {
+      providerKind: "kiro" as const,
+      proxy: () => {
+        proxyCalls += 1
+        return Promise.resolve({
+          type: "canonical_passthrough" as const,
+          status: 200,
+          statusText: "OK",
+          headers: new Headers(),
+          body: "ok",
+        })
+      },
+      checkHealth: () => Promise.resolve({ ok: true }),
+    }
+
+    const response = await provider.handle(
+      new Request("http://localhost/v1/responses", { method: "POST", body: JSON.stringify({ model: "m", input: "hi" }) }),
+      { path: "/v1/responses", method: "POST" },
+      upstream,
+      { requestId: "req_codex_mismatch", logBody: false, quiet: true },
+    )
+
+    expect(response.status).toBe(500)
+    expect(await response.json()).toMatchObject({
+      error: {
+        type: "server_error",
+        message: "OpenAI inbound provider 'openai' expected codex upstream, received kiro",
+      },
+    })
+    expect(proxyCalls).toBe(0)
+  })
+
   test("does not inject service tier at inbound level", async () => {
     const authFile = await tempAuthFile()
     await writeCodexFastModeConfig(authFile, { enabled: true })
@@ -182,9 +217,46 @@ describe("OpenAI inbound provider", () => {
 })
 
 describe("OpenAI Kiro adapter", () => {
+  test("rejects Kiro OpenAI adapter and upstream mismatches before proxying", async () => {
+    const provider = new OpenAI_Kiro_Inbound_Adapter()
+    let proxyCalls = 0
+    const upstream = {
+      providerKind: "codex" as const,
+      proxy: () => {
+        proxyCalls += 1
+        return Promise.resolve({
+          type: "canonical_response" as const,
+          id: "resp_should_not_call",
+          model: "m",
+          stopReason: "end_turn",
+          content: [],
+          usage: { inputTokens: 0, outputTokens: 0 },
+        })
+      },
+      checkHealth: () => Promise.resolve({ ok: true }),
+    }
+
+    const response = await provider.handle(
+      new Request("http://localhost/v1/responses", { method: "POST", body: JSON.stringify({ model: "m", input: "hi" }) }),
+      { path: "/v1/responses", method: "POST" },
+      upstream,
+      { requestId: "req_kiro_mismatch", logBody: false, quiet: true },
+    )
+
+    expect(response.status).toBe(500)
+    expect(await response.json()).toMatchObject({
+      error: {
+        type: "server_error",
+        message: "OpenAI inbound provider 'openai-kiro' expected kiro upstream, received codex",
+      },
+    })
+    expect(proxyCalls).toBe(0)
+  })
+
   test("formats upstream and request errors as OpenAI error objects", async () => {
     const provider = new OpenAI_Kiro_Inbound_Adapter()
     const upstream = {
+      providerKind: "kiro" as const,
       proxy: () =>
         Promise.resolve({
           type: "canonical_error" as const,
@@ -227,6 +299,7 @@ describe("OpenAI Kiro adapter", () => {
     const provider = new OpenAI_Kiro_Inbound_Adapter()
     let proxyCalls = 0
     const upstream = {
+      providerKind: "kiro" as const,
       proxy: () => {
         proxyCalls += 1
         return Promise.resolve({
@@ -313,6 +386,7 @@ describe("OpenAI Kiro adapter", () => {
   test("requires documented body roots for Kiro OpenAI-compatible routes", async () => {
     const provider = new OpenAI_Kiro_Inbound_Adapter()
     const upstream = {
+      providerKind: "kiro" as const,
       proxy: () =>
         Promise.resolve({
           type: "canonical_response" as const,
@@ -362,6 +436,7 @@ describe("OpenAI Kiro adapter", () => {
   test("formats canonical responses as Responses API objects", async () => {
     const provider = new OpenAI_Kiro_Inbound_Adapter()
     const upstream = {
+      providerKind: "kiro" as const,
       proxy: () =>
         Promise.resolve({
           type: "canonical_response" as const,
@@ -402,9 +477,49 @@ describe("OpenAI Kiro adapter", () => {
     expect(responseOutputText(body)).toBe("hello")
   })
 
+  test("formats canonical cache and reasoning usage in Responses objects", async () => {
+    const provider = new OpenAI_Kiro_Inbound_Adapter()
+    const upstream = {
+      providerKind: "kiro" as const,
+      proxy: () =>
+        Promise.resolve({
+          type: "canonical_response" as const,
+          id: "resp_usage",
+          model: "kiro-model",
+          stopReason: "end_turn",
+          content: [{ type: "text" as const, text: "hello" }],
+          usage: {
+            inputTokens: 6,
+            cacheCreationInputTokens: 2,
+            cacheReadInputTokens: 4,
+            outputTokens: 3,
+            outputReasoningTokens: 1,
+          },
+        }),
+      checkHealth: () => Promise.resolve({ ok: true }),
+    }
+
+    const response = await provider.handle(
+      new Request("http://localhost/v1/responses", { method: "POST", body: JSON.stringify({ model: "m", input: "hi", stream: false }) }),
+      { path: "/v1/responses", method: "POST" },
+      upstream,
+      { requestId: "req_kiro_usage_responses", logBody: false, quiet: true },
+    )
+
+    const body = await response.json() as any
+    expect(body.usage).toEqual({
+      input_tokens: 12,
+      input_tokens_details: { cached_tokens: 4 },
+      output_tokens: 3,
+      output_tokens_details: { reasoning_tokens: 1 },
+      total_tokens: 15,
+    })
+  })
+
   test("formats canonical responses as Chat Completions objects for /v1/chat/completions", async () => {
     const provider = new OpenAI_Kiro_Inbound_Adapter()
     const upstream = {
+      providerKind: "kiro" as const,
       proxy: () =>
         Promise.resolve({
           type: "canonical_response" as const,
@@ -440,6 +555,44 @@ describe("OpenAI Kiro adapter", () => {
         finish_reason: "tool_calls",
       }],
       usage: { prompt_tokens: 5, completion_tokens: 6, total_tokens: 11 },
+    })
+  })
+
+  test("formats canonical cache and reasoning usage in Chat Completions objects", async () => {
+    const provider = new OpenAI_Kiro_Inbound_Adapter()
+    const upstream = {
+      providerKind: "kiro" as const,
+      proxy: () =>
+        Promise.resolve({
+          type: "canonical_response" as const,
+          id: "resp_chat_usage",
+          model: "kiro-model",
+          stopReason: "end_turn",
+          content: [{ type: "text" as const, text: "hello" }],
+          usage: {
+            inputTokens: 6,
+            cacheReadInputTokens: 4,
+            outputTokens: 3,
+            outputReasoningTokens: 1,
+          },
+        }),
+      checkHealth: () => Promise.resolve({ ok: true }),
+    }
+
+    const response = await provider.handle(
+      new Request("http://localhost/v1/chat/completions", { method: "POST", body: JSON.stringify({ model: "m", messages: [{ role: "user", content: "hi" }] }) }),
+      { path: "/v1/chat/completions", method: "POST" },
+      upstream,
+      { requestId: "req_kiro_usage_chat", logBody: false, quiet: true },
+    )
+
+    const body = await response.json() as any
+    expect(body.usage).toEqual({
+      prompt_tokens: 10,
+      completion_tokens: 3,
+      total_tokens: 13,
+      prompt_tokens_details: { cached_tokens: 4 },
+      completion_tokens_details: { reasoning_tokens: 1 },
     })
   })
 })
@@ -537,7 +690,8 @@ describe("OpenAI canonical response formatting", () => {
       events: streamEvents([
         { type: "text_delta", delta: "hel" },
         { type: "text_done", text: "hello" },
-        { type: "usage", usage: { inputTokens: 1, outputTokens: 2 } },
+        { type: "usage", usage: { inputTokens: 1, cacheReadInputTokens: 4 } },
+        { type: "completion", usage: { outputTokens: 2, outputReasoningTokens: 1 } },
         { type: "message_stop", stopReason: "end_turn" },
       ]),
     }, "/v1/responses", { model: "m", input: "hi" })
@@ -557,6 +711,13 @@ describe("OpenAI canonical response formatting", () => {
     ])
     expect(responseOutputText(events.at(-1)?.data.response)).toBe("hello")
     expect(events.filter((event) => event.event === "response.output_text.delta").map((event) => event.data.delta).join("")).toBe("hello")
+    expect(events.at(-1)?.data.response.usage).toEqual({
+      input_tokens: 5,
+      input_tokens_details: { cached_tokens: 4 },
+      output_tokens: 2,
+      output_tokens_details: { reasoning_tokens: 1 },
+      total_tokens: 7,
+    })
 
     const chatStream = openAICanonicalStreamResponse({
       type: "canonical_stream",
@@ -565,7 +726,8 @@ describe("OpenAI canonical response formatting", () => {
       model: "m",
       events: streamEvents([
         { type: "tool_call_done", callId: "call_1", name: "save", arguments: "{}" },
-        { type: "usage", usage: { inputTokens: 2, outputTokens: 3 } },
+        { type: "usage", usage: { inputTokens: 2, cacheReadInputTokens: 4 } },
+        { type: "completion", usage: { outputTokens: 3, outputReasoningTokens: 1 } },
       ]),
     }, "/v1/chat/completions", { model: "m", messages: [{ role: "user", content: "hi" }] })
 
@@ -574,7 +736,16 @@ describe("OpenAI canonical response formatting", () => {
       object: "chat.completion.chunk",
       choices: [{ delta: { role: "assistant", tool_calls: [{ id: "call_1", type: "function", function: { name: "save", arguments: "{}" } }] } }],
     })
-    expect(JSON.parse(chunks.at(-2)!)).toMatchObject({ choices: [{ finish_reason: "tool_calls" }], usage: { prompt_tokens: 2, completion_tokens: 3, total_tokens: 5 } })
+    expect(JSON.parse(chunks.at(-2)!)).toMatchObject({
+      choices: [{ finish_reason: "tool_calls" }],
+      usage: {
+        prompt_tokens: 6,
+        completion_tokens: 3,
+        total_tokens: 9,
+        prompt_tokens_details: { cached_tokens: 4 },
+        completion_tokens_details: { reasoning_tokens: 1 },
+      },
+    })
     expect(chunks.at(-1)).toBe("[DONE]")
   })
 

@@ -7,6 +7,7 @@ import { claudeErrorResponse, claudeStreamErrorEvent } from "../../src/inbound/c
 import { Model_Catalog } from "../../src/inbound/claude/models"
 import { claudeStreamResponse } from "../../src/inbound/claude/codex-response"
 import { canonicalResponseToClaudeMessage, claudeCanonicalStreamResponse } from "../../src/inbound/claude/response"
+import { CLAUDE_CONTEXT_LIMIT_MESSAGE } from "../../src/upstream/kiro"
 import { readSse, sse } from "../helpers"
 
 describe("Claude → Canonical_Request edge cases", () => {
@@ -190,6 +191,30 @@ describe("Canonical_Response → Claude format edge cases", () => {
     expect((message as any).usage.server_tool_use).toEqual({ web_search_requests: 3, mcp_calls: 1 })
   })
 
+  test("usage with cache fields maps to Claude token split", async () => {
+    const response: Canonical_Response = {
+      type: "canonical_response",
+      id: "resp_1",
+      model: "gpt-5.4",
+      stopReason: "end_turn",
+      content: [{ type: "text", text: "hi" }],
+      usage: {
+        inputTokens: 6,
+        cacheCreationInputTokens: 2,
+        cacheReadInputTokens: 4,
+        outputTokens: 3,
+      },
+    }
+
+    const message = await canonicalResponseToClaudeMessage(response, { model: "m", messages: [] })
+    expect((message as any).usage).toMatchObject({
+      input_tokens: 6,
+      cache_creation_input_tokens: 2,
+      cache_read_input_tokens: 4,
+      output_tokens: 3,
+    })
+  })
+
   test("stop_reason tool_use maps correctly", async () => {
     const response: Canonical_Response = {
       type: "canonical_response",
@@ -307,17 +332,77 @@ describe("Claude canonical stream edge cases", () => {
           async *[Symbol.asyncIterator]() {
             yield { type: "message_start", id: "resp_1", model: "gpt-5.4" } as const
             yield { type: "text_delta", delta: "hello" } as const
-            yield { type: "usage", usage: { inputTokens: 5, outputTokens: 10 } } as const
+            yield { type: "usage", usage: { inputTokens: 5, cacheCreationInputTokens: 2, cacheReadInputTokens: 3, outputTokens: 10 } } as const
             yield { type: "message_stop", stopReason: "end_turn" } as const
           },
         },
       },
-      { model: "m", messages: [], stream: true },
+      { model: "m", messages: [{ role: "user", content: "hello" }], stream: true },
     )
 
     const events = await readSse(response)
+    const messageStart = events.find((e) => e.data.type === "message_start")
+    const messageDelta = events.find((e) => e.data.type === "message_delta")
     const messageStop = events.find((e) => e.data.type === "message_stop")
+    expect(messageStart?.data.message.usage.input_tokens).toBeGreaterThan(0)
+    expect(messageDelta?.data.usage).toMatchObject({
+      input_tokens: 5,
+      cache_creation_input_tokens: 2,
+      cache_read_input_tokens: 3,
+      output_tokens: 10,
+    })
     expect(messageStop).toBeDefined()
+  })
+
+  test("completion usage updates Claude usage in stream", async () => {
+    const response = claudeCanonicalStreamResponse(
+      {
+        type: "canonical_stream",
+        status: 200,
+        id: "resp_1",
+        model: "gpt-5.4",
+        events: {
+          async *[Symbol.asyncIterator]() {
+            yield { type: "message_start", id: "resp_1", model: "gpt-5.4" } as const
+            yield { type: "completion", usage: { inputTokens: 7, outputTokens: 11, serverToolUse: { mcpCalls: 1 } }, stopReason: "end_turn" } as const
+          },
+        },
+      },
+      { model: "m", messages: [{ role: "user", content: "hello" }], stream: true },
+    )
+
+    const events = await readSse(response)
+    const messageDelta = events.find((e) => e.data.type === "message_delta")
+    expect(messageDelta?.data.usage).toMatchObject({
+      input_tokens: 7,
+      output_tokens: 11,
+      server_tool_use: { mcp_calls: 1 },
+    })
+  })
+
+  test("stream usage merges server tool counts across usage and completion events", async () => {
+    const response = claudeCanonicalStreamResponse(
+      {
+        type: "canonical_stream",
+        status: 200,
+        id: "resp_1",
+        model: "gpt-5.4",
+        events: {
+          async *[Symbol.asyncIterator]() {
+            yield { type: "usage", usage: { inputTokens: 7, outputTokens: 3, serverToolUse: { webSearchRequests: 1 } } } as const
+            yield { type: "completion", usage: { inputTokens: 7, outputTokens: 5, serverToolUse: { mcpCalls: 1 } }, stopReason: "end_turn" } as const
+          },
+        },
+      },
+      { model: "m", messages: [{ role: "user", content: "hello" }], stream: true },
+    )
+
+    const events = await readSse(response)
+    const messageDelta = events.find((e) => e.data.type === "message_delta")
+    expect(messageDelta?.data.usage.server_tool_use).toEqual({
+      web_search_requests: 1,
+      mcp_calls: 1,
+    })
   })
 
   test("multiple text_delta events are streamed individually", async () => {
@@ -549,6 +634,90 @@ describe("Claude_Inbound_Provider edge cases", () => {
     expect(body.error.message).toContain("503")
     expect(body.error.message).toContain("Upstream request failed")
     expect(body.error.message).not.toContain("Codex")
+  })
+
+  test("upstream context-limit error is preserved for Claude Code auto-compact", async () => {
+    const errorUpstream = {
+      proxy: () =>
+        Promise.resolve({
+          type: "canonical_error" as const,
+          status: 400,
+          headers: new Headers(),
+          body: CLAUDE_CONTEXT_LIMIT_MESSAGE,
+        }),
+      checkHealth: () => Promise.resolve({ ok: true }),
+    }
+
+    const provider = new Claude_Inbound_Provider()
+    const response = await provider.handle(
+      new Request("http://localhost/v1/messages", { method: "POST", body: JSON.stringify({ model: "gpt-5.4", messages: [{ role: "user", content: "hello" }] }) }),
+      { path: "/v1/messages", method: "POST" },
+      errorUpstream,
+      { requestId: "req_1", logBody: false, quiet: true },
+    )
+
+    expect(response.status).toBe(400)
+    const body = await response.json()
+    expect(body).toEqual({
+      type: "error",
+      error: {
+        type: "invalid_request_error",
+        message: CLAUDE_CONTEXT_LIMIT_MESSAGE,
+      },
+    })
+  })
+
+  test("upstream JSON context-limit error extracts the actionable message", async () => {
+    const errorUpstream = {
+      proxy: () =>
+        Promise.resolve({
+          type: "canonical_error" as const,
+          status: 400,
+          headers: new Headers(),
+          body: JSON.stringify({ error: { message: "Input is too long for the selected model." } }),
+        }),
+      checkHealth: () => Promise.resolve({ ok: true }),
+    }
+
+    const provider = new Claude_Inbound_Provider()
+    const response = await provider.handle(
+      new Request("http://localhost/v1/messages", { method: "POST", body: JSON.stringify({ model: "gpt-5.4", messages: [{ role: "user", content: "hello" }] }) }),
+      { path: "/v1/messages", method: "POST" },
+      errorUpstream,
+      { requestId: "req_1", logBody: false, quiet: true },
+    )
+
+    expect(response.status).toBe(400)
+    const body = await response.json()
+    expect(body.error.message).toBe("Input is too long for the selected model.")
+  })
+
+  test("upstream request_too_large code is treated as context-limit", async () => {
+    const errorUpstream = {
+      proxy: () =>
+        Promise.resolve({
+          type: "canonical_error" as const,
+          status: 413,
+          headers: new Headers(),
+          body: JSON.stringify({ error: { type: "request_too_large" } }),
+        }),
+      checkHealth: () => Promise.resolve({ ok: true }),
+    }
+
+    const provider = new Claude_Inbound_Provider()
+    const response = await provider.handle(
+      new Request("http://localhost/v1/messages", { method: "POST", body: JSON.stringify({ model: "gpt-5.4", messages: [{ role: "user", content: "hello" }] }) }),
+      { path: "/v1/messages", method: "POST" },
+      errorUpstream,
+      { requestId: "req_1", logBody: false, quiet: true },
+    )
+
+    expect(response.status).toBe(413)
+    const body = await response.json()
+    expect(body.error).toEqual({
+      type: "request_too_large",
+      message: "request_too_large",
+    })
   })
 
   test("upstream proxy exception returns 500 Claude error", async () => {
@@ -871,6 +1040,11 @@ describe("Claude error formatting edge cases", () => {
   test("status 404 maps to not_found_error", async () => {
     const body = await claudeErrorResponse("not found", 404).json()
     expect(body.error.type).toBe("not_found_error")
+  })
+
+  test("status 413 maps to request_too_large", async () => {
+    const body = await claudeErrorResponse("too large", 413).json()
+    expect(body.error.type).toBe("request_too_large")
   })
 
   test("status 429 maps to rate_limit_error", async () => {

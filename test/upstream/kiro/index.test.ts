@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test"
 
 import type { Canonical_Event, Canonical_Request } from "../../../src/core/canonical"
-import { Kiro_Auth_Manager, Kiro_Client, Kiro_Upstream_Provider, computeEffectiveTools } from "../../../src/upstream/kiro"
+import { CLAUDE_CONTEXT_LIMIT_MESSAGE, Kiro_Auth_Manager, Kiro_Client, Kiro_Upstream_Provider, computeEffectiveTools } from "../../../src/upstream/kiro"
 import { PAYLOAD_SIZE_LIMIT_BYTES } from "../../../src/upstream/kiro/constants"
 import { KiroHttpError, KiroMcpError, KiroNetworkError } from "../../../src/upstream/kiro/types"
 
@@ -640,6 +640,112 @@ describe("Kiro upstream provider", () => {
 
     expect(result).toMatchObject({ type: "canonical_error", status: 400 })
     expect(calls).toBe(0)
+  })
+
+  test("signals context limit instead of trimming oversized Claude Code requests", async () => {
+    let calls = 0
+    const result = await providerWithClient({
+      generateAssistantResponse: () => {
+        calls += 1
+        return Promise.resolve(new Response('{"content":"ok"}'))
+      },
+      listAvailableModels: () => Promise.resolve([]),
+      checkHealth: () => Promise.resolve({ ok: true }),
+    }).proxy(request({
+      metadata: { source: "claude" },
+      input: [
+        { role: "user", content: [{ type: "input_text", text: "x".repeat(PAYLOAD_SIZE_LIMIT_BYTES + 10_000) }] },
+        { role: "assistant", content: [{ type: "output_text", text: "ok" }] },
+        { role: "user", content: [{ type: "input_text", text: "next" }] },
+      ],
+    }))
+
+    expect(result).toEqual({
+      type: "canonical_error",
+      status: 400,
+      headers: new Headers(),
+      body: CLAUDE_CONTEXT_LIMIT_MESSAGE,
+    })
+    expect(calls).toBe(0)
+  })
+
+  test("signals context limit before streaming Claude Code web-search preflight", async () => {
+    let generateCalls = 0
+    let mcpCalls = 0
+    const result = await providerWithClient({
+      generateAssistantResponse: () => {
+        generateCalls += 1
+        return Promise.resolve(new Response('{"content":"ok"}'))
+      },
+      callMcpWebSearch: () => {
+        mcpCalls += 1
+        return Promise.reject(new KiroMcpError("preflight should not run before context-limit check"))
+      },
+      listAvailableModels: () => Promise.resolve([]),
+      checkHealth: () => Promise.resolve({ ok: true }),
+    }).proxy(request({
+      stream: true,
+      metadata: { source: "claude" },
+      tools: [],
+      input: [
+        { role: "user", content: [{ type: "input_text", text: "x".repeat(PAYLOAD_SIZE_LIMIT_BYTES + 10_000) }] },
+        { role: "assistant", content: [{ type: "output_text", text: "ok" }] },
+        { role: "user", content: [{ type: "input_text", text: "websearch https://example.com/article" }] },
+      ],
+    }))
+
+    expect(result).toEqual({
+      type: "canonical_error",
+      status: 400,
+      headers: new Headers(),
+      body: CLAUDE_CONTEXT_LIMIT_MESSAGE,
+    })
+    expect(generateCalls).toBe(0)
+    expect(mcpCalls).toBe(0)
+  })
+
+  test("signals context limit after Claude Code web-search preflight expands the payload", async () => {
+    const previousLimit = process.env.KIRO_PAYLOAD_SIZE_LIMIT_BYTES
+    process.env.KIRO_PAYLOAD_SIZE_LIMIT_BYTES = "2000"
+    let generateCalls = 0
+    let mcpCalls = 0
+
+    try {
+      const result = await providerWithClient({
+        generateAssistantResponse: () => {
+          generateCalls += 1
+          return Promise.resolve(new Response('{"content":"ok"}'))
+        },
+        callMcpWebSearch: () => {
+          mcpCalls += 1
+          return Promise.resolve({
+            toolUseId: "srvtoolu_search",
+            results: { results: [{ title: "Article", url: "https://example.com/article", snippet: "Snippet" }] },
+            summary: `<web_search>${"x".repeat(5000)}</web_search>`,
+          })
+        },
+        listAvailableModels: () => Promise.resolve([]),
+        checkHealth: () => Promise.resolve({ ok: true }),
+      }).proxy(request({
+        stream: true,
+        metadata: { source: "claude" },
+        tools: [],
+        input: [{ role: "user", content: [{ type: "input_text", text: "websearch https://example.com/article" }] }],
+      }))
+
+      expect(result).toEqual({
+        type: "canonical_error",
+        status: 400,
+        headers: new Headers(),
+        body: CLAUDE_CONTEXT_LIMIT_MESSAGE,
+      })
+    } finally {
+      if (previousLimit === undefined) delete process.env.KIRO_PAYLOAD_SIZE_LIMIT_BYTES
+      else process.env.KIRO_PAYLOAD_SIZE_LIMIT_BYTES = previousLimit
+    }
+
+    expect(generateCalls).toBe(0)
+    expect(mcpCalls).toBe(1)
   })
 
   test("returns 400 when named toolChoice is missing", async () => {

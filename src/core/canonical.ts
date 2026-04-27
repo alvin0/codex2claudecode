@@ -62,6 +62,9 @@ export interface Canonical_ThinkingBlock {
 export interface Canonical_Usage {
   inputTokens: number
   outputTokens: number
+  cacheCreationInputTokens?: number
+  cacheReadInputTokens?: number
+  outputReasoningTokens?: number
   serverToolUse?: {
     webSearchRequests?: number
     webFetchRequests?: number

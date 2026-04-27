@@ -8,6 +8,8 @@ import type { CodexClientOptions, CodexClientTokens } from "./types"
 import { canonicalToCodexBody, canonicalToCodexInputTokensBody, collectCodexResponse, streamCodexResponse } from "./parse"
 
 export class Codex_Upstream_Provider implements Upstream_Provider, TokenCredentialProvider<CodexClientTokens> {
+  readonly providerKind = "codex" as const
+
   private readonly client: CodexStandaloneClient
   private readonly authFile?: string
 

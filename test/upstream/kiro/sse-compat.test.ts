@@ -63,6 +63,7 @@ describe("Kiro Claude SSE compatibility", () => {
     expect(textStart).toBeLessThan(textDelta)
     expect(textDelta).toBeLessThan(textStop)
     expect(sse[messageDelta].data.delta.stop_reason).toBe("end_turn")
+    expect(sse[messageDelta].data.usage.input_tokens).toBe(3)
     expect(sse[messageDelta].data.usage.output_tokens).toBe(4)
     expect(sse.at(-1)?.event).toBe("message_stop")
   })
@@ -88,6 +89,29 @@ describe("Kiro Claude SSE compatibility", () => {
     expect(sse[messageDelta].data.delta.stop_reason).toBe("tool_use")
     expect(sse[messageDelta].data.usage.output_tokens).toBe(7)
     expect(sse.at(-1)?.event).toBe("message_stop")
+  })
+
+  test("emits Claude cache usage fields from Kiro object usage events", async () => {
+    const sse = await readClaudeSseFromKiro('{"content":"hello"}{"usage":{"cacheReadInputTokens":5,"cacheCreationInputTokens":2,"outputTokens":7}}')
+    const messageDelta = indexOfEvent(sse, (event) => event.event === "message_delta")
+
+    expect(sse[messageDelta].data.usage).toMatchObject({
+      input_tokens: 3,
+      cache_creation_input_tokens: 2,
+      cache_read_input_tokens: 5,
+      output_tokens: 7,
+    })
+  })
+
+  test("emits Claude input tokens from Kiro object usage events without falling back to estimates", async () => {
+    const sse = await readClaudeSseFromKiro('{"content":"hello"}{"usage":{"input_tokens":11,"cache_read_input_tokens":5,"output_tokens":7}}{"contextUsagePercentage":1}')
+    const messageDelta = indexOfEvent(sse, (event) => event.event === "message_delta")
+
+    expect(sse[messageDelta].data.usage).toMatchObject({
+      input_tokens: 11,
+      cache_read_input_tokens: 5,
+      output_tokens: 7,
+    })
   })
 
   test("emits Claude wire events for Kiro web_search server tool blocks before answer text", async () => {

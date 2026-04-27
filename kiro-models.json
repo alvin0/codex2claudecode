@@ -49,7 +49,7 @@
       "id": "claude-opus-latest",
       "display_name": "Claude Opus Latest",
       "created_at": "2026-04-21T18:16:01Z",
-      "max_input_tokens": 1000000,
+      "max_input_tokens": 250000,
       "max_tokens": 128000,
       "capabilities": {
         "batch": false,
@@ -72,7 +72,7 @@
       "id": "claude-opus-4.7",
       "display_name": "Claude Opus 4.7",
       "created_at": "2026-04-16T14:51:40Z",
-      "max_input_tokens": 1000000,
+      "max_input_tokens": 250000,
       "max_tokens": 128000,
       "capabilities": {
         "batch": false,
@@ -95,7 +95,7 @@
       "id": "claude-opus-4.6-fast",
       "display_name": "Claude Opus 4.6 (Fast)",
       "created_at": "2026-04-07T20:07:52Z",
-      "max_input_tokens": 1000000,
+      "max_input_tokens": 250000,
       "max_tokens": 128000,
       "capabilities": {
         "batch": false,
@@ -118,7 +118,7 @@
       "id": "claude-sonnet-4.6",
       "display_name": "Claude Sonnet 4.6",
       "created_at": "2026-02-17T15:43:10Z",
-      "max_input_tokens": 1000000,
+      "max_input_tokens": 250000,
       "max_tokens": 128000,
       "capabilities": {
         "batch": false,
@@ -141,7 +141,7 @@
       "id": "claude-opus-4.6",
       "display_name": "Claude Opus 4.6",
       "created_at": "2026-02-04T15:30:50Z",
-      "max_input_tokens": 1000000,
+      "max_input_tokens": 250000,
       "max_tokens": 128000,
       "capabilities": {
         "batch": false,
@@ -164,7 +164,7 @@
       "id": "claude-opus-4.5",
       "display_name": "Claude Opus 4.5",
       "created_at": "2025-11-24T18:56:20Z",
-      "max_input_tokens": 200000,
+      "max_input_tokens": 250000,
       "max_tokens": 64000,
       "capabilities": {
         "batch": false,

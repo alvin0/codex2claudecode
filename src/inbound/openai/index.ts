@@ -1,5 +1,5 @@
 import type { Canonical_ErrorResponse, Canonical_PassthroughResponse, Canonical_Response, Canonical_StreamResponse } from "../../core/canonical"
-import type { Inbound_Provider, RequestHandlerContext, Route_Descriptor, UpstreamResult, Upstream_Provider } from "../../core/interfaces"
+import type { Inbound_Provider, RequestHandlerContext, Route_Descriptor, UpstreamProviderKind, UpstreamResult, Upstream_Provider } from "../../core/interfaces"
 import { responseHeaders } from "../../core/http"
 import { LOG_BODY_PREVIEW_LIMIT } from "../../core/constants"
 import { createLogPreview } from "../../core/log-preview"
@@ -13,6 +13,7 @@ interface OpenAIInboundProviderOptions {
   passthrough?: boolean
   upstreamLogLabel?: string
   upstreamTarget?: string
+  expectedUpstreamKind?: UpstreamProviderKind
 }
 
 export class OpenAI_Inbound_Provider implements Inbound_Provider {
@@ -21,6 +22,7 @@ export class OpenAI_Inbound_Provider implements Inbound_Provider {
   private readonly passthrough: boolean
   private readonly upstreamLogLabel: string
   private readonly upstreamTarget: string
+  private readonly expectedUpstreamKind?: UpstreamProviderKind
 
   constructor(options: OpenAIInboundProviderOptions = {}) {
     this.name = options.name ?? "openai"
@@ -31,6 +33,7 @@ export class OpenAI_Inbound_Provider implements Inbound_Provider {
     this.passthrough = options.passthrough ?? true
     this.upstreamLogLabel = options.upstreamLogLabel ?? "Codex responses"
     this.upstreamTarget = options.upstreamTarget ?? "/v1/responses"
+    this.expectedUpstreamKind = options.expectedUpstreamKind
   }
 
   routes(): Route_Descriptor[] {
@@ -38,6 +41,9 @@ export class OpenAI_Inbound_Provider implements Inbound_Provider {
   }
 
   async handle(request: Request, route: Route_Descriptor, upstream: Upstream_Provider, context: RequestHandlerContext): Promise<Response> {
+    const upstreamMismatch = this.upstreamMismatch(upstream)
+    if (upstreamMismatch) return openAIErrorResponse(upstreamMismatch, 500, "server_error")
+
     let body: unknown
     try {
       body = await request.json()
@@ -167,6 +173,11 @@ export class OpenAI_Inbound_Provider implements Inbound_Provider {
     }
 
     return unexpectedNonPassthroughResponse()
+  }
+
+  private upstreamMismatch(upstream: Upstream_Provider) {
+    if (!this.expectedUpstreamKind || upstream.providerKind === this.expectedUpstreamKind) return
+    return `OpenAI inbound provider '${this.name}' expected ${this.expectedUpstreamKind} upstream, received ${upstream.providerKind}`
   }
 }
 

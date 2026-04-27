@@ -1,8 +1,11 @@
 import type { ClaudeMessagesRequest, JsonObject } from "../types"
 
+import type { Canonical_Usage } from "../../core/canonical"
+import { canonicalUsageFromWireUsage, mergeCanonicalUsage } from "../../core/usage"
 import { countClaudeServerToolCalls, codexOutputItemsToClaudeContent, codexServerToolCallToClaudeBlocks, isServerToolOutputItem } from "./server-tools"
 import { consumeCodexSse, StreamIdleTimeoutError, parseJsonObject, parseSseJson } from "./sse"
 import { claudeStreamErrorEvent } from "./errors"
+import { countClaudeInputTokens } from "./convert"
 
 export async function collectClaudeMessage(response: Response, request: ClaudeMessagesRequest) {
   const state = {
@@ -12,10 +15,13 @@ export async function collectClaudeMessage(response: Response, request: ClaudeMe
     content: [] as JsonObject[],
     messageContent: undefined as JsonObject[] | undefined,
     toolUses: [] as Array<{ id: string; name: string; input: unknown }>,
-    inputTokens: 0,
+    inputTokens: initialInputTokens(request),
     outputTokens: 0,
+    cacheCreationInputTokens: 0,
+    cacheReadInputTokens: 0,
     webSearchRequests: 0,
     webFetchRequests: 0,
+    mcpCalls: 0,
     stopReason: "end_turn",
   }
 
@@ -55,6 +61,7 @@ export async function collectClaudeMessage(response: Response, request: ClaudeMe
       if (isServerToolOutputItem(item)) {
         const blocks = codexServerToolCallToClaudeBlocks(item)
         if (blocks.length) state.content.push(...blocks)
+        addServerToolUseCounts(state, countClaudeServerToolCalls([item]))
         return
       }
       if (item?.type === "message" && Array.isArray(item.content)) {
@@ -75,26 +82,26 @@ export async function collectClaudeMessage(response: Response, request: ClaudeMe
     if (data.type === "response.completed") {
       const item = jsonObjectOrEmpty(data.response) as {
         output?: unknown
-        usage?: { input_tokens?: unknown; output_tokens?: unknown }
+        usage?: unknown
         incomplete_details?: { reason?: unknown } | null
       }
       const content = codexOutputItemsToClaudeContent(item.output)
       const serverToolCalls = countClaudeServerToolCalls(item.output)
       if (content.length) state.content = content
-      if (serverToolCalls.webSearchRequests || serverToolCalls.webFetchRequests) {
-        state.webSearchRequests = serverToolCalls.webSearchRequests
-        state.webFetchRequests = serverToolCalls.webFetchRequests
-      }
-      if (typeof item.usage?.input_tokens === "number") state.inputTokens = item.usage.input_tokens
-      if (typeof item.usage?.output_tokens === "number") state.outputTokens = item.usage.output_tokens
+      mergeServerToolUseCounts(state, serverToolCalls)
+      applyWireUsage(state, item.usage)
       if (item.incomplete_details?.reason === "max_output_tokens") state.stopReason = "max_tokens"
     }
 
     if (data.type === "response.incomplete") {
+      const item = jsonObjectOrEmpty(data.response) as { usage?: unknown }
+      applyWireUsage(state, item.usage)
       state.stopReason = "max_tokens"
     }
 
     if (data.type === "response.failed") {
+      const item = jsonObjectOrEmpty(data.response) as { usage?: unknown }
+      applyWireUsage(state, item.usage)
       state.stopReason = "end_turn"
     }
   })
@@ -118,14 +125,15 @@ export async function collectClaudeMessage(response: Response, request: ClaudeMe
     stop_sequence: null,
     usage: {
       input_tokens: state.inputTokens,
-      cache_creation_input_tokens: 0,
-      cache_read_input_tokens: 0,
+      cache_creation_input_tokens: state.cacheCreationInputTokens,
+      cache_read_input_tokens: state.cacheReadInputTokens,
       output_tokens: state.outputTokens,
-      ...(state.webSearchRequests || state.webFetchRequests
+      ...(state.webSearchRequests || state.webFetchRequests || state.mcpCalls
         ? {
             server_tool_use: {
               ...(state.webSearchRequests && { web_search_requests: state.webSearchRequests }),
               ...(state.webFetchRequests && { web_fetch_requests: state.webFetchRequests }),
+              ...(state.mcpCalls && { mcp_calls: state.mcpCalls }),
             },
           }
         : {}),
@@ -198,9 +206,13 @@ export function claudeStreamResponse(response: Response, request: ClaudeMessages
   let started = false
   let contentStarted = false
   let contentIndex = 0
+  let inputTokens = initialStreamInputTokens(request)
   let outputTokens = 0
+  let cacheCreationInputTokens = 0
+  let cacheReadInputTokens = 0
   let webSearchRequests = 0
   let webFetchRequests = 0
+  let mcpCalls = 0
   const pendingServerCalls: unknown[] = []
   let deferredText = ""
   let stopReason = "end_turn"
@@ -269,7 +281,12 @@ export function claudeStreamResponse(response: Response, request: ClaudeMessages
               content: [],
               stop_reason: null,
               stop_sequence: null,
-              usage: { input_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, output_tokens: 0 },
+              usage: {
+                input_tokens: inputTokens,
+                cache_creation_input_tokens: cacheCreationInputTokens,
+                cache_read_input_tokens: cacheReadInputTokens,
+                output_tokens: outputTokens,
+              },
             },
           })
         }
@@ -523,11 +540,11 @@ export function claudeStreamResponse(response: Response, request: ClaudeMessages
                 if (isServerToolOutputItem(item)) {
                   const blocks = codexServerToolCallToClaudeBlocks(item)
                   const resultBlocks = blocks.filter((block) => block.type !== "server_tool_use" && block.type !== "mcp_tool_use")
-                  if (item?.type === "web_search_call") {
-                    const counts = countClaudeServerToolCalls([item])
-                    webSearchRequests += counts.webSearchRequests
-                    webFetchRequests += counts.webFetchRequests
-                  }
+                  addServerToolUseCounts({ webSearchRequests, webFetchRequests, mcpCalls }, countClaudeServerToolCalls([item]), (counts) => {
+                    webSearchRequests = counts.webSearchRequests
+                    webFetchRequests = counts.webFetchRequests
+                    mcpCalls = counts.mcpCalls
+                  })
 
                   if (resultBlocks.length) {
                     stopOpenTextBlock()
@@ -586,15 +603,22 @@ export function claudeStreamResponse(response: Response, request: ClaudeMessages
                 receivedTerminalEvent = true
                 const item = jsonObjectOrEmpty(data.response) as {
                   output?: unknown
-                  usage?: { input_tokens?: unknown; output_tokens?: unknown }
+                  usage?: unknown
                   incomplete_details?: { reason?: unknown } | null
                 }
-                if (typeof item.usage?.output_tokens === "number") outputTokens = item.usage.output_tokens
-                if (!webSearchRequests && !webFetchRequests) {
-                  const counts = countClaudeServerToolCalls(item.output)
-                  webSearchRequests = counts.webSearchRequests
-                  webFetchRequests = counts.webFetchRequests
-                }
+                const usage = canonicalUsageFromWireUsage(item.usage)
+                inputTokens = usage.inputTokens ?? inputTokens
+                outputTokens = usage.outputTokens ?? outputTokens
+                cacheCreationInputTokens = usage.cacheCreationInputTokens ?? cacheCreationInputTokens
+                cacheReadInputTokens = usage.cacheReadInputTokens ?? cacheReadInputTokens
+                const mergedCounts = mergedServerToolUseCounts({ webSearchRequests, webFetchRequests, mcpCalls }, usage.serverToolUse)
+                webSearchRequests = mergedCounts.webSearchRequests
+                webFetchRequests = mergedCounts.webFetchRequests
+                mcpCalls = mergedCounts.mcpCalls
+                const outputCounts = mergedServerToolUseCounts({ webSearchRequests, webFetchRequests, mcpCalls }, countClaudeServerToolCalls(item.output))
+                webSearchRequests = outputCounts.webSearchRequests
+                webFetchRequests = outputCounts.webFetchRequests
+                mcpCalls = outputCounts.mcpCalls
                 if (pendingServerCalls.length) {
                   const content = codexOutputItemsToClaudeContent(item.output)
                   content.forEach((block) => {
@@ -618,9 +642,17 @@ export function claudeStreamResponse(response: Response, request: ClaudeMessages
                 receivedTerminalEvent = true
                 const item = jsonObjectOrEmpty(data.response) as {
                   incomplete_details?: { reason?: unknown } | null
-                  usage?: { output_tokens?: unknown }
+                  usage?: unknown
                 }
-                if (typeof item.usage?.output_tokens === "number") outputTokens = item.usage.output_tokens
+                const usage = canonicalUsageFromWireUsage(item.usage)
+                inputTokens = usage.inputTokens ?? inputTokens
+                outputTokens = usage.outputTokens ?? outputTokens
+                cacheCreationInputTokens = usage.cacheCreationInputTokens ?? cacheCreationInputTokens
+                cacheReadInputTokens = usage.cacheReadInputTokens ?? cacheReadInputTokens
+                const mergedCounts = mergedServerToolUseCounts({ webSearchRequests, webFetchRequests, mcpCalls }, usage.serverToolUse)
+                webSearchRequests = mergedCounts.webSearchRequests
+                webFetchRequests = mergedCounts.webFetchRequests
+                mcpCalls = mergedCounts.mcpCalls
                 stopReason = "max_tokens"
               }
 
@@ -630,9 +662,17 @@ export function claudeStreamResponse(response: Response, request: ClaudeMessages
                 receivedTerminalEvent = true
                 const item = jsonObjectOrEmpty(data.response) as {
                   error?: { message?: unknown }
-                  usage?: { output_tokens?: unknown }
+                  usage?: unknown
                 }
-                if (typeof item.usage?.output_tokens === "number") outputTokens = item.usage.output_tokens
+                const usage = canonicalUsageFromWireUsage(item.usage)
+                inputTokens = usage.inputTokens ?? inputTokens
+                outputTokens = usage.outputTokens ?? outputTokens
+                cacheCreationInputTokens = usage.cacheCreationInputTokens ?? cacheCreationInputTokens
+                cacheReadInputTokens = usage.cacheReadInputTokens ?? cacheReadInputTokens
+                const mergedCounts = mergedServerToolUseCounts({ webSearchRequests, webFetchRequests, mcpCalls }, usage.serverToolUse)
+                webSearchRequests = mergedCounts.webSearchRequests
+                webFetchRequests = mergedCounts.webFetchRequests
+                mcpCalls = mergedCounts.mcpCalls
                 const errorMsg = typeof item.error?.message === "string" ? item.error.message : "Upstream generation failed"
                 console.error(`[stream] upstream failed: ${errorMsg}`)
                 options?.onStreamError?.(errorMsg)
@@ -673,12 +713,16 @@ export function claudeStreamResponse(response: Response, request: ClaudeMessages
           type: "message_delta",
           delta: { stop_reason: stopReason, stop_sequence: null },
           usage: {
+            input_tokens: inputTokens,
+            cache_creation_input_tokens: cacheCreationInputTokens,
+            cache_read_input_tokens: cacheReadInputTokens,
             output_tokens: outputTokens,
-            ...(webSearchRequests || webFetchRequests
+            ...(webSearchRequests || webFetchRequests || mcpCalls
               ? {
                   server_tool_use: {
                     ...(webSearchRequests && { web_search_requests: webSearchRequests }),
                     ...(webFetchRequests && { web_fetch_requests: webFetchRequests }),
+                    ...(mcpCalls && { mcp_calls: mcpCalls }),
                   },
                 }
               : {}),
@@ -704,6 +748,66 @@ export function claudeStreamResponse(response: Response, request: ClaudeMessages
 
 function jsonObjectOrEmpty(value: unknown) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : {}
+}
+
+interface ServerToolUseCounter {
+  webSearchRequests: number
+  webFetchRequests: number
+  mcpCalls: number
+}
+
+function applyWireUsage(state: { inputTokens: number; outputTokens: number; cacheCreationInputTokens: number; cacheReadInputTokens: number } & ServerToolUseCounter, wireUsage: unknown) {
+  const usage = canonicalUsageFromWireUsage(wireUsage)
+  mergeCanonicalUsage(state, usage)
+  mergeServerToolUseCounts(state, usage.serverToolUse)
+}
+
+function addServerToolUseCounts(
+  state: ServerToolUseCounter,
+  counts: Partial<ServerToolUseCounter> | undefined,
+  commit?: (next: ServerToolUseCounter) => void,
+) {
+  const next = {
+    webSearchRequests: state.webSearchRequests + (counts?.webSearchRequests ?? 0),
+    webFetchRequests: state.webFetchRequests + (counts?.webFetchRequests ?? 0),
+    mcpCalls: state.mcpCalls + (counts?.mcpCalls ?? 0),
+  }
+  if (commit) commit(next)
+  else {
+    state.webSearchRequests = next.webSearchRequests
+    state.webFetchRequests = next.webFetchRequests
+    state.mcpCalls = next.mcpCalls
+  }
+}
+
+function mergeServerToolUseCounts(state: ServerToolUseCounter, counts: Canonical_Usage["serverToolUse"] | undefined) {
+  const merged = mergedServerToolUseCounts(state, counts)
+  state.webSearchRequests = merged.webSearchRequests
+  state.webFetchRequests = merged.webFetchRequests
+  state.mcpCalls = merged.mcpCalls
+}
+
+function mergedServerToolUseCounts(state: ServerToolUseCounter, counts: Canonical_Usage["serverToolUse"] | undefined): ServerToolUseCounter {
+  return {
+    webSearchRequests: Math.max(state.webSearchRequests, counts?.webSearchRequests ?? 0),
+    webFetchRequests: Math.max(state.webFetchRequests, counts?.webFetchRequests ?? 0),
+    mcpCalls: Math.max(state.mcpCalls, counts?.mcpCalls ?? 0),
+  }
+}
+
+function initialStreamInputTokens(request: ClaudeMessagesRequest) {
+  return initialInputTokens(request)
+}
+
+function initialInputTokens(request: ClaudeMessagesRequest) {
+  const hasCountableInput = request.messages.length > 0
+    || Boolean(request.system)
+    || Boolean(request.tools?.length)
+    || Boolean(request.mcp_servers?.length)
+    || Boolean(request.tool_choice)
+    || Boolean(request.thinking)
+    || Boolean(request.output_config)
+  return hasCountableInput ? countClaudeInputTokens(request) : 0
 }
 
 interface CodexOutputItemState {

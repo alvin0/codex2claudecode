@@ -13,7 +13,10 @@ export type UpstreamResult =
   | Canonical_ErrorResponse
   | Canonical_PassthroughResponse
 
+export type UpstreamProviderKind = "codex" | "kiro"
+
 export interface Upstream_Provider {
+  readonly providerKind?: UpstreamProviderKind
   proxy(request: Canonical_Request, options?: RequestOptions): Promise<UpstreamResult>
   checkHealth(timeoutMs: number): Promise<HealthStatus>
   inputTokens?(request: Canonical_Request, options?: RequestOptions): Promise<Response>

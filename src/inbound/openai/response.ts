@@ -7,6 +7,7 @@ import type {
   Canonical_Usage,
 } from "../../core/canonical"
 import type { JsonObject } from "../../core/types"
+import { canonicalInputTokenTotal, mergeCanonicalUsage } from "../../core/usage"
 
 export function openAICanonicalResponse(response: Canonical_Response, pathname: string, request: JsonObject): Response {
   if (isChatPath(pathname)) return Response.json(canonicalResponseToChatCompletion(response))
@@ -76,6 +77,7 @@ function responsesStreamResponse(response: Canonical_StreamResponse, request: Js
   let reasoningDone = false
   let reasoningText = ""
   let usage: JsonObject | null = null
+  let accumulatedUsage: Canonical_Usage | undefined
   let stopReason = "end_turn"
   let incompleteReason: string | undefined
   let completionOutputOverride: JsonObject[] | undefined
@@ -475,7 +477,8 @@ function responsesStreamResponse(response: Canonical_StreamResponse, request: Js
               continue
             }
             if (event.type === "usage") {
-              usage = responsesUsage(event.usage)
+              accumulatedUsage = mergeStreamUsage(accumulatedUsage, event.usage)
+              usage = responsesUsage(accumulatedUsage)
               continue
             }
             if (event.type === "message_stop") {
@@ -484,7 +487,10 @@ function responsesStreamResponse(response: Canonical_StreamResponse, request: Js
               continue
             }
             if (event.type === "completion") {
-              if (event.usage) usage = responsesUsage(event.usage)
+              if (event.usage) {
+                accumulatedUsage = mergeStreamUsage(accumulatedUsage, event.usage)
+                usage = responsesUsage(accumulatedUsage)
+              }
               if (event.stopReason) stopReason = event.stopReason
               if (event.incompleteReason) incompleteReason = event.incompleteReason
               const completionOutput = responseOutputItems(event.output)
@@ -571,6 +577,7 @@ function chatCompletionStreamResponse(response: Canonical_StreamResponse): Respo
   let text = ""
   let currentChatMessageText = ""
   let usage: JsonObject | undefined
+  let accumulatedUsage: Canonical_Usage | undefined
   let stopReason = "stop"
   const completedChatMessageIds = new Set<string>()
 
@@ -736,7 +743,8 @@ function chatCompletionStreamResponse(response: Canonical_StreamResponse): Respo
               continue
             }
             if (event.type === "usage") {
-              usage = chatUsage(event.usage)
+              accumulatedUsage = mergeStreamUsage(accumulatedUsage, event.usage)
+              usage = chatUsage(accumulatedUsage)
               continue
             }
             if (event.type === "message_stop") {
@@ -750,7 +758,10 @@ function chatCompletionStreamResponse(response: Canonical_StreamResponse): Respo
               } else if (completionOutput.length) {
                 await reconcileChatOutputItems(completionOutput)
               }
-              if (event.usage) usage = chatUsage(event.usage)
+              if (event.usage) {
+                accumulatedUsage = mergeStreamUsage(accumulatedUsage, event.usage)
+                usage = chatUsage(accumulatedUsage)
+              }
               if (event.stopReason) stopReason = chatFinishReason(event.stopReason, toolStates.size > 0)
               else if (event.incompleteReason === "max_output_tokens") stopReason = "length"
               continue
@@ -1057,25 +1068,35 @@ function responseObject(options: {
 }
 
 function responsesUsage(usage: Partial<Canonical_Usage> | undefined): JsonObject {
-  const inputTokens = usage?.inputTokens ?? 0
+  const inputTokens = canonicalInputTokenTotal(usage)
   const outputTokens = usage?.outputTokens ?? 0
+  const cachedTokens = usage?.cacheReadInputTokens ?? 0
   return {
     input_tokens: inputTokens,
-    input_tokens_details: { cached_tokens: 0 },
+    input_tokens_details: { cached_tokens: cachedTokens },
     output_tokens: outputTokens,
-    output_tokens_details: { reasoning_tokens: 0 },
+    output_tokens_details: { reasoning_tokens: usage?.outputReasoningTokens ?? 0 },
     total_tokens: inputTokens + outputTokens,
   }
 }
 
 function chatUsage(usage: Partial<Canonical_Usage> | undefined): JsonObject {
-  const inputTokens = usage?.inputTokens ?? 0
+  const inputTokens = canonicalInputTokenTotal(usage)
   const outputTokens = usage?.outputTokens ?? 0
+  const cachedTokens = usage?.cacheReadInputTokens ?? 0
   return {
     prompt_tokens: inputTokens,
     completion_tokens: outputTokens,
     total_tokens: inputTokens + outputTokens,
+    prompt_tokens_details: { cached_tokens: cachedTokens },
+    completion_tokens_details: { reasoning_tokens: usage?.outputReasoningTokens ?? 0 },
   }
+}
+
+function mergeStreamUsage(current: Canonical_Usage | undefined, next: Partial<Canonical_Usage>) {
+  const merged = current ?? { inputTokens: 0, outputTokens: 0 }
+  mergeCanonicalUsage(merged, next)
+  return merged
 }
 
 function outputTextFromOutput(output: JsonObject[]) {

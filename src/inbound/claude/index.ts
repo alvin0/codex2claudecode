@@ -1,9 +1,10 @@
 import type { Canonical_ErrorResponse, Canonical_PassthroughResponse, Canonical_Response, Canonical_StreamResponse } from "../../core/canonical"
-import type { Inbound_Provider, RequestHandlerContext, Route_Descriptor, UpstreamResult, Upstream_Provider } from "../../core/interfaces"
+import type { Inbound_Provider, RequestHandlerContext, Route_Descriptor, UpstreamProviderKind, UpstreamResult, Upstream_Provider } from "../../core/interfaces"
 import { LOG_BODY_PREVIEW_LIMIT } from "../../core/constants"
 import { createLogPreview } from "../../core/log-preview"
 import type { RequestOptions, RequestProxyLog } from "../../core/types"
 import { claudeToCanonicalRequest, countClaudeInputTokens } from "./convert"
+import { claudeUpstreamErrorMessage } from "./context-limit"
 import { claudeErrorResponse } from "./errors"
 import { canonicalResponseToClaudeMessage, claudeCanonicalStreamResponse } from "./response"
 import { Model_Catalog, claudeSettingsModelResolver } from "./models"
@@ -14,6 +15,7 @@ export interface ClaudeInboundProviderOptions {
   modelResolver?: () => Promise<string[]>
   upstreamLogLabel?: string
   inputTokensLogLabel?: string
+  expectedUpstreamKind?: UpstreamProviderKind
 }
 
 export class Claude_Inbound_Provider implements Inbound_Provider {
@@ -22,6 +24,7 @@ export class Claude_Inbound_Provider implements Inbound_Provider {
   private readonly modelResolver: () => Promise<string[]>
   private readonly upstreamLogLabel: string
   private readonly inputTokensLogLabel: string
+  private readonly expectedUpstreamKind?: UpstreamProviderKind
 
   constructor(optionsOrModelResolver: ClaudeInboundProviderOptions | (() => Promise<string[]>) = {}) {
     const options = typeof optionsOrModelResolver === "function" ? { modelResolver: optionsOrModelResolver } : optionsOrModelResolver
@@ -29,6 +32,7 @@ export class Claude_Inbound_Provider implements Inbound_Provider {
     this.modelResolver = options.modelResolver ?? claudeSettingsModelResolver
     this.upstreamLogLabel = options.upstreamLogLabel ?? "Upstream responses"
     this.inputTokensLogLabel = options.inputTokensLogLabel ?? "OpenAI input tokens"
+    this.expectedUpstreamKind = options.expectedUpstreamKind
     this.modelCatalog = new Model_Catalog()
   }
 
@@ -43,6 +47,9 @@ export class Claude_Inbound_Provider implements Inbound_Provider {
   }
 
   async handle(request: Request, route: Route_Descriptor, upstream: Upstream_Provider, context: RequestHandlerContext): Promise<Response> {
+    const upstreamMismatch = this.upstreamMismatch(upstream)
+    if (upstreamMismatch) return claudeErrorResponse(upstreamMismatch, 500)
+
     if (route.path === "/v1/models") {
       return Response.json(await this.modelCatalog.listModels(this.modelResolver, {
         afterId: new URL(request.url).searchParams.get("after_id") ?? undefined,
@@ -128,7 +135,7 @@ export class Claude_Inbound_Provider implements Inbound_Provider {
           responseBody: shouldCaptureProxyBody ? previewText(result.body) || undefined : undefined,
         } satisfies RequestProxyLog)
       }
-      return claudeErrorResponse(`Upstream request failed: ${result.status} ${result.body}`, result.status)
+      return claudeErrorResponse(claudeUpstreamErrorMessage(result.status, result.body), result.status)
     }
 
     const proxyLog: RequestProxyLog | undefined = context.onProxy ? {
@@ -237,6 +244,11 @@ export class Claude_Inbound_Provider implements Inbound_Provider {
     if (inputTokens === undefined) return claudeErrorResponse("Invalid input token response: missing input_tokens", 502)
 
     return Response.json({ input_tokens: inputTokens })
+  }
+
+  private upstreamMismatch(upstream: Upstream_Provider) {
+    if (!this.expectedUpstreamKind || upstream.providerKind === this.expectedUpstreamKind) return
+    return `Claude inbound provider '${this.name}' expected ${this.expectedUpstreamKind} upstream, received ${upstream.providerKind}`
   }
 }
 

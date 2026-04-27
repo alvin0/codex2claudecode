@@ -42,7 +42,7 @@ export async function bootstrapRuntime(options?: RuntimeOptions & { providerMode
   const registry = new Provider_Registry()
 
   registry.register(new Claude_Codex_Inbound_Adapter())
-  registry.register(new OpenAI_Inbound_Provider())
+  registry.register(new OpenAI_Inbound_Provider({ expectedUpstreamKind: "codex" }))
 
   return {
     authFile,

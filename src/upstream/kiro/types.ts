@@ -129,7 +129,7 @@ export interface KiroToolStopEvent {
 }
 
 export interface KiroUsageEvent {
-  usage: number
+  usage: number | Record<string, unknown>
 }
 
 export interface KiroContextUsageEvent {
@@ -158,9 +158,12 @@ export class ToolNameTooLongError extends Error {
 }
 
 export class PayloadTooLargeError extends Error {
-  constructor(message: string) {
+  readonly status: number
+
+  constructor(message: string, options: { status?: number } = {}) {
     super(message)
     this.name = "PayloadTooLargeError"
+    this.status = options.status ?? 413
   }
 }
 

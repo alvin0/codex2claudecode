@@ -6,6 +6,7 @@ import type { ClaudeMessagesRequest, JsonObject, RequestProxyLog } from "../type
 
 import { claudeToResponsesBody } from "./codex-convert"
 import { countClaudeInputTokens } from "./convert"
+import { claudeUpstreamErrorMessage } from "./context-limit"
 import { claudeErrorResponse } from "./errors"
 import { collectClaudeMessage, claudeStreamResponse } from "./codex-response"
 
@@ -62,7 +63,7 @@ export async function handleClaudeMessages(
       })
     }
     console.error(`Claude messages upstream error ${response.status}: ${text.slice(0, LOG_BODY_PREVIEW_LIMIT)}`)
-    return claudeErrorResponse(`Upstream request failed: ${response.status} ${text}`, response.status)
+    return claudeErrorResponse(claudeUpstreamErrorMessage(response.status, text), response.status)
   }
 
   const proxyLog: RequestProxyLog | undefined = options?.onProxy ? {

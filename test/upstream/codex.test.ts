@@ -109,6 +109,65 @@ describe("Codex SSE parsing", () => {
     ])
   })
 
+  test("preserves cached and reasoning usage from Responses SSE", async () => {
+    const response = await collectCodexResponse(
+      new Response(
+        sse([
+          {
+            type: "response.completed",
+            response: {
+              usage: {
+                input_tokens: 10,
+                input_tokens_details: { cached_tokens: 4 },
+                output_tokens: 3,
+                output_tokens_details: { reasoning_tokens: 2 },
+              },
+              output: [],
+            },
+          },
+        ]),
+      ),
+      "fallback",
+    )
+
+    expect(response.usage).toEqual({
+      inputTokens: 6,
+      cacheReadInputTokens: 4,
+      outputTokens: 3,
+      outputReasoningTokens: 2,
+    })
+  })
+
+  test("does not double count Codex server tool usage across item events and completed snapshots", async () => {
+    const firstSearch = { type: "web_search_call", id: "ws_1", action: { type: "search", query: "one", sources: [{ type: "url", url: "https://one.test", title: "one" }] } }
+    const secondSearch = { type: "web_search_call", id: "ws_2", action: { type: "search", query: "two", sources: [{ type: "url", url: "https://two.test", title: "two" }] } }
+    const response = await collectCodexResponse(
+      new Response(
+        sse([
+          { type: "response.output_item.done", item: firstSearch },
+          {
+            type: "response.completed",
+            response: {
+              usage: {
+                input_tokens: 1,
+                output_tokens: 2,
+                server_tool_use: { web_search_requests: 1 },
+              },
+              output: [
+                firstSearch,
+                secondSearch,
+                { type: "message", content: [{ type: "output_text", text: "done" }] },
+              ],
+            },
+          },
+        ]),
+      ),
+      "fallback",
+    )
+
+    expect(response.usage.serverToolUse?.webSearchRequests).toBe(2)
+  })
+
   test("property: random completed SSE sequences produce valid canonical responses", async () => {
     for (let iteration = 0; iteration < 100; iteration += 1) {
       const text = `text-${iteration}`

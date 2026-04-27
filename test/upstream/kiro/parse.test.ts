@@ -33,6 +33,13 @@ describe("Kiro response parsing", () => {
     expect(parser.feed(new TextEncoder().encode('llo"}{"content":"hello"}{"usage":4}'))).toEqual([{ content: "hello" }, { usage: 4 }])
   })
 
+  test("parses object usage events for cache accounting", () => {
+    const parser = new AwsEventStreamParser()
+    expect(parser.feed(new TextEncoder().encode('{"usage":{"cacheReadInputTokens":5,"cacheCreationInputTokens":2,"outputTokens":7}}'))).toEqual([
+      { usage: { cacheReadInputTokens: 5, cacheCreationInputTokens: 2, outputTokens: 7 } },
+    ])
+  })
+
   test("preserves multibyte UTF-8 characters split across chunks", () => {
     const parser = new AwsEventStreamParser()
     const bytes = new TextEncoder().encode('{"content":"é"}')
@@ -147,6 +154,81 @@ describe("Kiro response parsing", () => {
     expect(events.at(-1)).toEqual({ type: "message_stop", stopReason: "tool_use" })
   })
 
+  test("forwards Kiro object usage cache fields in streaming and collected responses", async () => {
+    const body = '{"content":"hello"}{"usage":{"cache_read_input_tokens":5,"cache_creation_input_tokens":2,"output_tokens":7}}{"contextUsagePercentage":1}'
+    const response = streamKiroResponse(new Response(stream([body])), "model", [], 3)
+    const events: Canonical_Event[] = []
+    for await (const event of response.events) events.push(event)
+
+    expect(events.at(-2)).toEqual({
+      type: "usage",
+      usage: {
+        inputTokens: Math.max(0, Math.floor((1 / 100) * DEFAULT_MAX_INPUT_TOKENS) - 7),
+        outputTokens: 7,
+        cacheCreationInputTokens: 2,
+        cacheReadInputTokens: 5,
+      },
+    })
+
+    const collected = await collectKiroResponse(new Response(stream([body])), "model", [], 3)
+    expect(collected.usage).toMatchObject({
+      outputTokens: 7,
+      cacheCreationInputTokens: 2,
+      cacheReadInputTokens: 5,
+    })
+  })
+
+  test("prefers Kiro object usage input tokens over local context estimates", async () => {
+    const body = '{"content":"hello"}{"usage":{"input_tokens":11,"cache_read_input_tokens":5,"output_tokens":7,"server_tool_use":{"web_search_requests":2}}}{"contextUsagePercentage":1}'
+    const response = streamKiroResponse(new Response(stream([body])), "model", [], 3)
+    const events: Canonical_Event[] = []
+    for await (const event of response.events) events.push(event)
+
+    expect(events.at(-2)).toMatchObject({
+      type: "usage",
+      usage: {
+        inputTokens: 11,
+        cacheReadInputTokens: 5,
+        outputTokens: 7,
+        serverToolUse: { webSearchRequests: 2 },
+      },
+    })
+
+    const collected = await collectKiroResponse(new Response(stream([body])), "model", [], 3)
+    expect(collected.usage).toMatchObject({
+      inputTokens: 11,
+      cacheReadInputTokens: 5,
+      outputTokens: 7,
+      serverToolUse: { webSearchRequests: 2 },
+    })
+  })
+
+  test("keeps the larger server tool count when local blocks and repeated usage objects report it", async () => {
+    const body = '{"content":"hello"}{"usage":{"output_tokens":7,"server_tool_use":{"web_search_requests":2}}}{"usage":{"output_tokens":7,"server_tool_use":{"web_search_requests":1}}}'
+    const initialServerToolBlocks = [{ type: "web_search_tool_result", tool_use_id: "srv_1", content: [] }]
+    const response = streamKiroResponse(
+      new Response(stream([body])),
+      "model",
+      [],
+      3,
+      undefined,
+      initialServerToolBlocks,
+    )
+    const events: Canonical_Event[] = []
+    for await (const event of response.events) events.push(event)
+
+    expect(events.at(-2)).toMatchObject({
+      type: "usage",
+      usage: {
+        outputTokens: 7,
+        serverToolUse: { webSearchRequests: 2 },
+      },
+    })
+
+    const collected = await collectKiroResponse(new Response(stream([body])), "model", [], 3, undefined, initialServerToolBlocks)
+    expect(collected.usage.serverToolUse).toEqual({ webSearchRequests: 2 })
+  })
+
   test("streaming emits Kiro tool calls that do not include stop events", async () => {
     const response = streamKiroResponse(new Response(stream(['{"content":"Để kiểm tra các thư mục được phép truy cập."}', '{"name":"mcp__filesystem__list_allowed_directories","toolUseId":"call_1"}', '{"input":""}', '{"contextUsagePercentage":50}'])), "model", [{ type: "function", name: "mcp__filesystem__list_allowed_directories" }], 7)
     const events: Canonical_Event[] = []
@@ -179,13 +261,18 @@ describe("Kiro response parsing", () => {
   })
 
   test("streaming handles a missing response body", async () => {
-    const response = streamKiroResponse(new Response(null), "model", [], 5, undefined, [], "preface")
+    const initialServerToolBlocks = [
+      { type: "server_tool_use", id: "srvtoolu_search", name: "web_search", input: { query: "https://example.com" } },
+      { type: "web_search_tool_result", tool_use_id: "srvtoolu_search", content: [] },
+    ]
+    const response = streamKiroResponse(new Response(null), "model", [], 5, undefined, initialServerToolBlocks, "preface")
     const events: Canonical_Event[] = []
     for await (const event of response.events) events.push(event)
 
     expect(events).toEqual([
       { type: "text_delta", delta: "preface" },
-      { type: "usage", usage: { inputTokens: 5, outputTokens: estimatedFallbackTokens("preface") } },
+      { type: "server_tool_block", blocks: initialServerToolBlocks },
+      { type: "usage", usage: { inputTokens: 5, outputTokens: estimatedFallbackTokens("preface"), serverToolUse: { webSearchRequests: 1 } } },
       { type: "message_stop", stopReason: "end_turn" },
     ])
   })

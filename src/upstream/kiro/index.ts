@@ -17,6 +17,8 @@ interface KiroClientOptions extends KiroAuthManagerOptions {
 }
 
 export class Kiro_Upstream_Provider implements Upstream_Provider {
+  readonly providerKind = "kiro" as const
+
   private readonly auth: Kiro_Auth_Manager
   private readonly client: Kiro_Client
   private modelCache?: { models: string[]; cachedAt: number }
@@ -53,7 +55,27 @@ export class Kiro_Upstream_Provider implements Upstream_Provider {
 
     const fallbackWebSearchQuery = effective.webSearch ? inferWebSearchFallbackQuery(request) : undefined
     const shouldPreflightWebSearch = Boolean(effective.webSearch && explicitWebSearch && fallbackWebSearchQuery)
-    if (request.stream && shouldPreflightWebSearch && fallbackWebSearchQuery) {
+    const signalClaudeContextLimit = shouldSignalClaudeContextLimit(request)
+    if (shouldPreflightWebSearch && fallbackWebSearchQuery && signalClaudeContextLimit) {
+      const requestForContextCheck = {
+        ...request,
+        instructions: buildKiroInstructions(request.instructions, request.textFormat, Boolean(effective.webSearch)),
+      }
+      try {
+        convertCanonicalToKiroPayload(requestForContextCheck, effective.tools, {
+          modelId: model,
+          authType: this.auth.getAuthType(),
+          profileArn: this.auth.getProfileArn(),
+          instructions: requestForContextCheck.instructions,
+          payloadOverflowMode: "context_error",
+        })
+      } catch (error) {
+        if (error instanceof ToolNameTooLongError) return canonicalError(400, error.message)
+        if (error instanceof PayloadTooLargeError) return canonicalError(error.status, error.message)
+        throw error
+      }
+    }
+    if (request.stream && shouldPreflightWebSearch && fallbackWebSearchQuery && !signalClaudeContextLimit) {
       return this.streamWithWebSearchPreflight(request, options, effective.tools, model, fallbackWebSearchQuery)
     }
 
@@ -80,6 +102,7 @@ export class Kiro_Upstream_Provider implements Upstream_Provider {
         authType: this.auth.getAuthType(),
         profileArn: this.auth.getProfileArn(),
         instructions: requestForPayload.instructions,
+        payloadOverflowMode: signalClaudeContextLimit ? "context_error" : "trim",
         onTrim: (notice) => {
           payloadTrimWarning = `${trimNoticeText(notice)}\n\n`
         },
@@ -87,7 +110,7 @@ export class Kiro_Upstream_Provider implements Upstream_Provider {
       options?.onRequestBody?.(JSON.stringify(payload))
     } catch (error) {
       if (error instanceof ToolNameTooLongError) return canonicalError(400, error.message)
-      if (error instanceof PayloadTooLargeError) return canonicalError(413, error.message)
+      if (error instanceof PayloadTooLargeError) return canonicalError(error.status, error.message)
       throw error
     }
     const inputTokenEstimate = estimateInputTokens(payload)
@@ -160,6 +183,7 @@ export class Kiro_Upstream_Provider implements Upstream_Provider {
               authType,
               profileArn,
               instructions: requestForPayload.instructions,
+              payloadOverflowMode: shouldSignalClaudeContextLimit(request) ? "context_error" : "trim",
               onTrim: (notice) => {
                 payloadTrimWarning = `${trimNoticeText(notice)}\n\n`
               },
@@ -277,6 +301,10 @@ export function computeEffectiveTools(tools: JsonObject[] = [], toolChoice?: Jso
     return found ? { tools: [found], ...(webSearchEnabled && found.name === "web_search" ? { webSearch: true } : {}) } : { error: `Named tool_choice '${name}' was not found in provided tools` }
   }
   return { tools: allTools, ...(webSearchEnabled ? { webSearch: true } : {}) }
+}
+
+function shouldSignalClaudeContextLimit(request: Canonical_Request) {
+  return request.metadata.source === "claude"
 }
 
 export function normalizeKiroModelName(model: string) {
@@ -577,7 +605,7 @@ function withLoggedResponseBody(response: Response, onChunk?: (chunk: string) =>
 export { Kiro_Auth_Manager } from "./auth"
 export { Kiro_Client } from "./client"
 export { extractWebSearchQuery, kiroWebSearchTool, parseMcpWebSearchResults, webSearchBlocks, webSearchSummary } from "./mcp"
-export { convertCanonicalToKiroPayload, sanitizeToolSchema, trimNoticeText } from "./payload"
+export { CLAUDE_CONTEXT_LIMIT_MESSAGE, convertCanonicalToKiroPayload, sanitizeToolSchema, trimNoticeText } from "./payload"
 export type { KiroPayloadTrimNotice } from "./payload"
 export { AwsEventStreamParser, ThinkingBlockExtractor, collectKiroResponse, streamKiroResponse } from "./parse"
 export type * from "./types"

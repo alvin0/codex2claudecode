@@ -7,6 +7,7 @@ export class Claude_Kiro_Inbound_Adapter extends Claude_Inbound_Provider {
       modelResolver,
       upstreamLogLabel: "Kiro messages",
       inputTokensLogLabel: "Kiro input tokens",
+      expectedUpstreamKind: "kiro",
     })
   }
 }

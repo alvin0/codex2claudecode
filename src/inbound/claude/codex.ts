@@ -10,6 +10,7 @@ export class Claude_Codex_Inbound_Adapter extends Claude_Inbound_Provider {
       modelResolver,
       upstreamLogLabel: "Codex responses",
       inputTokensLogLabel: "Codex input tokens",
+      expectedUpstreamKind: "codex",
     })
   }
 }

@@ -7,6 +7,7 @@ export class OpenAI_Kiro_Inbound_Adapter extends OpenAI_Inbound_Provider {
       passthrough: false,
       upstreamLogLabel: "Kiro OpenAI",
       upstreamTarget: "upstream",
+      expectedUpstreamKind: "kiro",
       routes: [
         { path: "/v1/responses", method: "POST" },
         { path: "/v1/chat/completions", method: "POST" },

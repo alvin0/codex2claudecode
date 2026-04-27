@@ -2,6 +2,7 @@ import { countTokens } from "gpt-tokenizer"
 
 import type { Canonical_ContentBlock, Canonical_Event, Canonical_Response, Canonical_StreamResponse, Canonical_ToolCallBlock } from "../../core/canonical"
 import type { JsonObject } from "../../core/types"
+import { canonicalUsageFromWireUsage, mergeCanonicalUsage } from "../../core/usage"
 import { DEFAULT_MAX_INPUT_TOKENS } from "./constants"
 import { maybeHandleKiroServerTool, type KiroServerToolHandlers } from "./mcp"
 import type { KiroParsedEvent, KiroToolCall } from "./types"
@@ -225,6 +226,9 @@ export async function collectKiroResponse(
   let pendingThinking: { thinking: string; signature?: string } | undefined
   let outputTokens = 0
   let inputTokens = inputTokenEstimate
+  let cacheCreationInputTokens: number | undefined
+  let cacheReadInputTokens: number | undefined
+  let outputReasoningTokens: number | undefined
   let serverToolUse: Canonical_Response["usage"]["serverToolUse"] | undefined
   let stopReason: Canonical_Response["stopReason"] = "end_turn"
 
@@ -268,13 +272,14 @@ export async function collectKiroResponse(
     if (event.type === "usage") {
       outputTokens = event.usage.outputTokens ?? outputTokens
       inputTokens = event.usage.inputTokens ?? inputTokens
-      if (event.usage.serverToolUse) {
-        serverToolUse = {
-          webSearchRequests: (serverToolUse?.webSearchRequests ?? 0) + (event.usage.serverToolUse.webSearchRequests ?? 0),
-          webFetchRequests: (serverToolUse?.webFetchRequests ?? 0) + (event.usage.serverToolUse.webFetchRequests ?? 0),
-          mcpCalls: (serverToolUse?.mcpCalls ?? 0) + (event.usage.serverToolUse.mcpCalls ?? 0),
-        }
-      }
+      const mergedUsage: Canonical_Response["usage"] = { inputTokens, outputTokens }
+      mergeCanonicalUsage(mergedUsage, event.usage)
+      inputTokens = mergedUsage.inputTokens
+      outputTokens = mergedUsage.outputTokens
+      cacheCreationInputTokens = mergedUsage.cacheCreationInputTokens ?? cacheCreationInputTokens
+      cacheReadInputTokens = mergedUsage.cacheReadInputTokens ?? cacheReadInputTokens
+      outputReasoningTokens = mergedUsage.outputReasoningTokens ?? outputReasoningTokens
+      serverToolUse = mergeServerToolUse(serverToolUse, event.usage.serverToolUse)
     }
     if (event.type === "message_stop") stopReason = event.stopReason as Canonical_Response["stopReason"]
   }
@@ -293,6 +298,9 @@ export async function collectKiroResponse(
     usage: {
       inputTokens,
       outputTokens,
+      ...(cacheCreationInputTokens !== undefined ? { cacheCreationInputTokens } : {}),
+      ...(cacheReadInputTokens !== undefined ? { cacheReadInputTokens } : {}),
+      ...(outputReasoningTokens !== undefined ? { outputReasoningTokens } : {}),
       ...(serverToolUse && (serverToolUse.webSearchRequests || serverToolUse.webFetchRequests || serverToolUse.mcpCalls) ? { serverToolUse } : {}),
     },
   }
@@ -311,6 +319,8 @@ async function* iterateKiroEvents(
   const thinking = new ThinkingBlockExtractor()
   let text = prefaceText
   let usageOutputTokens: number | undefined
+  let upstreamInputTokens: number | undefined
+  const upstreamUsage: Canonical_Response["usage"] = { inputTokens: inputTokenEstimate, outputTokens: 0 }
   let contextUsage: number | undefined
   let stopReason = "end_turn"
   let sawToolCall = false
@@ -318,13 +328,21 @@ async function* iterateKiroEvents(
   let sentThinkingSignature = false
   let thinkingBlockIndex: number | undefined
   let nextBlockIndex = 0
-  let webSearchRequests = serverToolUseFromBlocks(initialServerToolBlocks)?.webSearchRequests ?? 0
+  const initialServerToolUse = serverToolUseFromBlocks(initialServerToolBlocks)
+  let webSearchRequests = initialServerToolUse?.webSearchRequests ?? 0
   const emittedToolCalls: Canonical_ToolCallBlock[] = []
   const reader = stream?.getReader()
   if (prefaceText) yield { type: "text_delta", delta: prefaceText }
   if (initialServerToolBlocks.length) yield { type: "server_tool_block", blocks: initialServerToolBlocks }
   if (!reader) {
-    yield { type: "usage", usage: { inputTokens: inputTokenEstimate, outputTokens: text ? estimateKiroFallbackTokens(text) : 0 } }
+    yield {
+      type: "usage",
+      usage: {
+        inputTokens: inputTokenEstimate,
+        outputTokens: text ? estimateKiroFallbackTokens(text) : 0,
+        ...(initialServerToolUse ? { serverToolUse: initialServerToolUse } : {}),
+      },
+    }
     yield { type: "message_stop", stopReason }
     return
   }
@@ -381,7 +399,16 @@ async function* iterateKiroEvents(
             yield { type: "text_delta", delta: extracted.regular }
           }
         }
-        if ("usage" in event && typeof event.usage === "number") usageOutputTokens = event.usage
+        if ("usage" in event) {
+          if (typeof event.usage === "number") {
+            usageOutputTokens = event.usage
+          } else if (event.usage && typeof event.usage === "object" && !Array.isArray(event.usage)) {
+            const usage = canonicalUsageFromWireUsage(event.usage)
+            mergeCanonicalUsage(upstreamUsage, usage)
+            if (typeof usage.inputTokens === "number") upstreamInputTokens = usage.inputTokens
+            if (typeof upstreamUsage.outputTokens === "number" && upstreamUsage.outputTokens > 0) usageOutputTokens = upstreamUsage.outputTokens
+          }
+        }
         const toolCalls = parser.takeToolCalls()
         if ("stop" in event && event.stop && !toolCalls.length && !sawToolCall) stopReason = "max_tokens"
         if ("contextUsagePercentage" in event && typeof event.contextUsagePercentage === "number") contextUsage = event.contextUsagePercentage
@@ -425,12 +452,19 @@ async function* iterateKiroEvents(
     }
   }
   const outputTokens = usageOutputTokens ?? (text ? estimateKiroFallbackTokens(text) : 0)
+  const serverToolUse = mergeServerToolUse(
+    upstreamUsage.serverToolUse,
+    webSearchRequests ? { webSearchRequests } : undefined,
+  )
   yield {
     type: "usage",
     usage: {
-      inputTokens: estimateInputTokens(contextUsage, outputTokens, inputTokenEstimate),
+      inputTokens: upstreamInputTokens ?? estimateInputTokens(contextUsage, outputTokens, inputTokenEstimate),
       outputTokens,
-      ...(webSearchRequests ? { serverToolUse: { webSearchRequests } } : {}),
+      ...(upstreamUsage.cacheCreationInputTokens !== undefined ? { cacheCreationInputTokens: upstreamUsage.cacheCreationInputTokens } : {}),
+      ...(upstreamUsage.cacheReadInputTokens !== undefined ? { cacheReadInputTokens: upstreamUsage.cacheReadInputTokens } : {}),
+      ...(upstreamUsage.outputReasoningTokens !== undefined ? { outputReasoningTokens: upstreamUsage.outputReasoningTokens } : {}),
+      ...(serverToolUse ? { serverToolUse } : {}),
     },
   }
   yield { type: "message_stop", stopReason }
@@ -509,6 +543,26 @@ function serverToolUseFromBlocks(blocks: JsonObject[]): Canonical_Response["usag
     ...(webFetchRequests ? { webFetchRequests } : {}),
     ...(mcpCalls ? { mcpCalls } : {}),
   }
+}
+
+function mergeServerToolUse(
+  left: Canonical_Response["usage"]["serverToolUse"] | undefined,
+  right: Canonical_Response["usage"]["serverToolUse"] | undefined,
+): Canonical_Response["usage"]["serverToolUse"] | undefined {
+  const webSearchRequests = maxDefined(left?.webSearchRequests, right?.webSearchRequests)
+  const webFetchRequests = maxDefined(left?.webFetchRequests, right?.webFetchRequests)
+  const mcpCalls = maxDefined(left?.mcpCalls, right?.mcpCalls)
+  if (webSearchRequests === undefined && webFetchRequests === undefined && mcpCalls === undefined) return
+  return {
+    ...(webSearchRequests !== undefined ? { webSearchRequests } : {}),
+    ...(webFetchRequests !== undefined ? { webFetchRequests } : {}),
+    ...(mcpCalls !== undefined ? { mcpCalls } : {}),
+  }
+}
+
+function maxDefined(...values: Array<number | undefined>) {
+  const numbers = values.filter((value): value is number => typeof value === "number")
+  return numbers.length ? Math.max(...numbers) : undefined
 }
 
 function extractBracketToolCalls(text: string, effectiveTools: JsonObject[], existingBlocks: Canonical_ContentBlock[] = []) {

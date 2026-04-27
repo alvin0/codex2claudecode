@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test"
 
 import type { Canonical_Request } from "../../../src/core/canonical"
 import { PAYLOAD_SIZE_LIMIT_BYTES, REASONING_EFFORT_BUDGETS, kiroPayloadSizeLimitBytes } from "../../../src/upstream/kiro/constants"
-import { convertCanonicalToKiroPayload, sanitizeToolSchema, trimNoticeText, type KiroPayloadTrimNotice } from "../../../src/upstream/kiro"
+import { CLAUDE_CONTEXT_LIMIT_MESSAGE, convertCanonicalToKiroPayload, sanitizeToolSchema, trimNoticeText, type KiroPayloadTrimNotice } from "../../../src/upstream/kiro"
 import { PayloadTooLargeError, ToolNameTooLongError } from "../../../src/upstream/kiro/types"
 
 function request(overrides: Partial<Canonical_Request> = {}): Canonical_Request {
@@ -513,6 +513,28 @@ describe("Kiro payload conversion", () => {
   test("throws typed errors for oversized final payload and long tool names", () => {
     expect(() => convertCanonicalToKiroPayload(request(), [{ ...saveTool, name: "x".repeat(65) }], { modelId: "m", authType: "aws_sso_oidc" })).toThrow(ToolNameTooLongError)
     expect(() => convertCanonicalToKiroPayload(request({ input: [{ role: "user", content: [{ type: "input_text", text: "x".repeat(410_000) }] }] }), [], { modelId: "m", authType: "aws_sso_oidc", payloadSizeLimitBytes: 400_000 })).toThrow(PayloadTooLargeError)
+  })
+
+  test("can signal Claude context-limit instead of trimming oversized history", () => {
+    const input: Canonical_Request["input"] = [
+      { role: "user", content: [{ type: "input_text", text: "x".repeat(410_000) }] },
+      { role: "assistant", content: [{ type: "output_text", text: "ok" }] },
+      { role: "user", content: [{ type: "input_text", text: "next" }] },
+    ]
+
+    try {
+      convertCanonicalToKiroPayload(request({ input }), [], {
+        modelId: "m",
+        authType: "aws_sso_oidc",
+        payloadSizeLimitBytes: 400_000,
+        payloadOverflowMode: "context_error",
+      })
+      throw new Error("expected context-limit error")
+    } catch (error) {
+      expect(error).toBeInstanceOf(PayloadTooLargeError)
+      expect((error as PayloadTooLargeError).status).toBe(400)
+      expect((error as Error).message).toBe(CLAUDE_CONTEXT_LIMIT_MESSAGE)
+    }
   })
 
   test("property: schema sanitization is idempotent", () => {

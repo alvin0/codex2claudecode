@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
 
 import type { Canonical_Response } from "../../src/core/canonical"
+import type { Upstream_Provider } from "../../src/core/interfaces"
 import { Claude_Inbound_Provider } from "../../src/inbound/claude"
 import { Claude_Codex_Inbound_Adapter } from "../../src/inbound/claude/codex"
 import { Claude_Kiro_Inbound_Adapter } from "../../src/inbound/claude/kiro"
@@ -177,6 +178,57 @@ describe("Claude model catalog and provider", () => {
     expect(codex.routes()).toEqual(kiro.routes())
   })
 
+  test("rejects Codex/Kiro Claude adapter and upstream mismatches before proxying", async () => {
+    let proxyCalls = 0
+    const canonicalResponse: Canonical_Response = {
+      type: "canonical_response",
+      id: "resp_1",
+      model: "m",
+      stopReason: "end_turn",
+      content: [{ type: "text", text: "ok" }],
+      usage: { inputTokens: 1, outputTokens: 2 },
+    }
+    const codexUpstream = fakeUpstream("codex", async () => {
+      proxyCalls += 1
+      return canonicalResponse
+    })
+    const kiroUpstream = fakeUpstream("kiro", async () => {
+      proxyCalls += 1
+      return canonicalResponse
+    })
+
+    const codex = new Claude_Codex_Inbound_Adapter(async () => [])
+    const kiro = new Claude_Kiro_Inbound_Adapter(async () => [])
+    const route = { path: "/v1/messages", method: "POST" } as const
+    const context = { requestId: "req_1", logBody: false, quiet: true }
+
+    const wrongKiro = await kiro.handle(claudeRequest(), route, codexUpstream, context)
+    const wrongCodex = await codex.handle(claudeRequest(), route, kiroUpstream, context)
+    expect(wrongKiro.status).toBe(500)
+    expect(wrongCodex.status).toBe(500)
+    expect((await wrongKiro.json()).error.message).toContain("expected kiro upstream, received codex")
+    expect((await wrongCodex.json()).error.message).toContain("expected codex upstream, received kiro")
+    expect(proxyCalls).toBe(0)
+
+    const unknownUpstream = {
+      proxy: async () => {
+        proxyCalls += 1
+        return canonicalResponse
+      },
+      checkHealth: async () => ({ ok: true }),
+    }
+    const missingKind = await kiro.handle(claudeRequest(), route, unknownUpstream, context)
+    expect(missingKind.status).toBe(500)
+    expect((await missingKind.json()).error.message).toContain("expected kiro upstream, received undefined")
+    expect(proxyCalls).toBe(0)
+
+    const rightKiro = await kiro.handle(claudeRequest(), route, kiroUpstream, context)
+    const rightCodex = await codex.handle(claudeRequest(), route, codexUpstream, context)
+    expect(rightKiro.status).toBe(200)
+    expect(rightCodex.status).toBe(200)
+    expect(proxyCalls).toBe(2)
+  })
+
   test("lists all models without a resolver and filters with an injected resolver", async () => {
     const catalog = new Model_Catalog()
     const all = await catalog.listModels()
@@ -232,3 +284,18 @@ describe("Claude model catalog and provider", () => {
     expect(await claudeErrorResponse("bad", 400).json()).toEqual({ type: "error", error: { type: "invalid_request_error", message: "bad" } })
   })
 })
+
+function fakeUpstream(providerKind: "codex" | "kiro", proxy: Upstream_Provider["proxy"]): Upstream_Provider {
+  return {
+    providerKind,
+    proxy,
+    checkHealth: async () => ({ ok: true }),
+  }
+}
+
+function claudeRequest() {
+  return new Request("http://localhost/v1/messages", {
+    method: "POST",
+    body: JSON.stringify({ model: "m", messages: [{ role: "user", content: "hi" }], stream: false }),
+  })
+}
