@@ -2,7 +2,9 @@ import { describe, expect, test } from "bun:test"
 
 import type { Canonical_Response, Canonical_StreamResponse } from "../../src/core/canonical"
 import { Claude_Inbound_Provider } from "../../src/inbound/claude"
+import { Claude_Kiro_Inbound_Adapter } from "../../src/inbound/claude/kiro"
 import { claudeToCanonicalRequest, countClaudeInputTokens } from "../../src/inbound/claude/convert"
+import { countKiroClaudeInputTokens } from "../../src/inbound/claude/kiro-count"
 import { claudeErrorResponse, claudeStreamErrorEvent } from "../../src/inbound/claude/errors"
 import { Model_Catalog } from "../../src/inbound/claude/models"
 import { claudeStreamResponse } from "../../src/inbound/claude/codex-response"
@@ -578,6 +580,173 @@ describe("Claude_Inbound_Provider edge cases", () => {
       status: 401,
       error: expect.stringContaining("Missing scopes"),
     })
+  })
+
+  test("Kiro count_tokens uses local estimation and skips upstream inputTokens", async () => {
+    let inputTokensCalls = 0
+    const provider = new Claude_Kiro_Inbound_Adapter(async () => [])
+    const baseBody = {
+      model: "claude-sonnet-4.5",
+      messages: [{ role: "user" as const, content: "hello" }],
+    }
+    const withToolsBody = {
+      model: "claude-sonnet-4.5",
+      tools: [{ name: "save", description: "Store data", input_schema: { type: "object", properties: { value: { type: "string" } } } }],
+      messages: [{ role: "user" as const, content: "hello" }],
+    }
+    const withSystemBody = {
+      model: "claude-sonnet-4.5",
+      system: [{ type: "text", text: "system", cache_control: { type: "ephemeral" } }],
+      messages: [{ role: "user" as const, content: "hello" }],
+    }
+    const withImageBody = {
+      model: "claude-sonnet-4.5",
+      messages: [
+        {
+          role: "user" as const,
+          content: [
+            { type: "text", text: "hello" },
+            { type: "image", source: { type: "base64", media_type: "image/png", data: "Zm9v" } },
+          ],
+        },
+      ],
+    }
+    const richBody = {
+      ...withToolsBody,
+      system: withSystemBody.system,
+      messages: [
+        {
+          role: "user" as const,
+          content: [
+            { type: "text", text: "hello" },
+            { type: "image", source: { type: "base64", media_type: "image/png", data: "Zm9v" } },
+            { type: "tool_use", id: "tool_1", name: "save", input: { value: "ok" } },
+            { type: "tool_result", tool_use_id: "tool_1", content: [{ type: "text", text: "done" }] },
+          ],
+        },
+      ],
+    }
+    const upstream = {
+      providerKind: "kiro" as const,
+      proxy: () => Promise.reject(new Error("proxy should not be called for count_tokens")),
+      inputTokens: () => {
+        inputTokensCalls += 1
+        throw new Error("inputTokens should not be called for Kiro count_tokens")
+      },
+      checkHealth: () => Promise.resolve({ ok: true }),
+    }
+
+    const base = countKiroClaudeInputTokens(baseBody)
+    const rich = countKiroClaudeInputTokens(richBody)
+    expect(countKiroClaudeInputTokens(withToolsBody)).toBeGreaterThan(base)
+    expect(countKiroClaudeInputTokens(withSystemBody)).toBeGreaterThan(base)
+    expect(countKiroClaudeInputTokens(withImageBody)).toBeGreaterThan(base)
+    expect(rich).toBeGreaterThan(base)
+
+    const first = await provider.handle(
+      new Request("http://localhost/v1/messages/count_tokens", { method: "POST", body: JSON.stringify(richBody) }),
+      { path: "/v1/messages/count_tokens", method: "POST" },
+      upstream,
+      { requestId: "req_1", logBody: true, quiet: true },
+    )
+    const second = await provider.handle(
+      new Request("http://localhost/v1/messages/count_tokens", { method: "POST", body: JSON.stringify(richBody) }),
+      { path: "/v1/messages/count_tokens", method: "POST" },
+      upstream,
+      { requestId: "req_2", logBody: true, quiet: true },
+    )
+
+    expect(first.status).toBe(200)
+    expect(second.status).toBe(200)
+    expect(await first.json()).toEqual({ input_tokens: rich })
+    expect(await second.json()).toEqual({ input_tokens: rich })
+    expect(inputTokensCalls).toBe(0)
+  })
+
+  test("Kiro count_tokens includes supplemental Claude request inputs", () => {
+    const baseBody = {
+      model: "claude-sonnet-4.5",
+      messages: [{ role: "user" as const, content: "hi" }],
+    }
+    const largeSchema = {
+      type: "object",
+      properties: Object.fromEntries(
+        Array.from({ length: 80 }, (_, index) => [
+          `field_${index}`,
+          {
+            type: "string",
+            description: `Detailed structured output field ${index} ${"schema detail ".repeat(8)}`,
+          },
+        ]),
+      ),
+      required: Array.from({ length: 80 }, (_, index) => `field_${index}`),
+      additionalProperties: false,
+    }
+    const richBody = {
+      ...baseBody,
+      mcp_servers: [{ name: "docs", url: "https://mcp.example.test", authorization_token: "redacted" }],
+      output_config: { format: { type: "json_schema" as const, name: "large_response", schema: largeSchema, strict: true } },
+      thinking: { type: "enabled", budget_tokens: 2048 },
+      tool_choice: { type: "tool" as const, name: "save_large_report" },
+    }
+
+    const base = countKiroClaudeInputTokens(baseBody)
+    const rich = countKiroClaudeInputTokens(richBody)
+
+    expect(rich).toBeGreaterThan(base + 1_000)
+    expect(rich).not.toBe(base)
+  })
+
+  test("Kiro count_tokens has deterministic golden estimates for compaction-sensitive inputs", () => {
+    expect(countKiroClaudeInputTokens({
+      model: "claude-sonnet-4.5",
+      messages: [{ role: "user", content: "hello world" }],
+    })).toBe(11)
+
+    expect(countKiroClaudeInputTokens({
+      model: "claude-sonnet-4.5",
+      tools: [{ name: "save", description: "Store data", input_schema: { type: "object", properties: { value: { type: "string" } }, required: ["value"] } }],
+      messages: [{ role: "user", content: "hello world" }],
+    })).toBe(40)
+
+    expect(countKiroClaudeInputTokens({
+      model: "claude-sonnet-4.5",
+      messages: [{
+        role: "user",
+        content: [
+          { type: "text", text: "run tool", cache_control: { type: "ephemeral" } },
+          { type: "tool_use", id: "tool_1", name: "save", input: { value: "ok" } },
+          { type: "tool_result", tool_use_id: "tool_1", content: [{ type: "text", text: "done" }, { type: "image", source: { type: "base64", media_type: "image/png", data: "Zm9v" } }] },
+        ],
+      }],
+    })).toBe(148)
+
+    expect(countKiroClaudeInputTokens({
+      model: "claude-sonnet-4.5",
+      messages: [{ role: "user", content: "x".repeat(10_000) }],
+    })).toBe(1446)
+  })
+
+  test("Kiro count_tokens rejects empty messages", async () => {
+    const provider = new Claude_Kiro_Inbound_Adapter(async () => [])
+    const upstream = {
+      providerKind: "kiro" as const,
+      proxy: () => Promise.reject(new Error("proxy should not be called for count_tokens")),
+      inputTokens: () => {
+        throw new Error("inputTokens should not be called for Kiro count_tokens")
+      },
+      checkHealth: () => Promise.resolve({ ok: true }),
+    }
+
+    const response = await provider.handle(
+      new Request("http://localhost/v1/messages/count_tokens", { method: "POST", body: JSON.stringify({ model: "claude-sonnet-4.5", messages: [] }) }),
+      { path: "/v1/messages/count_tokens", method: "POST" },
+      upstream,
+      { requestId: "req_1", logBody: false, quiet: true },
+    )
+
+    expect(response.status).toBe(400)
+    expect((await response.json()).error.message).toContain("messages")
   })
 
   test("model not found returns 404 with Claude error format", async () => {

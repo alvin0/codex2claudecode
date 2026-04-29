@@ -2,6 +2,7 @@ import type { Canonical_ErrorResponse, Canonical_PassthroughResponse, Canonical_
 import type { Inbound_Provider, RequestHandlerContext, Route_Descriptor, UpstreamProviderKind, UpstreamResult, Upstream_Provider } from "../../core/interfaces"
 import { responseHeaders } from "../../core/http"
 import { LOG_BODY_PREVIEW_LIMIT } from "../../core/constants"
+import { createKiroDebugBundle, kiroDebugOnErrorEnabled, redactSensitiveText } from "../../core/debug-capture"
 import { createLogPreview } from "../../core/log-preview"
 import type { JsonObject, RequestProxyLog } from "../../core/types"
 import { normalizeCanonicalRequest, normalizeRequestBody } from "./normalize"
@@ -114,7 +115,7 @@ export class OpenAI_Inbound_Provider implements Inbound_Provider {
     }
 
     if (isCanonicalError(result)) {
-      const proxyLog = context.onProxy ? {
+      const proxyLog: RequestProxyLog | undefined = context.onProxy ? {
         label: this.upstreamLogLabel,
         method: "POST",
         target: this.upstreamTarget,
@@ -123,7 +124,19 @@ export class OpenAI_Inbound_Provider implements Inbound_Provider {
         error: previewText(result.body) || "-",
         requestBody: proxyRequestBody,
         responseBody: shouldCaptureProxyBody ? previewText(result.body) || undefined : undefined,
-      } satisfies RequestProxyLog : undefined
+      } : undefined
+      if (proxyLog && this.expectedUpstreamKind === "kiro" && kiroDebugOnErrorEnabled()) {
+        proxyLog.debug = createKiroDebugBundle({
+          route: route.path,
+          status: result.status,
+          model: wireBody.model,
+          error: result.body,
+          requestBody,
+          upstreamRequestBody: proxyRequestBody,
+          upstreamResponseBody: upstreamResponsePreview?.text(),
+          transformedResponseBody: result.body,
+        })
+      }
       if (proxyLog) context.onProxy?.(proxyLog)
       if (!this.passthrough) {
         return openAIErrorResponse(result.body, result.status, "upstream_error", result.headers)
@@ -209,7 +222,7 @@ function isCanonicalStream(result: UpstreamResult): result is Canonical_StreamRe
 }
 
 function previewText(text: string) {
-  return text.slice(0, LOG_BODY_PREVIEW_LIMIT)
+  return redactSensitiveText(text).slice(0, LOG_BODY_PREVIEW_LIMIT)
 }
 
 function openAIErrorResponse(message: string, status: number, type: string, sourceHeaders = new Headers()) {

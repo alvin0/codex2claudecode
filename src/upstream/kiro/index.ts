@@ -3,11 +3,13 @@ import { responseHeaders } from "../../core/http"
 import type { UpstreamResult, Upstream_Provider } from "../../core/interfaces"
 import type { JsonObject, RequestOptions } from "../../core/types"
 import { HIDDEN_KIRO_MODELS, MODEL_CACHE_TTL_SECONDS } from "./constants"
+import { publicHttpErrorBody } from "./errors"
 import { Kiro_Auth_Manager, type KiroAuthManagerOptions } from "./auth"
 import { Kiro_Client } from "./client"
 import { kiroWebSearchTool, webSearchBlocks } from "./mcp"
 import { convertCanonicalToKiroPayload, trimNoticeText } from "./payload"
 import { collectKiroResponse, streamKiroResponse } from "./parse"
+import { FirstTokenTimeoutError, streamWithFirstTokenRetry } from "./stream-retry"
 import { KiroHttpError, KiroMcpError, KiroNetworkError, PayloadTooLargeError, ToolNameTooLongError } from "./types"
 
 interface KiroClientOptions extends KiroAuthManagerOptions {
@@ -116,7 +118,10 @@ export class Kiro_Upstream_Provider implements Upstream_Provider {
     const inputTokenEstimate = estimateInputTokens(payload)
 
     try {
-      const response = withLoggedResponseBody(await this.client.generateAssistantResponse(payload, { signal: options?.signal, stream: request.stream }), options?.onResponseBodyChunk)
+      const upstreamResponse = request.stream
+        ? await streamWithFirstTokenRetry((signal) => this.client.generateAssistantResponse(payload, { signal, stream: true }), { signal: options?.signal })
+        : await this.client.generateAssistantResponse(payload, { signal: options?.signal, stream: false })
+      const response = withLoggedResponseBody(upstreamResponse, options?.onResponseBodyChunk)
       const serverTools = effective.webSearch
         ? {
             webSearch: (query: string) => this.client.callMcpWebSearch(query, { signal: options?.signal }),
@@ -197,7 +202,11 @@ export class Kiro_Upstream_Provider implements Upstream_Provider {
 
           let response
           try {
-            response = withLoggedResponseBody(await client.generateAssistantResponse(payload, { signal: options?.signal, stream: true }), options?.onResponseBodyChunk)
+            const upstreamResponse = await streamWithFirstTokenRetry(
+              (signal) => client.generateAssistantResponse(payload, { signal, stream: true }),
+              { signal: options?.signal, maxRetries: 0 },
+            )
+            response = withLoggedResponseBody(upstreamResponse, options?.onResponseBodyChunk)
           } catch (error) {
             yield { type: "error", message: streamErrorMessage(error) } as const
             return
@@ -315,9 +324,12 @@ export function normalizeKiroModelName(model: string) {
 }
 
 function validateUnsupportedServerTools(tools: JsonObject[] = []): Canonical_ErrorResponse | undefined {
-  const unsupported = tools.filter((tool) => tool.type === "web_fetch" || tool.type === "mcp")
-  if (!unsupported.length) return
-  return canonicalError(400, "Server tools web_fetch and mcp are not supported by the Kiro upstream provider")
+  const hasWebFetch = tools.some((tool) => tool.type === "web_fetch")
+  const hasMcp = tools.some((tool) => tool.type === "mcp")
+  if (!hasWebFetch && !hasMcp) return
+  if (hasWebFetch && hasMcp) return canonicalError(400, "Kiro upstream does not support server-side web_fetch or generic server-side MCP toolsets. Use client function tools, client WebFetch/WebSearch tools, or the gateway web_search helper instead.")
+  if (hasWebFetch) return canonicalError(400, "Kiro upstream does not support server-side web_fetch. Use client WebFetch function tools or web_search URL queries instead.")
+  return canonicalError(400, "Kiro upstream does not support generic server-side MCP toolsets. Use normal client function tools or the gateway web_search helper instead.")
 }
 
 function canonicalError(status: number, body: string): Canonical_ErrorResponse {
@@ -325,14 +337,16 @@ function canonicalError(status: number, body: string): Canonical_ErrorResponse {
 }
 
 function streamErrorMessage(error: unknown) {
-  if (error instanceof KiroHttpError) return `Kiro HTTP ${error.status}: ${error.body}`
+  if (error instanceof FirstTokenTimeoutError) return error.message
+  if (error instanceof KiroHttpError) return publicHttpErrorBody(error.status, error.body, error.category)
   if (error instanceof KiroNetworkError) return error.message
   if (error instanceof KiroMcpError) return error.message
   return error instanceof Error ? error.message : String(error)
 }
 
 function mapKiroError(error: unknown): Canonical_ErrorResponse | undefined {
-  if (error instanceof KiroHttpError) return { type: "canonical_error", status: error.status, headers: error.headers, body: error.body }
+  if (error instanceof FirstTokenTimeoutError) return canonicalError(504, error.message)
+  if (error instanceof KiroHttpError) return { type: "canonical_error", status: error.status, headers: error.headers, body: publicHttpErrorBody(error.status, error.body, error.category) }
   if (error instanceof KiroNetworkError) return canonicalError(504, error.message)
   if (error instanceof KiroMcpError) return canonicalError(502, error.message)
 }
@@ -605,7 +619,9 @@ function withLoggedResponseBody(response: Response, onChunk?: (chunk: string) =>
 export { Kiro_Auth_Manager } from "./auth"
 export { Kiro_Client } from "./client"
 export { extractWebSearchQuery, kiroWebSearchTool, parseMcpWebSearchResults, webSearchBlocks, webSearchSummary } from "./mcp"
+export { classifyHttpError, classifyNetworkError, publicHttpErrorBody, redact as redactKiroErrorText } from "./errors"
 export { CLAUDE_CONTEXT_LIMIT_MESSAGE, convertCanonicalToKiroPayload, sanitizeToolSchema, trimNoticeText } from "./payload"
 export type { KiroPayloadTrimNotice } from "./payload"
 export { AwsEventStreamParser, ThinkingBlockExtractor, collectKiroResponse, streamKiroResponse } from "./parse"
+export { FirstTokenTimeoutError, streamWithFirstTokenRetry } from "./stream-retry"
 export type * from "./types"

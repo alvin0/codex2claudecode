@@ -1,6 +1,7 @@
 import type { Canonical_ErrorResponse, Canonical_PassthroughResponse, Canonical_Response, Canonical_StreamResponse } from "../../core/canonical"
 import type { Inbound_Provider, RequestHandlerContext, Route_Descriptor, UpstreamProviderKind, UpstreamResult, Upstream_Provider } from "../../core/interfaces"
 import { LOG_BODY_PREVIEW_LIMIT } from "../../core/constants"
+import { createKiroDebugBundle, kiroDebugOnErrorEnabled, redactSensitiveText } from "../../core/debug-capture"
 import { createLogPreview } from "../../core/log-preview"
 import type { RequestOptions, RequestProxyLog } from "../../core/types"
 import { claudeToCanonicalRequest, countClaudeInputTokens } from "./convert"
@@ -16,6 +17,8 @@ export interface ClaudeInboundProviderOptions {
   upstreamLogLabel?: string
   inputTokensLogLabel?: string
   expectedUpstreamKind?: UpstreamProviderKind
+  localCountTokens?: boolean
+  countTokens?: (body: ClaudeMessagesRequest) => number
 }
 
 export class Claude_Inbound_Provider implements Inbound_Provider {
@@ -25,6 +28,8 @@ export class Claude_Inbound_Provider implements Inbound_Provider {
   private readonly upstreamLogLabel: string
   private readonly inputTokensLogLabel: string
   private readonly expectedUpstreamKind?: UpstreamProviderKind
+  private readonly localCountTokens: boolean
+  private readonly countTokens: (body: ClaudeMessagesRequest) => number
 
   constructor(optionsOrModelResolver: ClaudeInboundProviderOptions | (() => Promise<string[]>) = {}) {
     const options = typeof optionsOrModelResolver === "function" ? { modelResolver: optionsOrModelResolver } : optionsOrModelResolver
@@ -33,6 +38,8 @@ export class Claude_Inbound_Provider implements Inbound_Provider {
     this.upstreamLogLabel = options.upstreamLogLabel ?? "Upstream responses"
     this.inputTokensLogLabel = options.inputTokensLogLabel ?? "OpenAI input tokens"
     this.expectedUpstreamKind = options.expectedUpstreamKind
+    this.localCountTokens = options.localCountTokens ?? false
+    this.countTokens = options.countTokens ?? countClaudeInputTokens
     this.modelCatalog = new Model_Catalog()
   }
 
@@ -124,7 +131,7 @@ export class Claude_Inbound_Provider implements Inbound_Provider {
 
     if (isCanonicalError(result)) {
       if (context.onProxy) {
-        context.onProxy({
+        const proxyLog: RequestProxyLog = {
           label: this.upstreamLogLabel,
           method: "POST",
           target: "upstream",
@@ -133,7 +140,20 @@ export class Claude_Inbound_Provider implements Inbound_Provider {
           error: previewText(result.body) || "-",
           requestBody,
           responseBody: shouldCaptureProxyBody ? previewText(result.body) || undefined : undefined,
-        } satisfies RequestProxyLog)
+        }
+        if (this.expectedUpstreamKind === "kiro" && kiroDebugOnErrorEnabled()) {
+          proxyLog.debug = createKiroDebugBundle({
+            route: route.path,
+            status: result.status,
+            model: body.model,
+            error: result.body,
+            requestBody: shouldCaptureProxyBody ? previewText(JSON.stringify(body)) : undefined,
+            upstreamRequestBody: requestBody,
+            upstreamResponseBody: upstreamResponseBody?.(),
+            transformedResponseBody: result.body,
+          })
+        }
+        context.onProxy(proxyLog)
       }
       return claudeErrorResponse(claudeUpstreamErrorMessage(result.status, result.body), result.status)
     }
@@ -184,7 +204,12 @@ export class Claude_Inbound_Provider implements Inbound_Provider {
       return claudeErrorResponse(error instanceof Error ? error.message : String(error), 400)
     }
 
-    if (!upstream.inputTokens) return localCountTokensResponse(body)
+    if (this.localCountTokens) {
+      if (body.messages.length === 0) return claudeErrorResponse("Claude count_tokens request requires messages", 400)
+      return localCountTokensResponse(body, this.countTokens)
+    }
+
+    if (!upstream.inputTokens) return localCountTokensResponse(body, this.countTokens)
 
     const shouldCaptureProxyBody = context.logBody && context.onProxy !== undefined
     const requestBody = shouldCaptureProxyBody ? previewText(JSON.stringify(canonicalRequest)) : undefined
@@ -214,7 +239,7 @@ export class Claude_Inbound_Provider implements Inbound_Provider {
           responseBody: shouldCaptureProxyBody ? previewText(text) || undefined : undefined,
         })
       }
-      if (response.status === 401 || response.status === 403) return localCountTokensResponse(body)
+      if (response.status === 401 || response.status === 403) return localCountTokensResponse(body, this.countTokens)
       return claudeErrorResponse(`Upstream input token count failed: ${response.status} ${text}`, response.status)
     }
 
@@ -254,11 +279,11 @@ export class Claude_Inbound_Provider implements Inbound_Provider {
 
 
 function previewText(text: string) {
-  return text.slice(0, LOG_BODY_PREVIEW_LIMIT)
+  return redactSensitiveText(text).slice(0, LOG_BODY_PREVIEW_LIMIT)
 }
 
-function localCountTokensResponse(body: ClaudeMessagesRequest) {
-  return Response.json({ input_tokens: countClaudeInputTokens(body) })
+function localCountTokensResponse(body: ClaudeMessagesRequest, countTokens: (body: ClaudeMessagesRequest) => number) {
+  return Response.json({ input_tokens: countTokens(body) })
 }
 
 function withLoggedCanonicalStream(response: Canonical_StreamResponse, proxyLog: RequestProxyLog, started: number, responseBody?: () => string | undefined): Canonical_StreamResponse {

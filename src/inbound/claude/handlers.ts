@@ -181,7 +181,7 @@ function redactSecrets(text: string) {
   return text
     .replace(/Bearer\s+[A-Za-z0-9._~+/=-]+/g, "Bearer [redacted]")
     .replace(
-      /"?(api[_-]?key|authorization|x-api-key|anthropic-api-key|access|refresh|access_token|refresh_token)"?\s*:\s*"[^"]+"/gi,
+      /"?(api[_-]?key|authorization|authorization_token|x-api-key|anthropic-api-key|access|refresh|access_token|refresh_token)"?\s*:\s*"[^"]+"/gi,
       '"$1":"[redacted]"',
     )
 }

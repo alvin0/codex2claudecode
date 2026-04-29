@@ -123,7 +123,7 @@ export class Kiro_Client {
       })
     } catch (error) {
       if (isAbortError(error) && options.signal?.aborted) throw error
-      throw new KiroNetworkError(error instanceof Error ? error.message : String(error))
+      throw new KiroNetworkError(error)
     }
   }
 
@@ -146,7 +146,7 @@ export class Kiro_Client {
       return response
     } catch (error) {
       if (isAbortError(error) && options.signal?.aborted) throw error
-      throw new KiroNetworkError(error instanceof Error ? error.message : String(error))
+      throw new KiroNetworkError(error)
     }
   }
 

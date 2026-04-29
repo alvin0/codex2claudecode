@@ -1,3 +1,5 @@
+import { classifyHttpError, classifyNetworkError, type KiroErrorCategory } from "./errors"
+
 export type KiroAuthType = "kiro_desktop" | "aws_sso_oidc"
 
 export interface KiroAuthTokenFile {
@@ -171,6 +173,7 @@ export class KiroHttpError extends Error {
   readonly status: number
   readonly headers: Headers
   readonly body: string
+  readonly category: KiroErrorCategory
 
   constructor(status: number, headers: Headers, body: string) {
     super(`Kiro API error: ${status}`)
@@ -178,13 +181,20 @@ export class KiroHttpError extends Error {
     this.status = status
     this.headers = headers
     this.body = body
+    this.category = classifyHttpError(status, body)
   }
 }
 
 export class KiroNetworkError extends Error {
-  constructor(message: string) {
-    super(message)
+  readonly category: KiroErrorCategory
+  readonly detail: string
+
+  constructor(error: unknown) {
+    const classified = classifyNetworkError(error)
+    super(classified.message)
     this.name = "KiroNetworkError"
+    this.category = classified.category
+    this.detail = classified.detail
   }
 }
 

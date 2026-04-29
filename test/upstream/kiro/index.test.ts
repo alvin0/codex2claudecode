@@ -151,6 +151,71 @@ describe("Kiro upstream provider", () => {
     expect(generateCalls).toBe(1)
   })
 
+  test("retries a stalled first token before emitting assistant stream events", async () => {
+    const previousTimeout = process.env.KIRO_FIRST_TOKEN_TIMEOUT_MS
+    const previousRetries = process.env.KIRO_FIRST_TOKEN_MAX_RETRIES
+    process.env.KIRO_FIRST_TOKEN_TIMEOUT_MS = "1"
+    process.env.KIRO_FIRST_TOKEN_MAX_RETRIES = "1"
+    let generateCalls = 0
+    const loggedChunks: string[] = []
+    try {
+      const result = await providerWithClient({
+        generateAssistantResponse: () => {
+          generateCalls += 1
+          if (generateCalls === 1) return Promise.resolve(new Response(new ReadableStream<Uint8Array>()))
+          return Promise.resolve(new Response(new ReadableStream<Uint8Array>({
+            start(controller) {
+              controller.enqueue(new TextEncoder().encode('{"content":"done"}'))
+              controller.close()
+            },
+          })))
+        },
+        listAvailableModels: () => Promise.resolve([]),
+        checkHealth: () => Promise.resolve({ ok: true }),
+      }).proxy(request({ stream: true, tools: [] }), { onResponseBodyChunk: (chunk) => loggedChunks.push(chunk) })
+
+      expect(result.type).toBe("canonical_stream")
+      if (result.type !== "canonical_stream") return
+      const events: Canonical_Event[] = []
+      for await (const event of result.events) events.push(event)
+
+      expect(generateCalls).toBe(2)
+      expect(events[0]).toMatchObject({ type: "text_delta", delta: "done" })
+      expect(loggedChunks.join("")).toBe('{"content":"done"}')
+    } finally {
+      if (previousTimeout === undefined) delete process.env.KIRO_FIRST_TOKEN_TIMEOUT_MS
+      else process.env.KIRO_FIRST_TOKEN_TIMEOUT_MS = previousTimeout
+      if (previousRetries === undefined) delete process.env.KIRO_FIRST_TOKEN_MAX_RETRIES
+      else process.env.KIRO_FIRST_TOKEN_MAX_RETRIES = previousRetries
+    }
+  })
+
+  test("does not apply first-token retry to non-streaming Kiro responses", async () => {
+    const previousTimeout = process.env.KIRO_FIRST_TOKEN_TIMEOUT_MS
+    const previousRetries = process.env.KIRO_FIRST_TOKEN_MAX_RETRIES
+    process.env.KIRO_FIRST_TOKEN_TIMEOUT_MS = "1"
+    process.env.KIRO_FIRST_TOKEN_MAX_RETRIES = "1"
+    let generateCalls = 0
+    try {
+      const result = await providerWithClient({
+        generateAssistantResponse: () => {
+          generateCalls += 1
+          return Promise.resolve(new Response('{"content":"done"}'))
+        },
+        listAvailableModels: () => Promise.resolve([]),
+        checkHealth: () => Promise.resolve({ ok: true }),
+      }).proxy(request({ stream: false, tools: [] }))
+
+      expect(result.type).toBe("canonical_response")
+      expect(generateCalls).toBe(1)
+    } finally {
+      if (previousTimeout === undefined) delete process.env.KIRO_FIRST_TOKEN_TIMEOUT_MS
+      else process.env.KIRO_FIRST_TOKEN_TIMEOUT_MS = previousTimeout
+      if (previousRetries === undefined) delete process.env.KIRO_FIRST_TOKEN_MAX_RETRIES
+      else process.env.KIRO_FIRST_TOKEN_MAX_RETRIES = previousRetries
+    }
+  })
+
   test("preflights explicit URL web_search as server tool blocks and prompt context", async () => {
     let payload: any
     let observedQuery = ""
@@ -249,6 +314,52 @@ describe("Kiro upstream provider", () => {
     expect(generateCalls).toBe(1)
     expect(third.value).toMatchObject({ type: "text_delta", delta: "done" })
     await iterator.return?.()
+  })
+
+  test("does not retry Kiro first-token stalls after web_search preflight emitted tool events", async () => {
+    const previousTimeout = process.env.KIRO_FIRST_TOKEN_TIMEOUT_MS
+    const previousRetries = process.env.KIRO_FIRST_TOKEN_MAX_RETRIES
+    process.env.KIRO_FIRST_TOKEN_TIMEOUT_MS = "1"
+    process.env.KIRO_FIRST_TOKEN_MAX_RETRIES = "1"
+    let generateCalls = 0
+    try {
+      const result = await providerWithClient({
+        generateAssistantResponse: () => {
+          generateCalls += 1
+          return Promise.resolve(new Response(new ReadableStream<Uint8Array>()))
+        },
+        callMcpWebSearch: (_query, options: any) => Promise.resolve({
+          toolUseId: options.toolUseId,
+          results: { results: [{ title: "Article", url: "https://example.com/article", snippet: "Snippet" }] },
+          summary: `<web_search>results</web_search>`,
+        }),
+        listAvailableModels: () => Promise.resolve([]),
+        checkHealth: () => Promise.resolve({ ok: true }),
+      }).proxy(request({
+        stream: true,
+        input: [{ role: "user", content: [{ type: "input_text", text: "websearch https://example.com/article" }] }],
+        tools: [],
+      }))
+
+      expect(result.type).toBe("canonical_stream")
+      if (result.type !== "canonical_stream") return
+      const iterator = result.events[Symbol.asyncIterator]()
+      expect((await iterator.next()).value).toMatchObject({ type: "server_tool_block" })
+      expect((await iterator.next()).value).toMatchObject({ type: "server_tool_block" })
+      expect(generateCalls).toBe(0)
+      const third = await iterator.next()
+      expect(generateCalls).toBe(1)
+      expect(third.value).toMatchObject({ type: "error", message: "Kiro stream did not emit a first token after 1 attempt" })
+      const fourth = await iterator.next()
+      expect(fourth.done).toBe(true)
+      expect(generateCalls).toBe(1)
+      await iterator.return?.()
+    } finally {
+      if (previousTimeout === undefined) delete process.env.KIRO_FIRST_TOKEN_TIMEOUT_MS
+      else process.env.KIRO_FIRST_TOKEN_TIMEOUT_MS = previousTimeout
+      if (previousRetries === undefined) delete process.env.KIRO_FIRST_TOKEN_MAX_RETRIES
+      else process.env.KIRO_FIRST_TOKEN_MAX_RETRIES = previousRetries
+    }
   })
 
   test("does not server-preflight web_search after Claude Code returns a tool result", async () => {
@@ -639,7 +750,64 @@ describe("Kiro upstream provider", () => {
     }).proxy(request({ tools: [{ type: "mcp" }] }))
 
     expect(result).toMatchObject({ type: "canonical_error", status: 400 })
+    expect(result.type === "canonical_error" ? result.body : "").toContain("generic server-side MCP")
     expect(calls).toBe(0)
+  })
+
+  test("returns distinct unsupported web_fetch guidance before calling Kiro", async () => {
+    let calls = 0
+    const result = await providerWithClient({
+      generateAssistantResponse: () => {
+        calls += 1
+        return Promise.resolve(new Response("{}"))
+      },
+      listAvailableModels: () => Promise.resolve([]),
+      checkHealth: () => Promise.resolve({ ok: true }),
+    }).proxy(request({ tools: [{ type: "web_fetch" }] }))
+
+    expect(result).toMatchObject({ type: "canonical_error", status: 400 })
+    expect(result.type === "canonical_error" ? result.body : "").toContain("server-side web_fetch")
+    expect(result.type === "canonical_error" ? result.body : "").toContain("web_search URL queries")
+    expect(calls).toBe(0)
+  })
+
+  test("maps Kiro HTTP errors to actionable credential-safe public bodies", async () => {
+    const result = await providerWithClient({
+      generateAssistantResponse: () => Promise.reject(new KiroHttpError(429, new Headers(), '{"accessToken":"secret-token-value-1234567890","message":"quota exceeded"}')),
+      listAvailableModels: () => Promise.resolve([]),
+      checkHealth: () => Promise.resolve({ ok: true }),
+    }).proxy(request({ tools: [] }))
+
+    expect(result).toMatchObject({ type: "canonical_error", status: 429 })
+    const body = result.type === "canonical_error" ? result.body : ""
+    expect(body).toContain("Kiro quota/rate limit error")
+    expect(body).not.toContain("secret-token-value")
+    expect(body).toContain("[redacted]")
+  })
+
+  test("maps opaque Kiro payload errors to context guidance", async () => {
+    const result = await providerWithClient({
+      generateAssistantResponse: () => Promise.reject(new KiroHttpError(400, new Headers(), "Improperly formed request: content length exceeds threshold")),
+      listAvailableModels: () => Promise.resolve([]),
+      checkHealth: () => Promise.resolve({ ok: true }),
+    }).proxy(request({ tools: [] }))
+
+    expect(result).toMatchObject({ type: "canonical_error", status: 400 })
+    expect(result.type === "canonical_error" ? result.body : "").toContain("Kiro payload/context error")
+  })
+
+  test("maps classified network errors to 504 without leaking raw token-looking details", async () => {
+    const result = await providerWithClient({
+      generateAssistantResponse: () => Promise.reject(new KiroNetworkError(new Error("network down Bearer secret-token-value-1234567890"))),
+      listAvailableModels: () => Promise.resolve([]),
+      checkHealth: () => Promise.resolve({ ok: true }),
+    }).proxy(request({ tools: [] }))
+
+    expect(result).toMatchObject({ type: "canonical_error", status: 504 })
+    const body = result.type === "canonical_error" ? result.body : ""
+    expect(body).toContain("network_connect")
+    expect(body).not.toContain("secret-token-value")
+    expect(body).toContain("[redacted]")
   })
 
   test("signals context limit instead of trimming oversized Claude Code requests", async () => {
@@ -776,11 +944,10 @@ describe("Kiro upstream provider", () => {
       checkHealth: () => Promise.resolve({ ok: true }),
     }).proxy(request({ tools: [] }))
 
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       type: "canonical_error",
       status: 504,
-      headers: new Headers(),
-      body: "network down",
+      body: expect.stringContaining("Kiro network error (network_connect)"),
     })
   })
 

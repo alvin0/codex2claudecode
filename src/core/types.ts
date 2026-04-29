@@ -16,6 +16,7 @@ export interface RequestProxyLog {
   error: string
   requestBody?: string
   responseBody?: string
+  debug?: JsonObject
 }
 
 export interface RequestLogEntry {

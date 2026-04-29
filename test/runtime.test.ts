@@ -200,6 +200,113 @@ describe("runtime server", () => {
     }
   })
 
+  test("captures bounded redacted Kiro debug details only when opted in", async () => {
+    process.env.UPSTREAM_PROVIDER = "kiro"
+    process.env.KIRO_DEBUG_ON_ERROR = "1"
+    const kiroAuth = await kiroAuthFile()
+    process.env.KIRO_AUTH_FILE = kiroAuth
+    globalThis.fetch = ((url) => {
+      const target = String(url)
+      if (target.includes("/ListAvailableModels")) return Promise.resolve(Response.json({ models: [{ modelId: "claude-sonnet-4" }] }))
+      if (target.includes("/getUsageLimits")) return Promise.resolve(Response.json({ usageBreakdownList: [] }))
+      if (target.includes("/generateAssistantResponse")) return Promise.resolve(new Response('{"accessToken":"secret-token-value-12345678901234567890","message":"Improperly formed request: content length exceeds threshold"}', { status: 400 }))
+      return Promise.resolve(Response.json({ ok: true }))
+    }) as unknown as typeof fetch
+    const logs: any[] = []
+    const server = await startRuntime({ authFile: kiroAuth, port: 0, healthIntervalMs: 0, logBody: true, quiet: true, onRequestLog: (entry) => logs.push(entry) })
+    const base = `http://${server.hostname}:${server.port}`
+    try {
+      const response = await originalFetch(`${base}/v1/responses`, { method: "POST", body: JSON.stringify({ model: "claude-sonnet-4", input: "hi" }) })
+      expect(response.status).toBe(400)
+      await response.text()
+
+      const entry = logs.at(-1)
+      expect(entry.proxy?.debug).toMatchObject({ provider: "kiro", capture: "debug_on_error", route: "/v1/responses", status: 400 })
+      expect(JSON.stringify(entry.proxy.debug)).not.toContain("secret-token-value")
+      expect(JSON.stringify(entry.proxy.debug)).toContain("[redacted]")
+
+      const persisted = (await readFile(requestLogFilePath(kiroAuth), "utf8")).trim().split("\n").map((line: string) => JSON.parse(line))
+      const persistedEntry = persisted[persisted.length - 1]
+      expect(persistedEntry.proxy.debug).toBeUndefined()
+      const persistedDetail = await readRequestLogDetail(kiroAuth, persistedEntry)
+      expect(persistedDetail.proxy?.debug).toEqual(entry.proxy.debug)
+    } finally {
+      server.stop(true)
+    }
+  })
+
+  test("redacts Claude MCP authorization tokens from Kiro debug details", async () => {
+    process.env.UPSTREAM_PROVIDER = "kiro"
+    process.env.KIRO_DEBUG_ON_ERROR = "1"
+    const kiroAuth = await kiroAuthFile()
+    process.env.KIRO_AUTH_FILE = kiroAuth
+    globalThis.fetch = ((url) => {
+      const target = String(url)
+      if (target.includes("/ListAvailableModels")) return Promise.resolve(Response.json({ models: [{ modelId: "claude-sonnet-4" }] }))
+      if (target.includes("/getUsageLimits")) return Promise.resolve(Response.json({ usageBreakdownList: [] }))
+      if (target.includes("/generateAssistantResponse")) return Promise.resolve(new Response("upstream bad", { status: 400 }))
+      return Promise.resolve(Response.json({ ok: true }))
+    }) as unknown as typeof fetch
+    const logs: any[] = []
+    const server = await startRuntime({ authFile: kiroAuth, port: 0, healthIntervalMs: 0, logBody: true, quiet: true, onRequestLog: (entry) => logs.push(entry) })
+    const base = `http://${server.hostname}:${server.port}`
+    const secret = "short-secret-token"
+    try {
+      const response = await originalFetch(`${base}/v1/messages`, {
+        method: "POST",
+        body: JSON.stringify({
+          model: "claude-sonnet-4",
+          messages: [{ role: "user", content: "hi" }],
+          mcp_servers: [{ name: "docs", url: "https://mcp.example.test", authorization_token: secret }],
+          tools: [{ type: "mcp_toolset", mcp_server_name: "docs" }],
+        }),
+      })
+      expect(response.status).toBe(400)
+      await response.text()
+
+      const entry = logs.at(-1)
+      expect(entry.requestBody).not.toContain(secret)
+      expect(entry.proxy?.debug).toMatchObject({ provider: "kiro", capture: "debug_on_error", route: "/v1/messages", status: 400 })
+      expect(JSON.stringify(entry.proxy.debug)).not.toContain(secret)
+      expect(entry.proxy.debug.requestBody).toContain('"authorization_token":"[redacted]"')
+      expect(entry.proxy.requestBody).toContain('"authorization":"[redacted]"')
+      expect(entry.proxy.debug.upstreamRequestBody).toContain('"authorization":"[redacted]"')
+
+      const persisted = (await readFile(requestLogFilePath(kiroAuth), "utf8")).trim().split("\n").map((line: string) => JSON.parse(line))
+      const persistedDetail = await readRequestLogDetail(kiroAuth, persisted[persisted.length - 1])
+      expect(JSON.stringify(persistedDetail)).not.toContain(secret)
+      expect(persistedDetail.proxy?.debug?.requestBody).toContain('"authorization_token":"[redacted]"')
+      expect(persistedDetail.proxy?.requestBody).toContain('"authorization":"[redacted]"')
+      expect(persistedDetail.proxy?.debug?.upstreamRequestBody).toContain('"authorization":"[redacted]"')
+    } finally {
+      server.stop(true)
+    }
+  })
+
+  test("does not capture Kiro debug details by default", async () => {
+    process.env.UPSTREAM_PROVIDER = "kiro"
+    delete process.env.KIRO_DEBUG_ON_ERROR
+    const kiroAuth = await kiroAuthFile()
+    process.env.KIRO_AUTH_FILE = kiroAuth
+    globalThis.fetch = ((url) => {
+      const target = String(url)
+      if (target.includes("/ListAvailableModels")) return Promise.resolve(Response.json({ models: [{ modelId: "claude-sonnet-4" }] }))
+      if (target.includes("/generateAssistantResponse")) return Promise.resolve(new Response("upstream bad", { status: 400 }))
+      return Promise.resolve(Response.json({ ok: true }))
+    }) as unknown as typeof fetch
+    const logs: any[] = []
+    const server = await startRuntime({ authFile: kiroAuth, port: 0, healthIntervalMs: 0, logBody: true, quiet: true, onRequestLog: (entry) => logs.push(entry) })
+    const base = `http://${server.hostname}:${server.port}`
+    try {
+      const response = await originalFetch(`${base}/v1/responses`, { method: "POST", body: JSON.stringify({ model: "claude-sonnet-4", input: "hi" }) })
+      expect(response.status).toBe(400)
+      await response.text()
+      expect(logs.at(-1).proxy?.debug).toBeUndefined()
+    } finally {
+      server.stop(true)
+    }
+  })
+
   test("returns upstream errors and handles invalid JSON through fail path", async () => {
     globalThis.fetch = mockFetch(418)
     const logs: any[] = []

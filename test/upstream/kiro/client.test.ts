@@ -240,6 +240,7 @@ describe("Kiro client", () => {
     } catch (error) {
       expect(error).toBeInstanceOf(KiroHttpError)
       expect((error as KiroHttpError).status).toBe(503)
+      expect((error as KiroHttpError).category).toBe("upstream_5xx")
       expect((error as KiroHttpError).body).toBe("still broken")
       expect(calls).toBe(4)
       expect(sleeps).toEqual([1000, 2000, 4000])
@@ -273,7 +274,9 @@ describe("Kiro client", () => {
       throw new Error("expected timeout to throw")
     } catch (error) {
       expect(error).toBeInstanceOf(KiroNetworkError)
-      expect((error as KiroNetworkError).message).toBe("stream timed out")
+      expect((error as KiroNetworkError).category).toBe("network_timeout")
+      expect((error as KiroNetworkError).detail).toBe("stream timed out")
+      expect((error as KiroNetworkError).message).toContain("Kiro network error (network_timeout)")
     }
   })
 
@@ -287,7 +290,24 @@ describe("Kiro client", () => {
       throw new Error("expected network error")
     } catch (error) {
       expect(error).toBeInstanceOf(KiroNetworkError)
-      expect((error as KiroNetworkError).message).toBe("network down")
+      expect((error as KiroNetworkError).category).toBe("network_connect")
+      expect((error as KiroNetworkError).detail).toBe("network down")
+      expect((error as KiroNetworkError).message).toContain("Check connectivity")
+    }
+  })
+
+  test("classifies DNS-like network failures with actionable messages", async () => {
+    const client = new Kiro_Client(auth(), {
+      fetch: (() => Promise.reject(new Error("getaddrinfo ENOTFOUND q.us-east-1.amazonaws.com"))) as unknown as typeof fetch,
+    })
+
+    try {
+      await client.generateAssistantResponse(payload())
+      throw new Error("expected network error")
+    } catch (error) {
+      expect(error).toBeInstanceOf(KiroNetworkError)
+      expect((error as KiroNetworkError).category).toBe("network_dns")
+      expect((error as KiroNetworkError).message).toContain("Check DNS")
     }
   })
 
@@ -457,7 +477,7 @@ describe("Kiro client", () => {
 
     expect(await client.checkHealth(50)).toMatchObject({
       ok: false,
-      error: "network down",
+      error: expect.stringContaining("Kiro network error (network_connect)"),
     })
   })
 
