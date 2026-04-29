@@ -264,6 +264,9 @@ function applyEventToState(data: JsonObject, state: ParserState, emitStreamEvent
       state.deferredText += data.delta
       return events
     }
+    // Skip empty deltas — upstream sometimes sends them between chunks.
+    // Emitting them would open a text block with no content, causing "(empty)" in Claude Code.
+    if (!data.delta) return events
     closeThinking(state, events, emitStreamEvents)
     openTextBlock(state, events, emitStreamEvents)
     appendTextBlock(state, data.delta)

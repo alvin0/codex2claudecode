@@ -8,8 +8,12 @@ interface NormalizeOptions {
 
 export function normalizeCanonicalRequest(pathname: string, body: JsonObject, options: NormalizeOptions = {}): Canonical_Request {
   const normalizedBody = normalizeReasoningBody(body)
-  const passthrough = options.passthrough ?? true
-  const defaultStream = passthrough
+  // OpenAI API default: stream is false unless explicitly set to true.
+  // Never use passthrough — always go through the canonical path so that:
+  // - stream:false returns proper JSON (not raw Codex SSE)
+  // - stream:true returns properly framed SSE with termination
+  const passthrough = false
+  const defaultStream = false
 
   if (isChatPath(pathname)) {
     const messages = Array.isArray(normalizedBody.messages) ? normalizedBody.messages : []

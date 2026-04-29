@@ -1,17 +1,28 @@
 import { LOG_BODY_PREVIEW_LIMIT } from "../../core/constants"
-import { createLogPreview } from "../../core/log-preview"
-import type { CodexStandaloneClient } from "../../upstream/codex/client"
+import type { Canonical_Response, Canonical_StreamResponse } from "../../core/canonical"
+import type { UpstreamResult } from "../../core/interfaces"
 import { normalizeReasoningBody } from "../../core/reasoning"
+import { interceptResponseStream } from "../../core/stream-utils"
 import type { ClaudeMessagesRequest, JsonObject, RequestProxyLog } from "../types"
 
 import { claudeToResponsesBody } from "./codex-convert"
 import { countClaudeInputTokens } from "./convert"
 import { claudeUpstreamErrorMessage } from "./context-limit"
 import { claudeErrorResponse } from "./errors"
-import { collectClaudeMessage, claudeStreamResponse } from "./codex-response"
+import { canonicalResponseToClaudeMessage, claudeCanonicalStreamResponse } from "./response"
+
+/**
+ * A proxy function that sends a Codex Responses body upstream and returns
+ * canonical types. This abstraction keeps the handler free of upstream imports.
+ */
+export interface CodexProxyFn {
+  proxy(body: JsonObject, options?: { headers?: HeadersInit; signal?: AbortSignal }): Promise<Response>
+  collectResponse(response: Response, model: string): Promise<Canonical_Response>
+  streamResponse(response: Response, model: string): Canonical_StreamResponse
+}
 
 export async function handleClaudeMessages(
-  client: CodexStandaloneClient,
+  client: CodexProxyFn,
   request: Request,
   requestId: string,
   options?: { logBody?: boolean; onProxy?: (entry: RequestProxyLog) => void },
@@ -33,7 +44,17 @@ export async function handleClaudeMessages(
   }
   const shouldCaptureProxyBody = options?.logBody === true && options.onProxy !== undefined
   const requestBody = shouldCaptureProxyBody ? previewText(stringifyBody(responsesBody)) : undefined
-  if (options?.logBody) logUpstreamBody(requestId, responsesBody)
+  if (options?.logBody && options.onProxy) {
+    options.onProxy({
+      label: "Upstream request body",
+      method: "POST",
+      target: "upstream",
+      status: 0,
+      durationMs: 0,
+      error: "-",
+      requestBody: previewText(stringifyBody(responsesBody)),
+    })
+  }
 
   const started = Date.now()
   let response: Response
@@ -62,7 +83,7 @@ export async function handleClaudeMessages(
         responseBody: shouldCaptureProxyBody ? previewText(redactedText) || undefined : undefined,
       })
     }
-    console.error(`Claude messages upstream error ${response.status}: ${text.slice(0, LOG_BODY_PREVIEW_LIMIT)}`)
+    console.error(`Claude messages upstream error ${response.status}: ${redactSecrets(text).slice(0, LOG_BODY_PREVIEW_LIMIT)}`)
     return claudeErrorResponse(claudeUpstreamErrorMessage(response.status, text), response.status)
   }
 
@@ -78,26 +99,30 @@ export async function handleClaudeMessages(
   if (proxyLog) options?.onProxy?.(proxyLog)
 
   if (response.body && shouldCaptureProxyBody && proxyLog) {
-    response = responseWithLoggedBody(response as Response & { body: ReadableStream<Uint8Array> }, (responseBody) => {
-      proxyLog.responseBody = responseBody
+    response = interceptResponseStream(response, {
+      onComplete: (responseBody) => { proxyLog.responseBody = responseBody },
     })
   }
 
-  if (body.stream) return claudeStreamResponse(response, body, {
-    onStreamError: (error) => {
-      if (!options?.onProxy) return
-      options.onProxy({
-        label: "Upstream responses (stream error)",
-        method: "POST",
-        target: "upstream",
-        status: 200,
-        durationMs: Date.now() - started,
-        error,
-        requestBody,
-      })
-    },
-  })
-  return Response.json(await collectClaudeMessage(response, body))
+  if (body.stream) {
+    const canonicalStream = client.streamResponse(response, body.model)
+    return claudeCanonicalStreamResponse(canonicalStream, body, {
+      onCancel: (reason) => {
+        if (!options?.onProxy) return
+        options.onProxy({
+          label: "Upstream responses (stream cancelled)",
+          method: "POST",
+          target: "upstream",
+          status: 200,
+          durationMs: Date.now() - started,
+          error: `stream cancelled: ${reason instanceof Error ? reason.message : String(reason ?? "client disconnected")}`,
+          requestBody,
+        })
+      },
+    })
+  }
+  const canonicalResponse = await client.collectResponse(response, body.model)
+  return Response.json(await canonicalResponseToClaudeMessage(canonicalResponse, body))
 }
 
 export async function handleClaudeCountTokens(request: Request) {
@@ -116,61 +141,12 @@ export async function handleClaudeCountTokens(request: Request) {
   })
 }
 
-function logUpstreamBody(id: string, body: JsonObject) {
-  console.log(
-    `[${id}] upstream body ${previewText(stringifyBody(body))}`,
-  )
-}
-
 function stringifyBody(body: JsonObject) {
   return redactSecrets(JSON.stringify(normalizeReasoningBody(body)))
 }
 
 function previewText(text: string) {
   return text.slice(0, LOG_BODY_PREVIEW_LIMIT)
-}
-
-function responseWithLoggedBody(response: Response & { body: ReadableStream<Uint8Array> }, onComplete: (responseBody?: string) => void) {
-  const reader = response.body.getReader()
-  const decoder = new TextDecoder()
-  const preview = createLogPreview()
-  let completed = false
-
-  function complete() {
-    if (completed) return
-    completed = true
-    const tail = decoder.decode()
-    preview.append(tail)
-    onComplete(preview.text())
-  }
-
-  const body = new ReadableStream<Uint8Array>({
-    async pull(controller) {
-      try {
-        const chunk = await reader.read()
-        if (chunk.done) {
-          complete()
-          controller.close()
-          return
-        }
-        controller.enqueue(chunk.value)
-        preview.append(decoder.decode(chunk.value, { stream: true }))
-      } catch (error) {
-        complete()
-        controller.error(error)
-      }
-    },
-    cancel(reason) {
-      complete()
-      return reader.cancel(reason)
-    },
-  })
-
-  return new Response(body, {
-    status: response.status,
-    statusText: response.statusText,
-    headers: response.headers,
-  })
 }
 
 function errorMessage(error: unknown) {

@@ -2,7 +2,7 @@ import { countTokens } from "gpt-tokenizer"
 
 import type { Canonical_ContentBlock, Canonical_Event, Canonical_Response, Canonical_StreamResponse, Canonical_ToolCallBlock } from "../../core/canonical"
 import type { JsonObject } from "../../core/types"
-import { canonicalUsageFromWireUsage, mergeCanonicalUsage } from "../../core/usage"
+import { canonicalUsageFromWireUsage, mergeCanonicalUsage, mergeServerToolUse } from "../../core/usage"
 import { DEFAULT_MAX_INPUT_TOKENS } from "./constants"
 import { maybeHandleKiroServerTool, type KiroServerToolHandlers } from "./mcp"
 import type { KiroParsedEvent, KiroToolCall } from "./types"
@@ -27,6 +27,13 @@ export class AwsEventStreamParser {
   private decoder = new TextDecoder()
   private warnedOversizedBuffer = false
 
+  /** Telemetry: number of malformed events skipped during parsing. */
+  skippedMalformedEvents = 0
+  /** Telemetry: number of oversized buffer trims performed. */
+  oversizedBufferTrims = 0
+  /** Telemetry: number of duplicate content events suppressed. */
+  duplicateContentSkips = 0
+
   feed(chunk: Uint8Array) {
     this.buffer += this.decoder.decode(chunk, { stream: true })
     const events: KiroParsedEvent[] = []
@@ -47,16 +54,32 @@ export class AwsEventStreamParser {
       this.buffer = this.buffer.slice(end)
       try {
         const event = JSON.parse(raw) as KiroParsedEvent
-        if ("content" in event && event.content === this.lastContent) continue
+        if ("content" in event && event.content === this.lastContent) {
+          this.duplicateContentSkips += 1
+          continue
+        }
         if ("content" in event) this.lastContent = event.content
         this.accumulate(event)
         events.push(event)
       } catch (error) {
-        console.warn(`Skipping malformed Kiro event-stream JSON: ${error instanceof Error ? error.message : String(error)}`)
+        this.skippedMalformedEvents += 1
+        console.warn(`Skipping malformed Kiro event-stream JSON (length=${raw.length}): ${error instanceof Error ? error.message : String(error)}`)
       }
     }
 
     return events
+  }
+
+  /** Return safe diagnostic metadata (no raw content). */
+  diagnostics() {
+    return {
+      bufferLength: this.buffer.length,
+      skippedMalformedEvents: this.skippedMalformedEvents,
+      oversizedBufferTrims: this.oversizedBufferTrims,
+      duplicateContentSkips: this.duplicateContentSkips,
+      pendingToolCall: this.active ? { name: this.active.name, callId: this.active.callId } : undefined,
+      completedToolCalls: this.completed.length,
+    }
   }
 
   getToolCalls() {
@@ -83,6 +106,9 @@ export class AwsEventStreamParser {
     this.decoder.decode()
     this.decoder = new TextDecoder()
     this.warnedOversizedBuffer = false
+    this.skippedMalformedEvents = 0
+    this.oversizedBufferTrims = 0
+    this.duplicateContentSkips = 0
   }
 
   private trimNoiseBuffer() {
@@ -91,6 +117,7 @@ export class AwsEventStreamParser {
 
   private trimOversizedPendingEvent() {
     if (this.buffer.length <= MAX_PENDING_EVENT_CHARS) return
+    this.oversizedBufferTrims += 1
     if (!this.warnedOversizedBuffer) {
       console.warn(`Discarding oversized incomplete Kiro event-stream buffer (${this.buffer.length} characters)`)
       this.warnedOversizedBuffer = true
@@ -197,6 +224,7 @@ export function streamKiroResponse(
   serverTools?: KiroServerToolHandlers,
   initialServerToolBlocks: JsonObject[] = [],
   prefaceText = "",
+  maxInputTokens = DEFAULT_MAX_INPUT_TOKENS,
 ): Canonical_StreamResponse {
   const id = `resp_${crypto.randomUUID().replace(/-/g, "")}`
   return {
@@ -206,7 +234,7 @@ export function streamKiroResponse(
     model: fallbackModel,
     events: {
       async *[Symbol.asyncIterator]() {
-        yield* iterateKiroEvents(response.body, inputTokenEstimate, effectiveTools, serverTools, true, initialServerToolBlocks, prefaceText)
+        yield* iterateKiroEvents(response.body, inputTokenEstimate, effectiveTools, serverTools, true, initialServerToolBlocks, prefaceText, maxInputTokens)
       },
     },
   }
@@ -220,6 +248,7 @@ export async function collectKiroResponse(
   serverTools?: KiroServerToolHandlers,
   initialServerToolBlocks: JsonObject[] = [],
   prefaceText = "",
+  maxInputTokens = DEFAULT_MAX_INPUT_TOKENS,
 ): Promise<Canonical_Response> {
   const content: Canonical_ContentBlock[] = []
   let pendingText = ""
@@ -245,7 +274,7 @@ export async function collectKiroResponse(
     pendingThinking = undefined
   }
 
-  for await (const event of iterateKiroEvents(response.body, inputTokenEstimate, effectiveTools, serverTools, false, initialServerToolBlocks, prefaceText)) {
+  for await (const event of iterateKiroEvents(response.body, inputTokenEstimate, effectiveTools, serverTools, false, initialServerToolBlocks, prefaceText, maxInputTokens)) {
     if (event.type === "text_delta") {
       flushThinking()
       pendingText += event.delta
@@ -314,6 +343,7 @@ async function* iterateKiroEvents(
   emitBracketToolCalls = true,
   initialServerToolBlocks: JsonObject[] = [],
   prefaceText = "",
+  maxInputTokens = DEFAULT_MAX_INPUT_TOKENS,
 ): AsyncIterable<Canonical_Event> {
   const parser = new AwsEventStreamParser()
   const thinking = new ThinkingBlockExtractor()
@@ -459,7 +489,7 @@ async function* iterateKiroEvents(
   yield {
     type: "usage",
     usage: {
-      inputTokens: upstreamInputTokens ?? estimateInputTokens(contextUsage, outputTokens, inputTokenEstimate),
+      inputTokens: upstreamInputTokens ?? estimateInputTokens(contextUsage, outputTokens, inputTokenEstimate, maxInputTokens),
       outputTokens,
       ...(upstreamUsage.cacheCreationInputTokens !== undefined ? { cacheCreationInputTokens: upstreamUsage.cacheCreationInputTokens } : {}),
       ...(upstreamUsage.cacheReadInputTokens !== undefined ? { cacheReadInputTokens: upstreamUsage.cacheReadInputTokens } : {}),
@@ -479,9 +509,44 @@ function closingTagPrefixSuffixLength(value: string, closeTag: string) {
 }
 
 function findEventStart(buffer: string) {
+  // Only match patterns at the start of a top-level JSON object.
+  // Skip matches that appear inside a JSON string (preceded by an odd number of unescaped quotes).
   const patterns = ["{\"contextUsagePercentage\":", "{\"content\":", "{\"name\":", "{\"input\":", "{\"stop\":", "{\"usage\":"]
-  const indexes = patterns.map((pattern) => buffer.indexOf(pattern)).filter((index) => index >= 0)
-  return indexes.length ? Math.min(...indexes) : -1
+  let best = -1
+  for (const pattern of patterns) {
+    let searchFrom = 0
+    while (searchFrom < buffer.length) {
+      const index = buffer.indexOf(pattern, searchFrom)
+      if (index < 0) break
+      // Verify this is not inside a JSON string by checking if the preceding
+      // context suggests we're at a top-level position (not inside quotes).
+      if (index === 0 || isLikelyTopLevel(buffer, index)) {
+        if (best < 0 || index < best) best = index
+        break
+      }
+      searchFrom = index + 1
+    }
+  }
+  return best
+}
+
+/**
+ * Heuristic: check if position is likely a top-level JSON start rather than
+ * inside a string value. We look backwards for the nearest unescaped quote
+ * and count whether we're inside a string context.
+ */
+function isLikelyTopLevel(buffer: string, position: number) {
+  // Quick check: if preceded by whitespace, newline, or start of buffer, likely top-level
+  const preceding = buffer[position - 1]
+  if (!preceding || preceding === "\n" || preceding === "\r" || preceding === " " || preceding === "\t") return true
+  // If preceded by a closing brace/bracket, likely between events
+  if (preceding === "}" || preceding === "]") return true
+  // If preceded by a comma or colon, could be inside an object — but our patterns
+  // start with `{"` which is unusual inside a value. Accept it.
+  if (preceding === "," || preceding === ":") return false
+  // If preceded by a quote, we're likely inside a string
+  if (preceding === "\"") return false
+  return true
 }
 
 function findJsonEnd(value: string) {
@@ -520,8 +585,8 @@ function validJsonString(value: string) {
   }
 }
 
-function estimateInputTokens(contextUsage: number | undefined, outputTokens: number, fallback: number) {
-  if (typeof contextUsage === "number" && contextUsage > 0) return Math.max(0, Math.floor((contextUsage / 100) * DEFAULT_MAX_INPUT_TOKENS) - outputTokens)
+function estimateInputTokens(contextUsage: number | undefined, outputTokens: number, fallback: number, maxInputTokens = DEFAULT_MAX_INPUT_TOKENS) {
+  if (typeof contextUsage === "number" && contextUsage > 0) return Math.max(0, Math.floor((contextUsage / 100) * maxInputTokens) - outputTokens)
   return fallback
 }
 
@@ -543,26 +608,6 @@ function serverToolUseFromBlocks(blocks: JsonObject[]): Canonical_Response["usag
     ...(webFetchRequests ? { webFetchRequests } : {}),
     ...(mcpCalls ? { mcpCalls } : {}),
   }
-}
-
-function mergeServerToolUse(
-  left: Canonical_Response["usage"]["serverToolUse"] | undefined,
-  right: Canonical_Response["usage"]["serverToolUse"] | undefined,
-): Canonical_Response["usage"]["serverToolUse"] | undefined {
-  const webSearchRequests = maxDefined(left?.webSearchRequests, right?.webSearchRequests)
-  const webFetchRequests = maxDefined(left?.webFetchRequests, right?.webFetchRequests)
-  const mcpCalls = maxDefined(left?.mcpCalls, right?.mcpCalls)
-  if (webSearchRequests === undefined && webFetchRequests === undefined && mcpCalls === undefined) return
-  return {
-    ...(webSearchRequests !== undefined ? { webSearchRequests } : {}),
-    ...(webFetchRequests !== undefined ? { webFetchRequests } : {}),
-    ...(mcpCalls !== undefined ? { mcpCalls } : {}),
-  }
-}
-
-function maxDefined(...values: Array<number | undefined>) {
-  const numbers = values.filter((value): value is number => typeof value === "number")
-  return numbers.length ? Math.max(...numbers) : undefined
 }
 
 function extractBracketToolCalls(text: string, effectiveTools: JsonObject[], existingBlocks: Canonical_ContentBlock[] = []) {

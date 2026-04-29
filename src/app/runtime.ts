@@ -3,6 +3,7 @@ import { LOG_BODY_PREVIEW_LIMIT } from "../core/constants"
 import { cors, responseHeaders } from "../core/http"
 import type { Route_Descriptor, Upstream_Provider } from "../core/interfaces"
 import { createLogPreview } from "../core/log-preview"
+import { getLocalNetworkIp } from "../core/network"
 import { appendRequestLog, ensureRequestLogFile, requestLogFilePath, requestLogModel } from "../core/request-logs"
 import type { Provider_Registry } from "../core/registry"
 import type { HealthStatus, JsonObject, RequestLogEntry, RequestLogMode, RequestProxyLog, RuntimeOptions } from "../core/types"
@@ -22,7 +23,7 @@ export async function startRuntimeWithBootstrap(
   options: RuntimeOptions | undefined,
   bootstrap: RuntimeBootstrap,
 ) {
-  const hostname = options?.hostname ?? process.env.HOST ?? "127.0.0.1"
+  const hostname = options?.hostname ?? process.env.HOST ?? "0.0.0.0"
   const preferredPort = options?.port ?? Number(process.env.PORT || 8787)
   const healthIntervalMs = options?.healthIntervalMs ?? Number(process.env.HEALTH_INTERVAL_MS || 30_000)
   const healthTimeoutMs = options?.healthTimeoutMs ?? Number(process.env.HEALTH_TIMEOUT_MS || 5000)
@@ -344,17 +345,25 @@ export async function startRuntimeWithBootstrap(
   }
 
   if (!quiet) {
+    const localUrl = `http://127.0.0.1:${server.port}`
+    const networkIp = getLocalNetworkIp()
+    const networkUrl = networkIp ? `http://${networkIp}:${server.port}` : undefined
+    const displayHostname = server.hostname === "0.0.0.0" || server.hostname === "::" ? "127.0.0.1" : server.hostname
+
     console.log(`Codex2ClaudeCode runtime is listening on http://${server.hostname}:${server.port}`)
-    console.log(`Root:             http://${server.hostname}:${server.port}/`)
-    if (hasRoute(routes, "POST", "/v1/messages")) console.log(`Claude messages:  http://${server.hostname}:${server.port}/v1/messages`)
-    if (hasRoute(routes, "POST", "/v1/messages/count_tokens")) console.log(`Claude tokens:    http://${server.hostname}:${server.port}/v1/messages/count_tokens`)
-    if (hasRoute(routes, "GET", "/v1/models")) console.log(`Models:           http://${server.hostname}:${server.port}/v1/models`)
-    if (hasRoute(routes, "POST", "/v1/responses")) console.log(`Responses:        http://${server.hostname}:${server.port}/v1/responses`)
-    if (hasRoute(routes, "POST", "/v1/chat/completions")) console.log(`Chat completions: http://${server.hostname}:${server.port}/v1/chat/completions`)
-    if (upstream.usage) console.log(`Usage:            http://${server.hostname}:${server.port}/usage`)
-    if (upstream.environments) console.log(`Environments:     http://${server.hostname}:${server.port}/environments`)
-    console.log(`Health:           http://${server.hostname}:${server.port}/health`)
-    console.log(`Test connection:  http://${server.hostname}:${server.port}/test-connection`)
+    console.log()
+    console.log(`  Local:          http://${displayHostname}:${server.port}/`)
+    if (networkUrl) console.log(`  Network:        ${networkUrl}/`)
+    console.log()
+    if (hasRoute(routes, "POST", "/v1/messages")) console.log(`Claude messages:  ${localUrl}/v1/messages`)
+    if (hasRoute(routes, "POST", "/v1/messages/count_tokens")) console.log(`Claude tokens:    ${localUrl}/v1/messages/count_tokens`)
+    if (hasRoute(routes, "GET", "/v1/models")) console.log(`Models:           ${localUrl}/v1/models`)
+    if (hasRoute(routes, "POST", "/v1/responses")) console.log(`Responses:        ${localUrl}/v1/responses`)
+    if (hasRoute(routes, "POST", "/v1/chat/completions")) console.log(`Chat completions: ${localUrl}/v1/chat/completions`)
+    if (upstream.usage) console.log(`Usage:            ${localUrl}/usage`)
+    if (upstream.environments) console.log(`Environments:     ${localUrl}/environments`)
+    console.log(`Health:           ${localUrl}/health`)
+    console.log(`Test connection:  ${localUrl}/test-connection`)
     console.log(`Health interval:  ${healthIntervalMs}ms`)
     console.log(`Log body:         ${logBody ? "enabled" : "disabled"}${logBody ? " (set LOG_BODY=0 to disable)" : ""}`)
     console.log(`Request logs:     ${requestLogMode()}${typeof options?.requestLogMode === "function" ? " (dynamic)" : ""}`)

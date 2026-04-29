@@ -6,7 +6,7 @@ export function claudeStreamErrorEvent(message: string, status = 500) {
   return `event: error\ndata: ${JSON.stringify(claudeErrorBody(message, status))}\n\n`
 }
 
-function claudeErrorBody(message: string, status: number) {
+export function claudeErrorBody(message: string, status: number) {
   return {
     type: "error",
     error: {

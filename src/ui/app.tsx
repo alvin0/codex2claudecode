@@ -50,10 +50,10 @@ import { useProviderLimits } from "./providers/use-provider-limits"
 import { useProviderRuntime } from "./providers/use-provider-runtime"
 import type { ProviderMode } from "./types"
 
-export function CodexCodeApp(props: { port?: number }) {
+export function CodexCodeApp(props: { port?: number; hostname?: string }) {
   const app = useApp()
   const { stdout } = useStdout()
-  const hostname = process.env.HOST ?? "127.0.0.1"
+  const hostname = props.hostname ?? process.env.HOST ?? "0.0.0.0"
   const port = props.port ?? Number(process.env.PORT || 8787)
   const [accountData, setAccountData] = useState<ProviderAccountData>()
   const [loadError, setLoadError] = useState<string>()
@@ -948,7 +948,8 @@ function updateClaudeEnvDraft(draft: ClaudeEnvironmentDraft, index: number, upda
 }
 
 function baseUrl(hostname: string, port: number) {
-  return `http://${hostname}:${port}`
+  const displayHostname = hostname === "0.0.0.0" || hostname === "::" ? "127.0.0.1" : hostname
+  return `http://${displayHostname}:${port}`
 }
 
 function shortAuthor(author: string) {

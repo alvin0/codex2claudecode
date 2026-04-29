@@ -1,6 +1,7 @@
 import type { Canonical_ErrorResponse, Canonical_Request, Canonical_Response, Canonical_StreamResponse } from "../../core/canonical"
 import { responseHeaders } from "../../core/http"
 import type { UpstreamResult, Upstream_Provider } from "../../core/interfaces"
+import { withChunkCallback } from "../../core/stream-utils"
 import type { JsonObject, RequestOptions } from "../../core/types"
 import { HIDDEN_KIRO_MODELS, MODEL_CACHE_TTL_SECONDS } from "./constants"
 import { publicHttpErrorBody } from "./errors"
@@ -11,6 +12,7 @@ import { convertCanonicalToKiroPayload, trimNoticeText } from "./payload"
 import { collectKiroResponse, streamKiroResponse } from "./parse"
 import { FirstTokenTimeoutError, streamWithFirstTokenRetry } from "./stream-retry"
 import { KiroHttpError, KiroMcpError, KiroNetworkError, PayloadTooLargeError, ToolNameTooLongError } from "./types"
+import { KiroModelMetadataRegistry } from "./model-metadata"
 
 interface KiroClientOptions extends KiroAuthManagerOptions {
   fetch?: typeof fetch
@@ -24,6 +26,7 @@ export class Kiro_Upstream_Provider implements Upstream_Provider {
   private readonly auth: Kiro_Auth_Manager
   private readonly client: Kiro_Client
   private modelCache?: { models: string[]; cachedAt: number }
+  readonly modelMetadata = new KiroModelMetadataRegistry()
 
   constructor(options: { auth: Kiro_Auth_Manager; client?: Kiro_Client }) {
     this.auth = options.auth
@@ -121,7 +124,7 @@ export class Kiro_Upstream_Provider implements Upstream_Provider {
       const upstreamResponse = request.stream
         ? await streamWithFirstTokenRetry((signal) => this.client.generateAssistantResponse(payload, { signal, stream: true }), { signal: options?.signal })
         : await this.client.generateAssistantResponse(payload, { signal: options?.signal, stream: false })
-      const response = withLoggedResponseBody(upstreamResponse, options?.onResponseBodyChunk)
+      const response = options?.onResponseBodyChunk ? withChunkCallback(upstreamResponse, options.onResponseBodyChunk) : upstreamResponse
       const serverTools = effective.webSearch
         ? {
             webSearch: (query: string) => this.client.callMcpWebSearch(query, { signal: options?.signal }),
@@ -129,8 +132,9 @@ export class Kiro_Upstream_Provider implements Upstream_Provider {
           }
         : undefined
       const initialServerToolBlocks = preflightWebSearch && fallbackWebSearchQuery ? webSearchBlocks(preflightWebSearch.toolUseId, fallbackWebSearchQuery, preflightWebSearch.results) : []
-      if (request.stream) return streamKiroResponse(response, model, effective.tools, inputTokenEstimate, serverTools, initialServerToolBlocks, payloadTrimWarning)
-      return collectKiroResponse(response, model, effective.tools, inputTokenEstimate, serverTools, initialServerToolBlocks, payloadTrimWarning)
+      const modelMaxInputTokens = this.modelMetadata.maxInputTokens(model)
+      if (request.stream) return streamKiroResponse(response, model, effective.tools, inputTokenEstimate, serverTools, initialServerToolBlocks, payloadTrimWarning, modelMaxInputTokens)
+      return collectKiroResponse(response, model, effective.tools, inputTokenEstimate, serverTools, initialServerToolBlocks, payloadTrimWarning, modelMaxInputTokens)
     } catch (error) {
       const mapped = mapKiroError(error)
       if (mapped) return mapped
@@ -148,6 +152,7 @@ export class Kiro_Upstream_Provider implements Upstream_Provider {
     const client = this.client
     const authType = this.auth.getAuthType()
     const profileArn = this.auth.getProfileArn()
+    const modelMaxInputTokens = this.modelMetadata.maxInputTokens(model)
     const id = `resp_${crypto.randomUUID().replace(/-/g, "")}`
 
     return {
@@ -206,7 +211,7 @@ export class Kiro_Upstream_Provider implements Upstream_Provider {
               (signal) => client.generateAssistantResponse(payload, { signal, stream: true }),
               { signal: options?.signal, maxRetries: 0 },
             )
-            response = withLoggedResponseBody(upstreamResponse, options?.onResponseBodyChunk)
+            response = options?.onResponseBodyChunk ? withChunkCallback(upstreamResponse, options.onResponseBodyChunk) : upstreamResponse
           } catch (error) {
             yield { type: "error", message: streamErrorMessage(error) } as const
             return
@@ -223,6 +228,7 @@ export class Kiro_Upstream_Provider implements Upstream_Provider {
             },
             [],
             payloadTrimWarning,
+            modelMaxInputTokens,
           )
           for await (const event of downstream.events) {
             if (event.type === "usage") {
@@ -260,12 +266,37 @@ export class Kiro_Upstream_Provider implements Upstream_Provider {
   async listModels() {
     if (this.modelCache && Date.now() - this.modelCache.cachedAt < MODEL_CACHE_TTL_SECONDS * 1000) return this.modelCache.models
     try {
-      const models = dedupe((await this.client.listAvailableModels()).map(normalizeKiroModelName))
+      const fullBody = await this.client.listAvailableModelsFull()
+      this.modelMetadata.populate(fullBody)
+      const models = dedupe(this.modelMetadata.modelIds().map(normalizeKiroModelName))
       this.modelCache = { models, cachedAt: Date.now() }
       return models
     } catch {
       return HIDDEN_KIRO_MODELS
     }
+  }
+
+  /**
+   * Refresh model metadata from the Kiro API.
+   * Called at startup and can be called on account switch.
+   */
+  async refreshModelMetadata(): Promise<void> {
+    try {
+      const fullBody = await this.client.listAvailableModelsFull()
+      this.modelMetadata.populate(fullBody)
+      const models = dedupe(this.modelMetadata.modelIds().map(normalizeKiroModelName))
+      this.modelCache = { models, cachedAt: Date.now() }
+    } catch {
+      // Non-fatal — metadata will use defaults
+    }
+  }
+
+  async listModelsRaw(): Promise<Response> {
+    return this.client.listAvailableModelsRaw()
+  }
+
+  async modelsRaw(options?: RequestOptions): Promise<Response> {
+    return this.listModelsRaw()
   }
 
   getAuthType() {
@@ -353,11 +384,23 @@ function mapKiroError(error: unknown): Canonical_ErrorResponse | undefined {
 
 const inputTokenEstimateEncoder = new TextEncoder()
 
+/**
+ * Estimate input tokens from a Kiro payload.
+ *
+ * Strips base64 image data before estimating because image bytes should not
+ * be counted as text tokens — Anthropic uses a fixed per-image token cost
+ * based on dimensions, not data size.  A 1 MB base64 string would otherwise
+ * inflate the estimate by ~250 K "tokens".
+ */
 function estimateInputTokens(value: unknown) {
   const serialized = JSON.stringify(value)
   if (!serialized) return 0
-  // This is usage fallback only; exact tokenization is too slow on near-limit streamed payloads.
-  return Math.ceil(inputTokenEstimateEncoder.encode(serialized).length / 4)
+  // Remove base64 image payloads from the estimate.  The regex targets the
+  // Kiro image format: {"format":"...","source":{"bytes":"<base64>"}}
+  // We replace the base64 content with a short placeholder so the structural
+  // JSON overhead is still counted but the raw image data is not.
+  const withoutImages = serialized.replace(/"bytes":"[A-Za-z0-9+/=]{256,}"/g, '"bytes":"[image]"')
+  return Math.ceil(inputTokenEstimateEncoder.encode(withoutImages).length / 4)
 }
 
 function buildKiroInstructions(instructions: string | undefined, textFormat: JsonObject | undefined, webSearch: boolean, webSearchContext?: string) {
@@ -591,33 +634,10 @@ function dedupe(values: string[]) {
   return [...new Set(values.filter(Boolean))]
 }
 
-function withLoggedResponseBody(response: Response, onChunk?: (chunk: string) => void): Response {
-  if (!onChunk || !response.body) return response
-  const reader = response.body.getReader()
-  const decoder = new TextDecoder()
-  const body = new ReadableStream<Uint8Array>({
-    async pull(controller) {
-      const chunk = await reader.read()
-      if (chunk.done) {
-        const tail = decoder.decode()
-        if (tail) onChunk(tail)
-        controller.close()
-        return
-      }
-      onChunk(decoder.decode(chunk.value, { stream: true }))
-      controller.enqueue(chunk.value)
-    },
-    async cancel(reason) {
-      const tail = decoder.decode()
-      if (tail) onChunk(tail)
-      await reader.cancel(reason)
-    },
-  })
-  return new Response(body, { status: response.status, statusText: response.statusText, headers: responseHeaders(response.headers) })
-}
-
 export { Kiro_Auth_Manager } from "./auth"
 export { Kiro_Client } from "./client"
+export { KiroModelMetadataRegistry } from "./model-metadata"
+export type { KiroModelMetadata } from "./model-metadata"
 export { extractWebSearchQuery, kiroWebSearchTool, parseMcpWebSearchResults, webSearchBlocks, webSearchSummary } from "./mcp"
 export { classifyHttpError, classifyNetworkError, publicHttpErrorBody, redact as redactKiroErrorText } from "./errors"
 export { CLAUDE_CONTEXT_LIMIT_MESSAGE, convertCanonicalToKiroPayload, sanitizeToolSchema, trimNoticeText } from "./payload"

@@ -24,8 +24,8 @@ describe("OpenAI inbound normalization", () => {
     expect(normalizeCanonicalRequest("/v1/responses", { model: "gpt-5.4_high", input: "hello" })).toMatchObject({
       model: "gpt-5.4",
       instructions: "You are a helpful assistant.",
-      passthrough: true,
-      stream: true,
+      passthrough: false,
+      stream: false,
       input: [{ role: "user", content: [{ type: "input_text", text: "hello" }] }],
     })
 
@@ -41,7 +41,7 @@ describe("OpenAI inbound normalization", () => {
     ).toMatchObject({
       model: "gpt-5.4",
       instructions: "sys",
-      passthrough: true,
+      passthrough: false,
       input: [
         { role: "user", content: [{ type: "input_text", text: "hi" }] },
         { role: "assistant", content: [{ type: "output_text", text: "there" }] },
@@ -69,7 +69,7 @@ describe("OpenAI inbound normalization", () => {
       })
       expect(responsesRequest.model).toBe(`model-${iteration}`)
       expect(responsesRequest.input).toHaveLength(1)
-      expect(responsesRequest.passthrough).toBe(true)
+      expect(responsesRequest.passthrough).toBe(false)
       expect(responsesRequest.tools?.length ?? 0).toBe(iteration % 3)
 
       const chatRequest = normalizeCanonicalRequest("/v1/chat/completions", {
@@ -81,7 +81,7 @@ describe("OpenAI inbound normalization", () => {
       })
       expect(chatRequest.model).toBe(`chat-${iteration}`)
       expect(chatRequest.input).toHaveLength((iteration % 4) + 1)
-      expect(chatRequest.passthrough).toBe(true)
+      expect(chatRequest.passthrough).toBe(false)
     }
   })
 })

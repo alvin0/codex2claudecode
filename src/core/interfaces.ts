@@ -22,6 +22,7 @@ export interface Upstream_Provider {
   inputTokens?(request: Canonical_Request, options?: RequestOptions): Promise<Response>
   usage?(options?: RequestOptions): Promise<Response>
   environments?(options?: RequestOptions): Promise<Response>
+  modelsRaw?(options?: RequestOptions): Promise<Response>
 }
 
 export interface TokenCredentialProvider<T = unknown> {

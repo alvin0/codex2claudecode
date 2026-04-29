@@ -4,4 +4,6 @@ export const DEFAULT_CODEX_ENDPOINT = "https://chatgpt.com/backend-api/codex/res
 export const OPENAI_RESPONSES_INPUT_TOKENS_ENDPOINT = "https://api.openai.com/v1/responses/input_tokens"
 export const WHAM_USAGE_ENDPOINT = "https://chatgpt.com/backend-api/wham/usage"
 export const WHAM_ENVIRONMENTS_ENDPOINT = "https://chatgpt.com/backend-api/wham/environments"
+export const CODEX_MODELS_ENDPOINT = "https://chatgpt.com/backend-api/models"
+export const CODEX_MODEL_CACHE_TTL_SECONDS = 3600
 export const REFRESH_SAFETY_MARGIN_MS = 30_000

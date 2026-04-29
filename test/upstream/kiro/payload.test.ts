@@ -247,10 +247,15 @@ describe("Kiro payload conversion", () => {
       { modelId: "m", authType: "aws_sso_oidc" },
     )
 
-    expect(payload.conversationState.currentMessage.userInputMessage.images).toEqual([{ format: "png", source: { bytes: "abc" } }])
+    // PNG image and PDF document both go into the images array
+    expect(payload.conversationState.currentMessage.userInputMessage.images).toEqual([
+      { format: "png", source: { bytes: "abc" } },
+      { format: "pdf", source: { bytes: Buffer.from("%PDF").toString("base64") } },
+    ])
     expect(payload.conversationState.currentMessage.userInputMessage.content).toContain("[Unsupported: URL-based image skipped")
     expect(payload.conversationState.currentMessage.userInputMessage.content).toContain("Document: a.txt\n\ndoc")
-    expect(payload.conversationState.currentMessage.userInputMessage.content).toContain("[Unsupported: binary document \"bin.pdf\" skipped")
+    // PDF is no longer skipped — it's sent as an attachment
+    expect(payload.conversationState.currentMessage.userInputMessage.content).not.toContain("bin.pdf")
   })
 
   test("includes profileArn only for Desktop auth and omits it for SSO", () => {
@@ -294,7 +299,7 @@ describe("Kiro payload conversion", () => {
     }
     expect(warnings.some((warning) => warning.includes("Stripping historical server-tool content"))).toBe(true)
     expect(warnings.some((warning) => warning.includes("URL-based image"))).toBe(true)
-    expect(warnings.some((warning) => warning.includes("URL-based or file-ID-based"))).toBe(true)
+    expect(warnings.some((warning) => warning.includes("URL-based document") || warning.includes("URL-based file"))).toBe(true)
   })
 
   test("logs warnings for messages containing only stripped server-tool content", () => {
@@ -542,5 +547,62 @@ describe("Kiro payload conversion", () => {
       const schema = { type: "object", required: index % 2 ? ["x"] : [], additionalProperties: false, properties: { x: { type: "string", additionalProperties: true, required: [] } } }
       expect(sanitizeToolSchema(sanitizeToolSchema(schema))).toEqual(sanitizeToolSchema(schema))
     }
+  })
+})
+
+describe("Kiro payload image handling", () => {
+  test("base64 image in current message does not trigger false context-limit error", () => {
+    // A 500KB base64 image would exceed the 1.2MB limit if counted as text
+    // but should NOT trigger context_error because images are binary attachments
+    const largeBase64 = "A".repeat(500_000)
+    const imageRequest = request({
+      input: [{
+        role: "user",
+        content: [
+          { type: "input_text", text: "describe this image" },
+          { type: "input_image", image_url: `data:image/jpeg;base64,${largeBase64}` },
+        ],
+      }],
+      tools: [],
+      metadata: { source: "claude" },
+    })
+
+    // This should NOT throw PayloadTooLargeError because image bytes
+    // are excluded from the context-limit size calculation
+    expect(() => {
+      convertCanonicalToKiroPayload(imageRequest, [], {
+        modelId: "claude-sonnet-4",
+        authType: "kiro_desktop",
+        payloadOverflowMode: "context_error",
+      })
+    }).not.toThrow()
+  })
+
+  test("base64 image does not cause unnecessary history trimming", () => {
+    const largeBase64 = "A".repeat(500_000)
+    let trimNotice: KiroPayloadTrimNotice | undefined
+    const imageRequest = request({
+      input: [
+        { role: "user", content: [{ type: "input_text", text: "first message" }] },
+        { role: "assistant", content: [{ type: "output_text", text: "first reply" }] },
+        { role: "user", content: [
+          { type: "input_text", text: "describe this image" },
+          { type: "input_image", image_url: `data:image/jpeg;base64,${largeBase64}` },
+        ]},
+      ],
+      tools: [],
+      metadata: { source: "claude" },
+    })
+
+    const payload = convertCanonicalToKiroPayload(imageRequest, [], {
+      modelId: "claude-sonnet-4",
+      authType: "kiro_desktop",
+      payloadOverflowMode: "trim",
+      onTrim: (notice) => { trimNotice = notice },
+    })
+
+    // History should NOT be trimmed just because of image size
+    expect(payload.conversationState.history?.length).toBeGreaterThan(0)
+    expect(trimNotice).toBeUndefined()
   })
 })

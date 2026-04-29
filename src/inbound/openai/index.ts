@@ -4,6 +4,7 @@ import { responseHeaders } from "../../core/http"
 import { LOG_BODY_PREVIEW_LIMIT } from "../../core/constants"
 import { createKiroDebugBundle, kiroDebugOnErrorEnabled, redactSensitiveText } from "../../core/debug-capture"
 import { createLogPreview } from "../../core/log-preview"
+import { interceptResponseStream } from "../../core/stream-utils"
 import type { JsonObject, RequestProxyLog } from "../../core/types"
 import { normalizeCanonicalRequest, normalizeRequestBody } from "./normalize"
 import { openAICanonicalResponse, openAICanonicalStreamResponse } from "./response"
@@ -78,8 +79,8 @@ export class OpenAI_Inbound_Provider implements Inbound_Provider {
 
     const shouldCaptureProxyBody = context.logBody && context.onProxy !== undefined
     const requestBody = shouldCaptureProxyBody ? previewText(JSON.stringify(normalizeRequestBody(route.path, wireBody))) : undefined
-    const upstreamRequestPreview = shouldCaptureProxyBody && !this.passthrough ? createLogPreview() : undefined
-    const upstreamResponsePreview = shouldCaptureProxyBody && !this.passthrough ? createLogPreview() : undefined
+    const upstreamRequestPreview = shouldCaptureProxyBody ? createLogPreview() : undefined
+    const upstreamResponsePreview = shouldCaptureProxyBody ? createLogPreview() : undefined
     const started = Date.now()
     const result = await upstream.proxy(normalizeCanonicalRequest(route.path, wireBody, { passthrough: this.passthrough }), {
       headers: request.headers,
@@ -109,8 +110,8 @@ export class OpenAI_Inbound_Provider implements Inbound_Provider {
         headers: responseHeaders(result.headers),
       })
       if (!response.body || !shouldCaptureProxyBody || !proxyLog) return response
-      return responseWithLoggedBody(response as Response & { body: ReadableStream<Uint8Array> }, (responseBody) => {
-        proxyLog.responseBody = responseBody
+      return interceptResponseStream(response, {
+        onComplete: (responseBody) => { proxyLog.responseBody = responseBody },
       })
     }
 
@@ -148,7 +149,6 @@ export class OpenAI_Inbound_Provider implements Inbound_Provider {
     }
 
     if (isCanonicalResponse(result)) {
-      if (this.passthrough) return unexpectedNonPassthroughResponse()
       const response = openAICanonicalResponse(result, route.path, wireBody)
       if (context.onProxy) {
         context.onProxy({
@@ -166,7 +166,6 @@ export class OpenAI_Inbound_Provider implements Inbound_Provider {
     }
 
     if (isCanonicalStream(result)) {
-      if (this.passthrough) return unexpectedNonPassthroughResponse()
       const proxyLog: RequestProxyLog | undefined = context.onProxy ? {
         label: this.upstreamLogLabel,
         method: "POST",
@@ -180,8 +179,8 @@ export class OpenAI_Inbound_Provider implements Inbound_Provider {
       if (proxyLog) context.onProxy?.(proxyLog)
       const response = openAICanonicalStreamResponse(result, route.path, wireBody)
       if (!response.body || !shouldCaptureProxyBody || !proxyLog) return response
-      return responseWithLoggedBody(response as Response & { body: ReadableStream<Uint8Array> }, (responseBody) => {
-        proxyLog.responseBody = upstreamResponsePreview?.text() || responseBody
+      return interceptResponseStream(response, {
+        onComplete: (responseBody) => { proxyLog.responseBody = upstreamResponsePreview?.text() || responseBody },
       })
     }
 
@@ -276,45 +275,3 @@ function passthroughBodyInit(body: Canonical_PassthroughResponse["body"]): BodyI
   return body
 }
 
-function responseWithLoggedBody(response: Response & { body: ReadableStream<Uint8Array> }, onComplete: (responseBody?: string) => void) {
-  const reader = response.body.getReader()
-  const decoder = new TextDecoder()
-  const preview = createLogPreview()
-  let completed = false
-
-  function complete() {
-    if (completed) return
-    completed = true
-    const tail = decoder.decode()
-    preview.append(tail)
-    onComplete(preview.text())
-  }
-
-  const body = new ReadableStream<Uint8Array>({
-    async pull(controller) {
-      try {
-        const chunk = await reader.read()
-        if (chunk.done) {
-          complete()
-          controller.close()
-          return
-        }
-        controller.enqueue(chunk.value)
-        preview.append(decoder.decode(chunk.value, { stream: true }))
-      } catch (error) {
-        complete()
-        controller.error(error)
-      }
-    },
-    cancel(reason) {
-      complete()
-      return reader.cancel(reason)
-    },
-  })
-
-  return new Response(body, {
-    status: response.status,
-    statusText: response.statusText,
-    headers: response.headers,
-  })
-}

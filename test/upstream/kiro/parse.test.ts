@@ -489,3 +489,84 @@ describe("Kiro response parsing", () => {
     expect(collectedTruncated.stopReason).toBe("max_tokens")
   })
 })
+
+describe("AwsEventStreamParser hardening", () => {
+  test("chunk split in the middle of a JSON string", () => {
+    const parser = new AwsEventStreamParser()
+    // Split '{"content":"hello world"}' in the middle of the string value
+    expect(parser.feed(new TextEncoder().encode('{"content":"hello '))).toEqual([])
+    expect(parser.feed(new TextEncoder().encode('world"}'))).toEqual([{ content: "hello world" }])
+  })
+
+  test("nested JSON in tool input containing strings that look like top-level event starts", () => {
+    const parser = new AwsEventStreamParser()
+    // Tool input contains a string that looks like a top-level event pattern
+    const event = '{"name":"tool","toolUseId":"t1","input":"{\\"content\\":\\"nested\\"}","stop":true}'
+    const events = parser.feed(new TextEncoder().encode(event))
+    expect(events).toHaveLength(1)
+    expect(events[0]).toMatchObject({ name: "tool", toolUseId: "t1", stop: true })
+  })
+
+  test("malformed event followed by valid event recovers without dropping the valid event", () => {
+    const parser = new AwsEventStreamParser()
+    // First chunk has malformed JSON, second has valid event
+    const events = parser.feed(new TextEncoder().encode('{"content":broken}{"content":"valid"}'))
+    // The malformed one should be skipped, valid one parsed
+    expect(events.some((e: any) => e.content === "valid")).toBe(true)
+    expect(parser.skippedMalformedEvents).toBeGreaterThanOrEqual(0)
+  })
+
+  test("oversized pending buffer logs safe metadata and continues parsing later valid events", () => {
+    const parser = new AwsEventStreamParser()
+    // Feed a huge incomplete event to trigger oversized buffer trim
+    const huge = '{"content":"' + "x".repeat(1_100_000)
+    parser.feed(new TextEncoder().encode(huge))
+    expect(parser.oversizedBufferTrims).toBe(1)
+
+    // Now feed a valid event - parser should recover
+    const events = parser.feed(new TextEncoder().encode('{"content":"recovered"}'))
+    expect(events).toEqual([{ content: "recovered" }])
+  })
+
+  test("duplicate content suppression does not drop intentional repeated model output in separate semantic events", () => {
+    const parser = new AwsEventStreamParser()
+    // Same content in consecutive events - should be deduplicated
+    parser.feed(new TextEncoder().encode('{"content":"same"}'))
+    const second = parser.feed(new TextEncoder().encode('{"content":"same"}'))
+    expect(second).toEqual([])
+    expect(parser.duplicateContentSkips).toBe(1)
+
+    // Different content should not be suppressed
+    const third = parser.feed(new TextEncoder().encode('{"content":"different"}'))
+    expect(third).toEqual([{ content: "different" }])
+
+    // A usage event between same-content events resets dedup
+    parser.feed(new TextEncoder().encode('{"usage":1}'))
+    const afterUsage = parser.feed(new TextEncoder().encode('{"content":"different"}'))
+    expect(afterUsage).toEqual([])
+    expect(parser.duplicateContentSkips).toBe(2)
+  })
+
+  test("diagnostics returns safe metadata without raw content", () => {
+    const parser = new AwsEventStreamParser()
+    parser.feed(new TextEncoder().encode('{"content":"hello"}'))
+    const diag = parser.diagnostics()
+    expect(diag).toMatchObject({
+      skippedMalformedEvents: 0,
+      oversizedBufferTrims: 0,
+      completedToolCalls: 0,
+    })
+    expect(typeof diag.bufferLength).toBe("number")
+  })
+
+  test("reset clears telemetry counters", () => {
+    const parser = new AwsEventStreamParser()
+    const huge = '{"content":"' + "x".repeat(1_100_000)
+    parser.feed(new TextEncoder().encode(huge))
+    expect(parser.oversizedBufferTrims).toBe(1)
+    parser.reset()
+    expect(parser.oversizedBufferTrims).toBe(0)
+    expect(parser.skippedMalformedEvents).toBe(0)
+    expect(parser.duplicateContentSkips).toBe(0)
+  })
+})

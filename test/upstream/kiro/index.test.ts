@@ -980,3 +980,62 @@ describe("Kiro upstream provider", () => {
     expect(result.type).toBe("canonical_response")
   })
 })
+
+describe("Kiro input token estimation", () => {
+  test("base64 image data does not inflate input token estimate", async () => {
+    // A 100KB base64 string should not add ~25K tokens to the estimate
+    const largeBase64 = "A".repeat(100_000)
+    const imageRequest = request({
+      input: [{
+        role: "user",
+        content: [
+          { type: "input_text", text: "describe this image" },
+          { type: "input_image", image_url: `data:image/jpeg;base64,${largeBase64}` },
+        ],
+      }],
+      tools: [],
+    })
+
+    const textOnlyRequest = request({
+      input: [{
+        role: "user",
+        content: [{ type: "input_text", text: "describe this image" }],
+      }],
+      tools: [],
+    })
+
+    // Use the provider to get canonical responses and compare input tokens
+    let imagePayloadJson = ""
+    let textPayloadJson = ""
+    const captureClient = (onCapture: (json: string) => void) => new Kiro_Client(auth(), {
+      fetch: Object.assign(async (_url: string | URL | Request, init?: RequestInit) => {
+        onCapture(typeof init?.body === "string" ? init.body : "")
+        return new Response('{"content":"ok"}')
+      }, { preconnect: () => {} }) as typeof fetch,
+    })
+
+    const imageProvider = new Kiro_Upstream_Provider({
+      auth: auth(),
+      client: captureClient((json) => { imagePayloadJson = json }),
+    })
+    const textProvider = new Kiro_Upstream_Provider({
+      auth: auth(),
+      client: captureClient((json) => { textPayloadJson = json }),
+    })
+
+    const imageResult = await imageProvider.proxy(imageRequest)
+    const textResult = await textProvider.proxy(textOnlyRequest)
+
+    // Both should succeed
+    expect(imageResult.type).toBe("canonical_response")
+    expect(textResult.type).toBe("canonical_response")
+
+    if (imageResult.type === "canonical_response" && textResult.type === "canonical_response") {
+      // The image request's input tokens should NOT be massively inflated
+      // Without the fix, a 100KB base64 would add ~25K tokens
+      // With the fix, the difference should be small (just structural JSON overhead for the image field)
+      const tokenDiff = imageResult.usage.inputTokens - textResult.usage.inputTokens
+      expect(tokenDiff).toBeLessThan(1000) // Should be small, not 25K+
+    }
+  })
+})

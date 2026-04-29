@@ -38,6 +38,19 @@ export class Kiro_Client {
     })
   }
 
+  async listAvailableModelsRaw(): Promise<Response> {
+    return this.requestWithRetries(this.modelsUrl().toString(), "GET")
+  }
+
+  /**
+   * Fetch the full model list response body for metadata parsing.
+   * Returns the parsed JSON body, or undefined on failure.
+   */
+  async listAvailableModelsFull(): Promise<unknown> {
+    const response = await this.requestWithRetries(this.modelsUrl().toString(), "GET")
+    return response.json().catch(() => undefined)
+  }
+
   async checkHealth(timeoutMs: number): Promise<HealthStatus> {
     const started = Date.now()
     try {
@@ -117,7 +130,7 @@ export class Kiro_Client {
     try {
       return await this.fetchFn(url, {
         method,
-        headers: this.headers(accessToken, method),
+        headers: this.headers(accessToken, method, attempt),
         body,
         signal: requestSignal(options),
       })
@@ -150,7 +163,7 @@ export class Kiro_Client {
     }
   }
 
-  private headers(accessToken: string, method: string) {
+  private headers(accessToken: string, method: string, attempt = 1) {
     const headers = new Headers()
     headers.set("Authorization", `Bearer ${accessToken}`)
     headers.set("Content-Type", "application/json")
@@ -159,7 +172,7 @@ export class Kiro_Client {
     headers.set("x-amz-user-agent", renderTemplate(X_AMZ_USER_AGENT_TEMPLATE, this.fingerprint, this.kiroVersion))
     headers.set("x-amzn-kiro-agent-mode", "vibe")
     headers.set("amz-sdk-invocation-id", crypto.randomUUID())
-    headers.set("amz-sdk-request", `attempt=1; max=${MAX_RETRIES}`)
+    headers.set("amz-sdk-request", `attempt=${attempt}; max=${MAX_RETRIES}`)
     return headers
   }
 

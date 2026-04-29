@@ -58,10 +58,23 @@ export class Claude_Inbound_Provider implements Inbound_Provider {
     if (upstreamMismatch) return claudeErrorResponse(upstreamMismatch, 500)
 
     if (route.path === "/v1/models") {
+      const url = new URL(request.url)
+      if (url.searchParams.get("origin") === "true" && upstream.modelsRaw) {
+        try {
+          const rawResponse = await upstream.modelsRaw({ signal: request.signal })
+          const body = await rawResponse.text()
+          return new Response(body, {
+            status: rawResponse.status,
+            headers: { "content-type": "application/json" },
+          })
+        } catch (error) {
+          return claudeErrorResponse(error instanceof Error ? error.message : String(error), 502)
+        }
+      }
       return Response.json(await this.modelCatalog.listModels(this.modelResolver, {
-        afterId: new URL(request.url).searchParams.get("after_id") ?? undefined,
-        beforeId: new URL(request.url).searchParams.get("before_id") ?? undefined,
-        limit: new URL(request.url).searchParams.get("limit") ? Number(new URL(request.url).searchParams.get("limit")) : undefined,
+        afterId: url.searchParams.get("after_id") ?? undefined,
+        beforeId: url.searchParams.get("before_id") ?? undefined,
+        limit: url.searchParams.get("limit") ? Number(url.searchParams.get("limit")) : undefined,
       }))
     }
 

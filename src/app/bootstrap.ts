@@ -41,7 +41,7 @@ export async function bootstrapRuntime(options?: RuntimeOptions & { providerMode
   const upstream = await Codex_Upstream_Provider.fromAuthFile(authFile, { authAccount })
   const registry = new Provider_Registry()
 
-  registry.register(new Claude_Codex_Inbound_Adapter())
+  registry.register(new Claude_Codex_Inbound_Adapter(() => upstream.listModels()))
   registry.register(new OpenAI_Inbound_Provider({ expectedUpstreamKind: "codex" }))
 
   return {

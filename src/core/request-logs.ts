@@ -1,4 +1,4 @@
-import { isBusyError, isNotFoundError, pathExists, readDirectory, readTextFile, removePath, writeTextFile } from "./bun-fs"
+import { atomicJsonWrite, isBusyError, isNotFoundError, pathExists, readDirectory, readTextFile, removePath, writeTextFile } from "./bun-fs"
 import { bunPath as path } from "./paths"
 import type { RequestLogEntry } from "./types"
 
@@ -40,7 +40,7 @@ export async function appendRequestLog(authFile: string, entry: RequestLogEntry)
     const file = requestLogFilePath(authFile)
     await ensureRequestLogFile(authFile)
     const detail = withDetailFile(entry)
-    await writeRequestLogFile(requestLogDetailFilePath(authFile, entry.id), `${JSON.stringify(detail, null, 2)}\n`)
+    await atomicJsonWrite(requestLogDetailFilePath(authFile, entry.id), detail, { mode: 0o644 })
     const logs = await readRecentRequestLogsRaw(authFile, MAX_REQUEST_LOG_ENTRIES)
     logs.push(toRequestLogSummary(detail))
     const recentLogs = logs.slice(-MAX_REQUEST_LOG_ENTRIES)
@@ -166,7 +166,13 @@ async function removeOrphanedRequestLogDetails(authFile: string, keptIds: Set<st
     files
       .filter((file) => file.endsWith(".json"))
       .filter((file) => !keptIds.has(file.slice(0, -".json".length)))
-      .map((file) => removePath(path.join(dir, file), { force: true })),
+      .map((file) =>
+        removePath(path.join(dir, file), { force: true }).catch((error: unknown) => {
+          // On Windows, locked files (EBUSY/EPERM) are common — skip and retry next cycle.
+          if (isBusyError(error)) return
+          throw error
+        }),
+      ),
   )
 }
 

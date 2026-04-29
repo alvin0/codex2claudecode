@@ -684,7 +684,7 @@ describe("runtime server", () => {
     try {
       const response = await originalFetch(`${base}/v1/responses`, { method: "POST", body: JSON.stringify({ model: "m", input: longInput }) })
       expect(response.status).toBe(200)
-      expect(await response.text()).toContain("response.output_text.done")
+      expect(await response.text()).toContain("output_text")
       const entry = logs[logs.length - 1]
       expect(entry.requestBody).not.toContain(longInput)
       expect(entry.requestBody.length).toBe(LOG_BODY_PREVIEW_LIMIT)
@@ -692,7 +692,7 @@ describe("runtime server", () => {
       expect(entry.proxy?.requestBody.length).toBe(LOG_BODY_PREVIEW_LIMIT)
       expect(entry.proxy?.responseBody).toContain("response.output_text.done")
       expect(entry.proxy?.responseBody).toContain("ok")
-      expect(entry.responseBody).toContain("response.output_text.done")
+      expect(entry.responseBody).toContain("output_text")
       expect(entry.responseBody).toContain("ok")
 
       const persisted = (await readFile(requestLogFilePath(auth), "utf8")).trim().split("\n").map((line: string) => JSON.parse(line))
@@ -814,7 +814,10 @@ describe("runtime server", () => {
     const server = await startRuntime({ authFile: await authFile(), port: 0, healthIntervalMs: 5, logBody: false })
     const base = `http://${server.hostname}:${server.port}`
     try {
-      await new Promise((resolve) => setTimeout(resolve, 20))
+      await waitForAsync(async () => {
+        const h = await originalFetch(`${base}/health`)
+        return h.status === 503
+      })
       const health = await originalFetch(`${base}/health`)
       expect(health.status).toBe(503)
       const usage = await originalFetch(`${base}/usage`)
@@ -829,7 +832,10 @@ describe("runtime server", () => {
     globalThis.fetch = flappingHealthFetch()
     const server = await startRuntime({ authFile: await authFile(), port: 0, healthIntervalMs: 5, logBody: false })
     try {
-      await new Promise((resolve) => setTimeout(resolve, 20))
+      await waitForAsync(async () => {
+        const h = await originalFetch(`http://${server.hostname}:${server.port}/health`)
+        return h.status === 503
+      })
       const health = await originalFetch(`http://${server.hostname}:${server.port}/health`)
       expect(health.status).toBe(503)
     } finally {

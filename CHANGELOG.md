@@ -4,6 +4,36 @@ All notable changes to this package are documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [0.2.2] - 2026-04-29
+
+### Added
+
+- Added model metadata registries for Codex and Kiro, populated from upstream APIs at startup with per-model token limits, capabilities, and supported input types.
+- Added `/v1/models?origin=true` passthrough for raw upstream model list responses.
+- Added PDF and image binary attachment support in Kiro payload conversion — previously these were skipped.
+- Added core stream utilities (`interceptResponseStream`, `withChunkCallback`) replacing duplicated response body logging across providers.
+- Added core building blocks for future use: `CanonicalStreamAccumulator`, `StreamTelemetryCollector`, `ToolCallCoordinator`, `UsageSource` tracking.
+- Added `ProviderCapabilities` interface in core with concrete definitions in each upstream provider directory.
+- Added `atomicJsonWrite` for safe request log writes via temp-file + rename.
+- Added Kiro event-stream parser diagnostics and telemetry counters.
+
+### Changed
+
+- Extracted Claude SSE framing into `ClaudeSseWriter`, reducing inline block management in `claudeCanonicalStreamResponse` significantly.
+- Introduced `CodexProxyFn` interface so the Claude handler depends on an abstract contract instead of importing upstream Codex modules directly.
+- OpenAI-compatible inbound now always uses the canonical path (`passthrough=false`, `stream=false` by default) for proper JSON and SSE framing.
+- Kiro token estimation and payload size calculation now exclude base64 image data, preventing inflated estimates and false context-limit errors.
+- Kiro `estimateInputTokens` now uses per-model `maxInputTokens` from the metadata registry instead of a hardcoded default.
+- Claude Codex adapter now uses a dynamic model resolver wired to `upstream.listModels()` at bootstrap.
+- Added `x-accel-buffering: no` header to Claude SSE responses for better proxy compatibility.
+- Rebuilt the bundled `dist/index.js` artifact for this release.
+
+### Fixed
+
+- Fixed Kiro base64 image payloads causing false "context window exceeded" errors and inflated input token estimates.
+- Fixed Kiro event-stream parser matching patterns inside JSON string values, causing mid-string splits on nested JSON.
+- Fixed request log writes being non-atomic — now uses temp-file + rename so the original is preserved on failure.
+
 ## [0.2.1] - 2026-04-27
 
 ### Added

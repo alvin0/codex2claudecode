@@ -13,22 +13,22 @@ export default defineConfig({
     coverage: {
       provider: "istanbul",
       reporter: ["text"],
-      include: ["src/app/**/*.ts"],
+      include: ["src/**/*.ts"],
       exclude: [
         "src/app/bin.ts",
         "src/app/bootstrap.ts",
         "src/app/example.ts",
-        "src/app/provider-config.ts",
         "src/app/runtime.ts",
+        "src/ui/**",
       ],
-      thresholds: {
-        lines: 1.0,
-        branches: 1.0,
-        functions: 1.0,
-        statements: 1.0,
-      },
       reporterOptions: {
         text: { skipFull: false },
+      },
+      thresholds: {
+        statements: 50,
+        branches: 50,
+        functions: 50,
+        lines: 50,
       },
     },
   },

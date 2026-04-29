@@ -1,5 +1,6 @@
 import { Box, Text } from "ink";
 
+import { getLocalNetworkIp } from "../../core/network"
 import type { ProviderMode } from "../types"
 
 type EndpointLine = { label: string; value: string }
@@ -9,13 +10,18 @@ export function WelcomePanel(props: { hostname: string; port: number; compact?: 
   const mode = props.providerMode ?? "codex"
   const title = `Codex2ClaudeCode - ${mode === "kiro" ? "Kiro" : "Codex"} Mode`
   const endpoints = welcomeEndpointLines(mode)
+  const displayHostname = props.hostname === "0.0.0.0" || props.hostname === "::" ? "127.0.0.1" : props.hostname
+  const localUrl = `http://${displayHostname}:${props.port}`
+  const networkIp = getLocalNetworkIp()
+  const networkUrl = networkIp ? `http://${networkIp}:${props.port}` : undefined
 
   return (
     <Box width={width} flexDirection="column" paddingX={1}>
       <Text bold wrap="truncate-end">{title}</Text>
       <Box marginTop={1} flexDirection="column">
         <Text bold color="#a58a86">Connect</Text>
-        <InfoLine label="Base URL" value={`http://${props.hostname}:${props.port}`} />
+        <InfoLine label="Local" value={localUrl} />
+        {networkUrl && <InfoLine label="Network" value={networkUrl} />}
       </Box>
       <Box marginTop={1} flexDirection="column">
         <Text bold color="#a58a86">Supported endpoints</Text>

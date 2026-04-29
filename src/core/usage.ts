@@ -77,9 +77,17 @@ function sumNumericValues(value: JsonRecord) {
 }
 
 function maxServerToolUse(left: Canonical_Usage["serverToolUse"] | undefined, right: NonNullable<Canonical_Usage["serverToolUse"]>) {
-  const webSearchRequests = maxDefined(left?.webSearchRequests, right.webSearchRequests)
-  const webFetchRequests = maxDefined(left?.webFetchRequests, right.webFetchRequests)
-  const mcpCalls = maxDefined(left?.mcpCalls, right.mcpCalls)
+  return mergeServerToolUse(left, right)!
+}
+
+export function mergeServerToolUse(
+  left: Canonical_Usage["serverToolUse"] | undefined,
+  right: Canonical_Usage["serverToolUse"] | undefined,
+): Canonical_Usage["serverToolUse"] | undefined {
+  const webSearchRequests = maxDefined(left?.webSearchRequests, right?.webSearchRequests)
+  const webFetchRequests = maxDefined(left?.webFetchRequests, right?.webFetchRequests)
+  const mcpCalls = maxDefined(left?.mcpCalls, right?.mcpCalls)
+  if (webSearchRequests === undefined && webFetchRequests === undefined && mcpCalls === undefined) return
   return {
     ...(webSearchRequests !== undefined ? { webSearchRequests } : {}),
     ...(webFetchRequests !== undefined ? { webFetchRequests } : {}),

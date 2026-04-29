@@ -138,9 +138,9 @@ describe("OpenAI normalizeCanonicalRequest edge cases", () => {
     expect(request.stream).toBe(false)
   })
 
-  test("responses: stream undefined defaults to true", () => {
+  test("responses: stream undefined defaults to false", () => {
     const request = normalizeCanonicalRequest("/v1/responses", { model: "m", input: "hi" })
-    expect(request.stream).toBe(true)
+    expect(request.stream).toBe(false)
   })
 
   test("responses: tools array is passed through", () => {
@@ -500,8 +500,8 @@ describe("OpenAI normalizeCanonicalRequest edge cases", () => {
   test("unknown pathname produces minimal canonical request", () => {
     const request = normalizeCanonicalRequest("/v1/unknown", { model: "m", input: [{ role: "user", content: [{ type: "input_text", text: "hi" }] }] })
 
-    expect(request.passthrough).toBe(true)
-    expect(request.stream).toBe(true)
+    expect(request.passthrough).toBe(false)
+    expect(request.stream).toBe(false)
     expect(request.tools).toBeUndefined()
   })
 
@@ -550,7 +550,7 @@ describe("normalizeRequestBody legacy edge cases", () => {
 })
 
 describe("OpenAI_Inbound_Provider edge cases", () => {
-  test("unexpected canonical_response returns 500", async () => {
+  test("unexpected canonical_response returns 200 with formatted response", async () => {
     const provider = new OpenAI_Inbound_Provider()
     const upstream = {
       proxy: () =>
@@ -572,12 +572,10 @@ describe("OpenAI_Inbound_Provider edge cases", () => {
       { requestId: "req_1", logBody: false, quiet: true },
     )
 
-    expect(response.status).toBe(500)
-    const body = await response.json()
-    expect(body.error.message).toContain("non-passthrough")
+    expect(response.status).toBe(200)
   })
 
-  test("unexpected canonical_stream returns 500", async () => {
+  test("unexpected canonical_stream returns 200 with SSE", async () => {
     const provider = new OpenAI_Inbound_Provider()
     const upstream = {
       proxy: () =>
@@ -592,13 +590,13 @@ describe("OpenAI_Inbound_Provider edge cases", () => {
     }
 
     const response = await provider.handle(
-      new Request("http://localhost/v1/responses", { method: "POST", body: JSON.stringify({ model: "m", input: "hi" }) }),
+      new Request("http://localhost/v1/responses", { method: "POST", body: JSON.stringify({ model: "m", input: "hi", stream: true }) }),
       { path: "/v1/responses", method: "POST" },
       upstream,
       { requestId: "req_1", logBody: false, quiet: true },
     )
 
-    expect(response.status).toBe(500)
+    expect(response.status).toBe(200)
   })
 
   test("logBody: true captures request body in proxy callback", async () => {

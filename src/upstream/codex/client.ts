@@ -4,7 +4,7 @@ import { normalizeReasoningBody } from "../../core/reasoning"
 import type { HealthStatus, JsonObject, RequestOptions } from "../../core/types"
 import { accountInfoKey, writeAccountInfoFile } from "./account-info"
 import { extractAccountId, readAuthFileData, selectAuthEntry } from "./auth"
-import { DEFAULT_CLIENT_ID, DEFAULT_CODEX_ENDPOINT, DEFAULT_ISSUER, OPENAI_RESPONSES_INPUT_TOKENS_ENDPOINT, REFRESH_SAFETY_MARGIN_MS, WHAM_ENVIRONMENTS_ENDPOINT, WHAM_USAGE_ENDPOINT } from "./constants"
+import { DEFAULT_CLIENT_ID, DEFAULT_CODEX_ENDPOINT, DEFAULT_ISSUER, CODEX_MODELS_ENDPOINT, OPENAI_RESPONSES_INPUT_TOKENS_ENDPOINT, REFRESH_SAFETY_MARGIN_MS, WHAM_ENVIRONMENTS_ENDPOINT, WHAM_USAGE_ENDPOINT } from "./constants"
 import { pullCodexCliAuthTokens, syncCodexCliAuthTokens } from "./codex-auth"
 import type { AuthFileContent, AuthFileData, ChatCompletionRequest, CodexClientOptions, CodexClientTokens, InputTokensRequest, ResponsesRequest, TokenResponse } from "./types"
 
@@ -135,6 +135,10 @@ export class CodexStandaloneClient {
 
   async usage(options?: RequestOptions) {
     return this.requestUpstream(WHAM_USAGE_ENDPOINT, "GET", options)
+  }
+
+  async modelsRaw(options?: RequestOptions) {
+    return this.requestUpstream(CODEX_MODELS_ENDPOINT, "GET", options)
   }
 
   async environments(options?: RequestOptions) {

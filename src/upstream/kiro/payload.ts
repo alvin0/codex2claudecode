@@ -126,7 +126,9 @@ function convertInputMessage(message: Canonical_InputMessage): WorkingMessage {
       continue
     }
     if (item.type === "input_file") {
-      contentParts.push(inputFileToText(item))
+      const fileResult = convertInputFile(item)
+      if (fileResult.text) contentParts.push(fileResult.text)
+      if (fileResult.image) (working.images ??= []).push(fileResult.image)
       continue
     }
     const text = textFromContent(item)
@@ -463,8 +465,25 @@ function currentToWorking(payload: KiroGeneratePayload): WorkingMessage {
   return { role: "user", content: input.content, toolResults: input.userInputMessageContext?.toolResults, images: input.images }
 }
 
+const sharedPayloadEncoder = new TextEncoder()
+
+/**
+ * Measure payload size for context-limit decisions.
+ *
+ * Strips base64 image data from the measurement because images are binary
+ * attachments handled separately by the Kiro API — they should not count
+ * toward the text context window limit.  A single base64 image can easily
+ * exceed the 1.2 MB default limit, causing false "context window exceeded"
+ * errors that trigger Claude Code auto-compaction loops.
+ *
+ * The regex targets the Kiro image format: `"bytes":"<base64>"` where the
+ * base64 content is at least 256 characters (to avoid false positives on
+ * short string values).
+ */
 function payloadSize(payload: KiroGeneratePayload) {
-  return Buffer.byteLength(JSON.stringify(payload), "utf8")
+  const serialized = JSON.stringify(payload)
+  const withoutImages = serialized.replace(/"bytes":"[A-Za-z0-9+/=]{256,}"/g, '"bytes":"[image]"')
+  return sharedPayloadEncoder.encode(withoutImages).length
 }
 
 function functionCallToToolUse(item: JsonObject): KiroToolUse | undefined {
@@ -504,16 +523,73 @@ function inputImageToKiroImage(item: JsonObject): KiroImage | undefined {
   return { format: match[1], source: { bytes: match[2] } }
 }
 
-function inputFileToText(item: JsonObject) {
+/**
+ * Media types that models like Claude Sonnet 4 / Opus 4 can process natively
+ * as binary document attachments (sent via the images array in the Kiro payload).
+ */
+const MODEL_SUPPORTED_DOCUMENT_TYPES = new Set([
+  "application/pdf",
+])
+
+/**
+ * Image media types that can be sent as image attachments.
+ */
+const IMAGE_MEDIA_TYPES = new Set([
+  "image/jpeg",
+  "image/png",
+  "image/gif",
+  "image/webp",
+])
+
+interface ConvertedFile {
+  text?: string
+  image?: KiroImage
+}
+
+function convertInputFile(item: JsonObject): ConvertedFile {
   const filename = typeof item.filename === "string" ? item.filename : "document"
   if (typeof item.file_data === "string") {
     const match = item.file_data.match(/^data:([^;]+);base64,(.+)$/)
-    if (match && isTextMediaType(match[1])) return `Document: ${filename}\n\n${Buffer.from(match[2], "base64").toString("utf8")}`
-    console.warn(`Skipping binary document "${filename}" because Kiro does not support binary file attachments`)
-    return `[Unsupported: binary document "${filename}" skipped — Kiro does not support binary file attachments]`
+    if (match) {
+      const mediaType = match[1]
+      const base64Data = match[2]
+
+      // Text documents: decode base64 to text and embed inline
+      if (isTextMediaType(mediaType)) {
+        return { text: `Document: ${filename}\n\n${Buffer.from(base64Data, "base64").toString("utf8")}` }
+      }
+
+      // PDF and other model-supported document types: send as binary attachment
+      // Models like Claude Sonnet 4 / Opus 4 can process PDFs natively
+      if (MODEL_SUPPORTED_DOCUMENT_TYPES.has(mediaType)) {
+        return { image: { format: mediaType.split("/")[1] || "pdf", source: { bytes: base64Data } } }
+      }
+
+      // Image types embedded as file_data: send as image attachment
+      if (IMAGE_MEDIA_TYPES.has(mediaType)) {
+        return { image: { format: mediaType.split("/")[1] || "jpeg", source: { bytes: base64Data } } }
+      }
+
+      // Unsupported binary format
+      console.warn(`Skipping binary document "${filename}" (${mediaType}) because Kiro does not support this binary format as an attachment`)
+      return { text: `[Unsupported: binary document "${filename}" (${mediaType}) skipped — format not supported as attachment]` }
+    }
+
+    // file_data without data: URI prefix — treat as raw text
+    return { text: `Document: ${filename}\n\n${item.file_data}` }
   }
-  console.warn(`Skipping document "${filename}" because Kiro does not support URL-based or file-ID-based file attachments`)
-  return `[Unsupported: document "${filename}" skipped — Kiro does not support URL-based or file-ID-based file attachments]`
+
+  // URL-based or file-ID-based documents
+  if (typeof item.file_url === "string") {
+    console.warn(`Skipping URL-based document "${filename}" because Kiro does not support URL-based file attachments`)
+    return { text: `[Unsupported: URL-based document "${filename}" skipped — Kiro does not support URL-based file attachments]` }
+  }
+  if (typeof item.file_id === "string") {
+    console.warn(`Skipping file-ID document "${filename}" because Kiro does not support file-ID-based attachments`)
+    return { text: `[Unsupported: file-ID document "${filename}" skipped — Kiro does not support file-ID-based attachments]` }
+  }
+
+  return { text: `[Unsupported: document "${filename}" skipped — no supported source found]` }
 }
 
 function isTextMediaType(mediaType: string) {

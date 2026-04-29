@@ -5,6 +5,16 @@ import { claudeToResponsesBody } from "../src/inbound/claude/codex-convert"
 import { countClaudeInputTokens } from "../src/inbound/claude/convert"
 import { claudeErrorResponse } from "../src/inbound/claude/errors"
 import { handleClaudeCountTokens, handleClaudeMessages } from "../src/inbound/claude/handlers"
+import { codexProxyFn } from "../src/inbound/claude/codex"
+import { collectCodexResponse, streamCodexResponse } from "../src/upstream/codex/parse"
+
+function mockCodexProxy(proxyFn: () => Promise<Response>) {
+  return {
+    proxy: proxyFn,
+    collectResponse: (response: Response, model: string) => collectCodexResponse(response, model),
+    streamResponse: (response: Response, model: string) => streamCodexResponse(response, model),
+  }
+}
 import { collectClaudeMessage, claudeStreamResponse } from "../src/inbound/claude/codex-response"
 import { consumeCodexSse, parseJsonObject, parseSseJson } from "../src/core/sse"
 import {
@@ -757,11 +767,11 @@ describe("SSE and Claude response mapping", () => {
   })
 
   test("handles Claude endpoint errors and successes", async () => {
-    const okClient = {
-      proxy: () => Promise.resolve(responseFromEvents([{ type: "response.output_text.done", text: "ok" }, { type: "response.completed", response: { usage: { input_tokens: 1, output_tokens: 1 } } }])),
-    }
+    const okClient = mockCodexProxy(
+      () => Promise.resolve(responseFromEvents([{ type: "response.output_text.done", text: "ok" }, { type: "response.completed", response: { usage: { input_tokens: 1, output_tokens: 1 } } }])),
+    )
     const nonStream = await handleClaudeMessages(
-      okClient as any,
+      okClient,
       new Request("http://x", { method: "POST", body: JSON.stringify({ model: "m", messages: [{ role: "user", content: "hi" }] }) }),
       "id",
       { logBody: true },
@@ -769,24 +779,24 @@ describe("SSE and Claude response mapping", () => {
     expect(await nonStream.json()).toMatchObject({ content: [{ type: "text", text: "ok" }] })
 
     const stream = await handleClaudeMessages(
-      okClient as any,
+      okClient,
       new Request("http://x", { method: "POST", body: JSON.stringify({ model: "m", messages: [{ role: "user", content: "hi" }], stream: true }) }),
       "id",
     )
     expect((await readSse(stream)).some((event) => event.data.type === "message_stop")).toBe(true)
 
-    const badUpstream = { proxy: () => Promise.resolve(new Response("bad", { status: 503 })) }
-    const upstream = await handleClaudeMessages(badUpstream as any, new Request("http://x", { method: "POST", body: JSON.stringify({ model: "m", messages: [] }) }), "id")
+    const badUpstream = mockCodexProxy(() => Promise.resolve(new Response("bad", { status: 503 })))
+    const upstream = await handleClaudeMessages(badUpstream, new Request("http://x", { method: "POST", body: JSON.stringify({ model: "m", messages: [] }) }), "id")
     expect(upstream.status).toBe(503)
     expect(await upstream.json()).toEqual({ type: "error", error: { type: "api_error", message: "Upstream request failed: 503 bad" } })
 
-    const contextClient = {
-      proxy: () =>
+    const contextClient = mockCodexProxy(
+      () =>
         Promise.resolve(new Response(JSON.stringify({
           error: { message: "This model's maximum context length is 200000 tokens. Please reduce your prompt." },
         }), { status: 413 })),
-    }
-    const contextError = await handleClaudeMessages(contextClient as any, new Request("http://x", { method: "POST", body: JSON.stringify({ model: "m", messages: [] }) }), "id")
+    )
+    const contextError = await handleClaudeMessages(contextClient, new Request("http://x", { method: "POST", body: JSON.stringify({ model: "m", messages: [] }) }), "id")
     expect(contextError.status).toBe(413)
     expect(await contextError.json()).toEqual({
       type: "error",
@@ -796,8 +806,8 @@ describe("SSE and Claude response mapping", () => {
       },
     })
 
-    const throwingClient = { proxy: () => Promise.reject(new Error("network down")) }
-    const thrown = await handleClaudeMessages(throwingClient as any, new Request("http://x", { method: "POST", body: JSON.stringify({ model: "m", messages: [] }) }), "id")
+    const throwingClient = mockCodexProxy(() => Promise.reject(new Error("network down")))
+    const thrown = await handleClaudeMessages(throwingClient, new Request("http://x", { method: "POST", body: JSON.stringify({ model: "m", messages: [] }) }), "id")
     expect(thrown.status).toBe(500)
     expect(await thrown.json()).toEqual({ type: "error", error: { type: "api_error", message: "network down" } })
 
@@ -815,8 +825,8 @@ describe("SSE and Claude response mapping", () => {
     expect(errorEvents.map((event) => event.data.type)).toEqual(["message_start", "content_block_start", "content_block_delta", "content_block_stop", "error"])
     expect(errorEvents[errorEvents.length - 1]).toEqual({ event: "error", data: { type: "error", error: { type: "api_error", message: "stream broke" } } })
 
-    expect((await handleClaudeMessages(okClient as any, new Request("http://x", { method: "POST", body: "{" }), "id")).status).toBe(400)
-    expect((await handleClaudeMessages(okClient as any, new Request("http://x", { method: "POST", body: JSON.stringify({ model: "m" }) }), "id")).status).toBe(400)
+    expect((await handleClaudeMessages(okClient, new Request("http://x", { method: "POST", body: "{" }), "id")).status).toBe(400)
+    expect((await handleClaudeMessages(okClient, new Request("http://x", { method: "POST", body: JSON.stringify({ model: "m" }) }), "id")).status).toBe(400)
     expect((await handleClaudeCountTokens(new Request("http://x", { method: "POST", body: "{" }))).status).toBe(400)
     expect((await handleClaudeCountTokens(new Request("http://x", { method: "POST", body: JSON.stringify({}) }))).status).toBe(400)
     await expect(

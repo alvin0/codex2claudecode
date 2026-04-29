@@ -195,7 +195,7 @@ describe("Kiro client", () => {
 
     await client.generateAssistantResponse(payload())
     expect(sleeps).toEqual([1000, 2000, 4000])
-    expect(requests).toEqual(["attempt=1; max=3", "attempt=1; max=3", "attempt=1; max=3", "attempt=1; max=3"])
+    expect(requests).toEqual(["attempt=1; max=3", "attempt=2; max=3", "attempt=3; max=3", "attempt=4; max=3"])
   })
 
   test("does not retry non-retryable 400 and 401 responses", async () => {

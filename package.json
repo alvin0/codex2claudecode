@@ -1,6 +1,6 @@
 {
   "name": "codex2claudecode",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Bun-powered Claude-compatible local API for Codex and Kiro credentials.",
   "author": "alvin0 <chaulamdinhai@gmail.com>",
   "license": "MIT",
@@ -48,7 +48,7 @@
     "typecheck": "tsc --noEmit && tsc -p tsconfig.test.json --noEmit",
     "check": "bun run typecheck && bun run build",
     "prepublishOnly": "bun run build",
-    "test": "bun test test/*.test.ts --test-name-pattern='^(?!.*live Codex smoke test)'",
+    "test": "bun test test/ --test-name-pattern='^(?!.*live Codex smoke test)'",
     "coverage": "bunx --bun vitest run --config vitest.config.ts --coverage --coverage.provider=istanbul --testNamePattern='^(?!.*live Codex smoke test)'",
     "test:live": "CODEX_AUTH_FILE=auth-codex.json bun test test/live.test.ts",
     "test:kiro:api": "bun scripts/kiro-api-smoke.ts"
