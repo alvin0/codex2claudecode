@@ -23,6 +23,7 @@ export function ProviderDashboard(props: {
   limitGroups: LimitGroupView[]
   limitsLoading: boolean
   limitsError?: string
+  apiPassword?: string
 }) {
   const leftWidth = props.compact ? props.innerWidth : 42
   const detailsWidth = props.compact ? props.innerWidth : Math.min(58, Math.max(42, props.contentWidth - 48))
@@ -36,7 +37,7 @@ export function ProviderDashboard(props: {
       alignSelf={props.compact ? undefined : "flex-start"}
       flexDirection={props.compact ? "column" : "row"}
     >
-      <WelcomePanel hostname={props.hostname} port={props.port} compact={props.compact} width={leftWidth} providerMode={props.providerMode} />
+      <WelcomePanel hostname={props.hostname} port={props.port} compact={props.compact} width={leftWidth} providerMode={props.providerMode} apiPassword={props.apiPassword} />
       {props.compact ? (
         <Text color="#7f4f45">{"─".repeat(props.innerWidth)}</Text>
       ) : (

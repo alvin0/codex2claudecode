@@ -491,6 +491,7 @@ export function claudeStreamResponse(response: Response, request: ClaudeMessages
               }
 
               if (data.type === "response.output_text.delta" && typeof data.delta === "string") {
+                if (!data.delta) return
                 if (pendingServerCalls.length) {
                   deferredText += data.delta
                   return

@@ -1,11 +1,13 @@
 import type { Canonical_ErrorResponse, Canonical_PassthroughResponse, Canonical_Response, Canonical_StreamResponse } from "../../core/canonical"
 import type { Inbound_Provider, RequestHandlerContext, Route_Descriptor, UpstreamProviderKind, UpstreamResult, Upstream_Provider } from "../../core/interfaces"
+import { accumulateCanonicalStream } from "../../core/canonical-accumulator"
 import { responseHeaders } from "../../core/http"
 import { LOG_BODY_PREVIEW_LIMIT } from "../../core/constants"
 import { createKiroDebugBundle, kiroDebugOnErrorEnabled, redactSensitiveText } from "../../core/debug-capture"
 import { createLogPreview } from "../../core/log-preview"
 import { interceptResponseStream } from "../../core/stream-utils"
 import type { JsonObject, RequestProxyLog } from "../../core/types"
+import { countTokens } from "gpt-tokenizer"
 import { normalizeCanonicalRequest, normalizeRequestBody } from "./normalize"
 import { openAICanonicalResponse, openAICanonicalStreamResponse } from "./response"
 
@@ -149,6 +151,7 @@ export class OpenAI_Inbound_Provider implements Inbound_Provider {
     }
 
     if (isCanonicalResponse(result)) {
+      backfillInputTokens(result, wireBody)
       const response = openAICanonicalResponse(result, route.path, wireBody)
       if (context.onProxy) {
         context.onProxy({
@@ -166,6 +169,25 @@ export class OpenAI_Inbound_Provider implements Inbound_Provider {
     }
 
     if (isCanonicalStream(result)) {
+      const clientWantsStream = wireBody.stream === true || wireBody.stream === "true"
+      if (!clientWantsStream) {
+        const accumulated = await accumulateCanonicalStream(result)
+        backfillInputTokens(accumulated, wireBody)
+        const response = openAICanonicalResponse(accumulated, route.path, wireBody)
+        if (context.onProxy) {
+          context.onProxy({
+            label: this.upstreamLogLabel,
+            method: "POST",
+            target: this.upstreamTarget,
+            status: 200,
+            durationMs,
+            error: "-",
+            requestBody: proxyRequestBody,
+            responseBody: shouldCaptureProxyBody ? upstreamResponsePreview?.text() || undefined : undefined,
+          })
+        }
+        return response
+      }
       const proxyLog: RequestProxyLog | undefined = context.onProxy ? {
         label: this.upstreamLogLabel,
         method: "POST",
@@ -218,6 +240,12 @@ function isCanonicalResponse(result: UpstreamResult): result is Canonical_Respon
 
 function isCanonicalStream(result: UpstreamResult): result is Canonical_StreamResponse {
   return result.type === "canonical_stream"
+}
+
+function backfillInputTokens(response: Canonical_Response, wireBody: JsonObject) {
+  if (response.usage.inputTokens === 0) {
+    response.usage.inputTokens = countTokens(JSON.stringify(wireBody))
+  }
 }
 
 function previewText(text: string) {

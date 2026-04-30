@@ -730,7 +730,7 @@ describe("runtime server", () => {
     const server = await startRuntime({ authFile: auth, port: 0, healthIntervalMs: 0, logBody: true, quiet: true, onRequestLog: (entry) => logs.push(entry) })
     const base = `http://${server.hostname}:${server.port}`
     try {
-      const response = await originalFetch(`${base}/v1/messages`, { method: "POST", body: JSON.stringify({ model: "m", messages: [{ role: "user", content: "hi" }] }) })
+      const response = await originalFetch(`${base}/v1/messages`, { method: "POST", body: JSON.stringify({ model: "m", messages: [{ role: "user", content: "hi" }], stream: true }) })
       expect(response.status).toBe(200)
       expect(await response.text()).toContain("content_block")
 
@@ -841,6 +841,203 @@ describe("runtime server", () => {
     } finally {
       server.stop(true)
     }
+  })
+})
+
+describe("API password protection", () => {
+  test("rejects unauthenticated POST to protected endpoint with 401", async () => {
+    globalThis.fetch = mockFetch()
+    const server = await startRuntime({ authFile: await authFile(), port: 0, healthIntervalMs: 0, logBody: false, quiet: true, apiPassword: "test-secret" })
+    const base = `http://${server.hostname}:${server.port}`
+    try {
+      const response = await originalFetch(`${base}/v1/messages`, { method: "POST", body: JSON.stringify({ model: "m", messages: [{ role: "user", content: "hi" }] }) })
+      expect(response.status).toBe(401)
+      const body = await response.json() as { error: { message: string } }
+      expect(body.error.message).toBe("Unauthorized: API password required")
+    } finally {
+      server.stop(true)
+    }
+  })
+
+  test("rejects unauthenticated GET to protected endpoint with 401", async () => {
+    globalThis.fetch = mockFetch()
+    const server = await startRuntime({ authFile: await authFile(), port: 0, healthIntervalMs: 0, logBody: false, quiet: true, apiPassword: "test-secret" })
+    const base = `http://${server.hostname}:${server.port}`
+    try {
+      const response = await originalFetch(`${base}/usage`)
+      expect(response.status).toBe(401)
+    } finally {
+      server.stop(true)
+    }
+  })
+
+  test("allows authenticated request with X-Api-Key header", async () => {
+    globalThis.fetch = mockFetch()
+    const server = await startRuntime({ authFile: await authFile(), port: 0, healthIntervalMs: 0, logBody: false, quiet: true, apiPassword: "test-secret" })
+    const base = `http://${server.hostname}:${server.port}`
+    try {
+      const response = await originalFetch(`${base}/usage`, { headers: { "X-Api-Key": "test-secret" } })
+      expect(response.status).not.toBe(401)
+    } finally {
+      server.stop(true)
+    }
+  })
+
+  test("allows authenticated request with Authorization Bearer token", async () => {
+    globalThis.fetch = mockFetch()
+    const server = await startRuntime({ authFile: await authFile(), port: 0, healthIntervalMs: 0, logBody: false, quiet: true, apiPassword: "test-secret" })
+    const base = `http://${server.hostname}:${server.port}`
+    try {
+      const response = await originalFetch(`${base}/usage`, { headers: { Authorization: "Bearer test-secret" } })
+      expect(response.status).not.toBe(401)
+    } finally {
+      server.stop(true)
+    }
+  })
+
+  test("allows unauthenticated OPTIONS request", async () => {
+    globalThis.fetch = mockFetch()
+    const server = await startRuntime({ authFile: await authFile(), port: 0, healthIntervalMs: 0, logBody: false, quiet: true, apiPassword: "test-secret" })
+    const base = `http://${server.hostname}:${server.port}`
+    try {
+      const response = await originalFetch(`${base}/v1/messages`, { method: "OPTIONS" })
+      expect(response.status).not.toBe(401)
+    } finally {
+      server.stop(true)
+    }
+  })
+
+  test("allows unauthenticated GET /", async () => {
+    globalThis.fetch = mockFetch()
+    const server = await startRuntime({ authFile: await authFile(), port: 0, healthIntervalMs: 0, logBody: false, quiet: true, apiPassword: "test-secret" })
+    const base = `http://${server.hostname}:${server.port}`
+    try {
+      const response = await originalFetch(`${base}/`)
+      expect(response.status).not.toBe(401)
+      expect(response.status).toBe(200)
+    } finally {
+      server.stop(true)
+    }
+  })
+
+  test("allows unauthenticated GET /health", async () => {
+    globalThis.fetch = mockFetch()
+    const server = await startRuntime({ authFile: await authFile(), port: 0, healthIntervalMs: 0, logBody: false, quiet: true, apiPassword: "test-secret" })
+    const base = `http://${server.hostname}:${server.port}`
+    try {
+      const response = await originalFetch(`${base}/health`)
+      expect(response.status).not.toBe(401)
+      expect(response.status).toBe(200)
+    } finally {
+      server.stop(true)
+    }
+  })
+
+  test("allows unauthenticated GET /test-connection", async () => {
+    globalThis.fetch = mockFetch()
+    const server = await startRuntime({ authFile: await authFile(), port: 0, healthIntervalMs: 0, logBody: false, quiet: true, apiPassword: "test-secret" })
+    const base = `http://${server.hostname}:${server.port}`
+    try {
+      const response = await originalFetch(`${base}/test-connection`)
+      expect(response.status).not.toBe(401)
+    } finally {
+      server.stop(true)
+    }
+  })
+
+  test("GET / includes password_protected: true when password is set", async () => {
+    globalThis.fetch = mockFetch()
+    const server = await startRuntime({ authFile: await authFile(), port: 0, healthIntervalMs: 0, logBody: false, quiet: true, apiPassword: "test-secret" })
+    const base = `http://${server.hostname}:${server.port}`
+    try {
+      const response = await originalFetch(`${base}/`)
+      expect(response.status).toBe(200)
+      const body = await response.json() as { config: { password_protected: boolean } }
+      expect(body.config.password_protected).toBe(true)
+    } finally {
+      server.stop(true)
+    }
+  })
+
+  test("GET / includes password_protected: false when no password is set", async () => {
+    globalThis.fetch = mockFetch()
+    const server = await startRuntime({ authFile: await authFile(), port: 0, healthIntervalMs: 0, logBody: false, quiet: true })
+    const base = `http://${server.hostname}:${server.port}`
+    try {
+      const response = await originalFetch(`${base}/`)
+      expect(response.status).toBe(200)
+      const body = await response.json() as { config: { password_protected: boolean } }
+      expect(body.config.password_protected).toBe(false)
+    } finally {
+      server.stop(true)
+    }
+  })
+
+  test("GET / response does not contain the actual password value", async () => {
+    const password = "super-secret-password-value-12345"
+    globalThis.fetch = mockFetch()
+    const server = await startRuntime({ authFile: await authFile(), port: 0, healthIntervalMs: 0, logBody: false, quiet: true, apiPassword: password })
+    const base = `http://${server.hostname}:${server.port}`
+    try {
+      const response = await originalFetch(`${base}/`)
+      expect(response.status).toBe(200)
+      const text = await response.text()
+      expect(text).not.toContain(password)
+    } finally {
+      server.stop(true)
+    }
+  })
+
+  describe("backward compatibility (no password configured)", () => {
+    test("allows unauthenticated POST to protected endpoint", async () => {
+      globalThis.fetch = mockFetch()
+      const server = await startRuntime({ authFile: await authFile(), port: 0, healthIntervalMs: 0, logBody: false, quiet: true })
+      const base = `http://${server.hostname}:${server.port}`
+      try {
+        const response = await originalFetch(`${base}/v1/responses`, { method: "POST", body: JSON.stringify({ model: "m", input: "hi" }) })
+        expect(response.status).not.toBe(401)
+        expect(response.status).toBe(200)
+      } finally {
+        server.stop(true)
+      }
+    })
+
+    test("allows unauthenticated GET to protected endpoint", async () => {
+      globalThis.fetch = mockFetch()
+      const server = await startRuntime({ authFile: await authFile(), port: 0, healthIntervalMs: 0, logBody: false, quiet: true })
+      const base = `http://${server.hostname}:${server.port}`
+      try {
+        const response = await originalFetch(`${base}/usage`)
+        expect(response.status).not.toBe(401)
+        expect(response.status).toBe(200)
+      } finally {
+        server.stop(true)
+      }
+    })
+
+    test("allows GET /", async () => {
+      globalThis.fetch = mockFetch()
+      const server = await startRuntime({ authFile: await authFile(), port: 0, healthIntervalMs: 0, logBody: false, quiet: true })
+      const base = `http://${server.hostname}:${server.port}`
+      try {
+        const response = await originalFetch(`${base}/`)
+        expect(response.status).toBe(200)
+      } finally {
+        server.stop(true)
+      }
+    })
+
+    test("allows GET /health", async () => {
+      globalThis.fetch = mockFetch()
+      const server = await startRuntime({ authFile: await authFile(), port: 0, healthIntervalMs: 0, logBody: false, quiet: true })
+      const base = `http://${server.hostname}:${server.port}`
+      try {
+        const response = await originalFetch(`${base}/health`)
+        expect(response.status).toBe(200)
+      } finally {
+        server.stop(true)
+      }
+    })
   })
 })
 

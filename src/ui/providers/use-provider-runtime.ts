@@ -12,6 +12,7 @@ import { fallbackProviderInfo, nextProviderDefinition, providerDefinition, resol
 interface UseProviderRuntimeOptions {
   hostname: string
   port: number
+  apiPassword?: string
   accountKey?: string
   authRevision: number
   loadError?: string
@@ -30,6 +31,7 @@ export function useProviderRuntime(options: UseProviderRuntimeOptions) {
   const {
     hostname,
     port,
+    apiPassword,
     accountKey,
     authRevision,
     loadError,
@@ -96,6 +98,7 @@ export function useProviderRuntime(options: UseProviderRuntimeOptions) {
             authAccount: bootstrapped.authAccount,
             hostname,
             port,
+            apiPassword,
             logBody: process.env.LOG_BODY !== "0",
             requestLogMode,
             quiet: true,
@@ -145,6 +148,7 @@ export function useProviderRuntime(options: UseProviderRuntimeOptions) {
       server?.stop(true)
     }
   }, [
+    apiPassword,
     authFile,
     accountKey,
     authRevision,

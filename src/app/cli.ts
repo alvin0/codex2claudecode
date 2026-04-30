@@ -1,6 +1,7 @@
 export interface CliOptions {
   port?: number
   hostname?: string
+  password?: string
 }
 
 export function parseCliOptions(args = process.argv.slice(2)): CliOptions {
@@ -14,9 +15,19 @@ export function parseCliOptions(args = process.argv.slice(2)): CliOptions {
     if (arg.startsWith("--hostname=")) return [arg.slice("--hostname=".length)]
     return []
   })[0]
+  const password = args.flatMap((arg, index) => {
+    if (arg === "--password") {
+      const next = args[index + 1]
+      if (next === undefined || next.startsWith("-")) throw new Error("--password requires a value")
+      return [next]
+    }
+    if (arg.startsWith("--password=")) return [arg.slice("--password=".length)]
+    return []
+  })[0]
   return {
     ...(port !== undefined && { port: parsePort(port) }),
     ...(hostname !== undefined && { hostname }),
+    ...(password !== undefined && password !== "" && { password }),
   }
 }
 

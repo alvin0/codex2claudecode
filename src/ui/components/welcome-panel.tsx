@@ -5,7 +5,7 @@ import type { ProviderMode } from "../types"
 
 type EndpointLine = { label: string; value: string }
 
-export function WelcomePanel(props: { hostname: string; port: number; compact?: boolean; width?: number; providerMode?: ProviderMode }) {
+export function WelcomePanel(props: { hostname: string; port: number; compact?: boolean; width?: number; providerMode?: ProviderMode; apiPassword?: string }) {
   const width = props.width ?? 42
   const mode = props.providerMode ?? "codex"
   const title = `Codex2ClaudeCode - ${mode === "kiro" ? "Kiro" : "Codex"} Mode`
@@ -22,6 +22,7 @@ export function WelcomePanel(props: { hostname: string; port: number; compact?: 
         <Text bold color="#a58a86">Connect</Text>
         <InfoLine label="Local" value={localUrl} />
         {networkUrl && <InfoLine label="Network" value={networkUrl} />}
+        <InfoLine label="Auth" value={props.apiPassword ? "enabled" : "none"} />
       </Box>
       <Box marginTop={1} flexDirection="column">
         <Text bold color="#a58a86">Supported endpoints</Text>

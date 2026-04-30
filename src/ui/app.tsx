@@ -50,11 +50,12 @@ import { useProviderLimits } from "./providers/use-provider-limits"
 import { useProviderRuntime } from "./providers/use-provider-runtime"
 import type { ProviderMode } from "./types"
 
-export function CodexCodeApp(props: { port?: number; hostname?: string }) {
+export function CodexCodeApp(props: { port?: number; hostname?: string; apiPassword?: string }) {
   const app = useApp()
   const { stdout } = useStdout()
   const hostname = props.hostname ?? process.env.HOST ?? "0.0.0.0"
   const port = props.port ?? Number(process.env.PORT || 8787)
+  const apiPassword = props.apiPassword
   const [accountData, setAccountData] = useState<ProviderAccountData>()
   const [loadError, setLoadError] = useState<string>()
   const [selected, setSelected] = useState(0)
@@ -130,6 +131,7 @@ export function CodexCodeApp(props: { port?: number; hostname?: string }) {
   const providerRuntime = useProviderRuntime({
     hostname,
     port,
+    apiPassword,
     accountKey,
     authRevision,
     loadError,
@@ -312,6 +314,7 @@ export function CodexCodeApp(props: { port?: number; hostname?: string }) {
     if (key.ctrl && input === "c") {
       if (runtime.status === "running") runtime.server.stop(true)
       app.exit()
+      process.exit(0)
       return
     }
     if (switchingProvider) return
@@ -419,6 +422,7 @@ export function CodexCodeApp(props: { port?: number; hostname?: string }) {
     if (mode === "home" && input === "q") {
       if (runtime.status === "running") runtime.server.stop(true)
       app.exit()
+      process.exit(0)
       return
     }
     if (key.escape) {
@@ -585,7 +589,7 @@ export function CodexCodeApp(props: { port?: number; hostname?: string }) {
         void writeClaudeEnvironmentConfig(authFile, claudeEnvDraft, providerMode).catch((error) =>
           setInputMessage(`Claude environment saved failed: ${error instanceof Error ? error.message : String(error)}`),
         )
-        void runClaudeEnvironmentSet(claudeEnvDraft, baseUrl(hostname, activePort), shell, { authFile, settingsFile: claudeSettingsFile })
+        void runClaudeEnvironmentSet(claudeEnvDraft, baseUrl(hostname, activePort), shell, { authFile, settingsFile: claudeSettingsFile, apiPassword })
           .then((output) => setCommandOutputForRevision(outputRevision, { title: `Set Claude environment - ${claudeSettingsTarget}`, output }))
           .catch((error) => setCommandOutputForRevision(outputRevision, { title: "Set Claude environment failed", output: error instanceof Error ? error.message : String(error) }))
         return
@@ -640,6 +644,7 @@ export function CodexCodeApp(props: { port?: number; hostname?: string }) {
       if (command?.name === "/quit") {
         if (runtime.status === "running") runtime.server.stop(true)
         app.exit()
+        process.exit(0)
         return
       }
       if (command) {
@@ -808,7 +813,7 @@ export function CodexCodeApp(props: { port?: number; hostname?: string }) {
         void writeClaudeEnvironmentConfig(authFile, claudeEnvDraft, providerMode).catch((error) =>
           setInputMessage(`Claude environment saved failed: ${error instanceof Error ? error.message : String(error)}`),
         )
-        void runClaudeEnvironmentSet(claudeEnvDraft, baseUrl(hostname, activePort), shell, { authFile, settingsFile: claudeSettingsFile })
+        void runClaudeEnvironmentSet(claudeEnvDraft, baseUrl(hostname, activePort), shell, { authFile, settingsFile: claudeSettingsFile, apiPassword })
           .then((output) => setCommandOutputForRevision(outputRevision, { title: `Set Claude environment - ${claudeSettingsTarget}`, output }))
           .catch((error) => setCommandOutputForRevision(outputRevision, { title: "Set Claude environment failed", output: error instanceof Error ? error.message : String(error) }))
       }
@@ -876,6 +881,7 @@ export function CodexCodeApp(props: { port?: number; hostname?: string }) {
         limitGroups={limitGroups}
         limitsLoading={limitsLoading}
         limitsError={limitsError}
+        apiPassword={apiPassword}
       />
       {mode === "home" && <CommandInput selected={commandIndex} message={inputMessage} commands={commands} />}
       {mode === "account-selector" && accountCapability && <AccountSelector accounts={accounts} selected={selectorIndex} title={accountCapability.selectorTitle} description={accountCapability.selectorDescription} />}
@@ -899,7 +905,7 @@ export function CodexCodeApp(props: { port?: number; hostname?: string }) {
       {mode === "claude-env-scope" && <ClaudeEnvironmentScopeSelector selected={claudeEnvScopeIndex} action={claudeEnvAction} />}
       {mode === "claude-env-preset" && <ClaudeEnvironmentPresetSelector selected={claudeEnvPresetIndex} settingsTarget={claudeSettingsTarget} />}
       {(mode === "claude-env-editor" || mode === "claude-env-confirm") && (
-        <ClaudeEnvironmentEditor draft={claudeEnvDraft} selected={claudeEnvIndex} baseUrl={baseUrl(hostname, activePort)} confirm={mode === "claude-env-confirm"} shell={shell.kind === "unsupported" ? "posix" : shell.kind} settingsTarget={claudeSettingsTarget} />
+        <ClaudeEnvironmentEditor draft={claudeEnvDraft} selected={claudeEnvIndex} baseUrl={baseUrl(hostname, activePort)} confirm={mode === "claude-env-confirm"} shell={shell.kind === "unsupported" ? "posix" : shell.kind} settingsTarget={claudeSettingsTarget} apiPassword={apiPassword} />
       )}
       {mode === "claude-env-unset-confirm" && <ClaudeEnvironmentUnsetConfirm draft={claudeEnvDraft} shell={shell.kind === "unsupported" ? "posix" : shell.kind} settingsTarget={claudeSettingsTarget} />}
       {commandOutput && <CommandOutput title={commandOutput.title} output={commandOutput.output} />}

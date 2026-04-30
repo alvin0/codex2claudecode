@@ -4,9 +4,27 @@
 [![CI](https://github.com/alvin0/codex2claudecode/actions/workflows/ci.yml/badge.svg)](https://github.com/alvin0/codex2claudecode/actions/workflows/ci.yml)
 [![npm version](https://img.shields.io/npm/v/codex2claudecode.svg)](https://www.npmjs.com/package/codex2claudecode)
 
-Run OpenAI Codex/ChatGPT account credentials behind a local Claude-compatible API for Claude Code.
+Run OpenAI Codex/ChatGPT and Amazon Kiro account credentials behind a local Claude-compatible API for Claude Code.
 
-![codex2claudecode overview](https://cdn.jsdelivr.net/npm/codex2claudecode@latest/images/overview.png)
+| Codex Mode | Kiro Mode |
+|---|---|
+| ![Codex Mode](https://cdn.jsdelivr.net/npm/codex2claudecode@latest/images/codex-mode.png) | ![Kiro Mode](https://cdn.jsdelivr.net/npm/codex2claudecode@latest/images/kiro-mode.png) |
+
+codex2claudecode supports two upstream providers:
+
+- **Codex** — uses OpenAI Codex/ChatGPT credentials (GPT-5 models)
+- **Kiro** — uses Amazon Kiro credentials (Kiro models)
+
+Switch between providers at any time using the UI command:
+
+```text
+/switch-provider
+```
+
+The active provider is shown in the terminal UI title bar. Each provider has its
+own account, model list, and usage tracking. Switching providers restarts the
+runtime with the new provider's credentials — active Claude Code sessions will
+reconnect automatically.
 
 ## Quick Start
 
@@ -48,19 +66,25 @@ npx codex2claudecode --port 8786
 bunx codex2claudecode -p 8786
 ```
 
-### Runtime Requirement
-
-The runtime is Bun-only. Starting with the Bun migration, the packaged CLI
-requires Bun `>=1.3.0` to execute the application. The `npx` entry point is a
-compatibility launcher: it checks for Bun, falls back to the npm-published Bun
-package when possible, and prints installation instructions if no usable Bun is
-available.
-
-Existing Node-only installations should install Bun before upgrading:
+Protect the API with a password:
 
 ```sh
-curl -fsSL https://bun.sh/install | bash
+bunx codex2claudecode --password mysecret
 ```
+
+Or via environment variable:
+
+```sh
+API_PASSWORD=mysecret bunx codex2claudecode
+```
+
+When a password is set, all API endpoints except `/`, `/health`, `/test-connection`, and `OPTIONS` requests require authentication via `X-Api-Key` or `Authorization: Bearer` header.
+
+### Runtime Requirement
+
+codex2claudecode requires Bun `>=1.3.0`. The `npx` entry point is a compatibility
+launcher that falls back to the npm-published Bun package when possible and prints
+installation instructions if no usable Bun is available.
 
 ## Connect an Account
 
@@ -159,7 +183,8 @@ macOS/Linux:
 
 ```sh
 export ANTHROPIC_BASE_URL="http://127.0.0.1:8787"
-export ANTHROPIC_API_KEY=""
+export ANTHROPIC_API_KEY="codex2claudecode"
+export ANTHROPIC_AUTH_TOKEN="codex2claudecode"
 export ANTHROPIC_MODEL="gpt-5.4"
 export ANTHROPIC_DEFAULT_OPUS_MODEL="gpt-5.4_high"
 export ANTHROPIC_DEFAULT_SONNET_MODEL="gpt-5.3-codex_high"
@@ -170,12 +195,17 @@ PowerShell:
 
 ```powershell
 $env:ANTHROPIC_BASE_URL="http://127.0.0.1:8787"
-$env:ANTHROPIC_API_KEY=""
+$env:ANTHROPIC_API_KEY="codex2claudecode"
+$env:ANTHROPIC_AUTH_TOKEN="codex2claudecode"
 $env:ANTHROPIC_MODEL="gpt-5.4"
 $env:ANTHROPIC_DEFAULT_OPUS_MODEL="gpt-5.4_high"
 $env:ANTHROPIC_DEFAULT_SONNET_MODEL="gpt-5.3-codex_high"
 $env:ANTHROPIC_DEFAULT_HAIKU_MODEL="gpt-5.4-mini_high"
 ```
+
+When `--password` is set, `ANTHROPIC_API_KEY` and `ANTHROPIC_AUTH_TOKEN` are
+automatically set to the password value by `/set-claude-env`. Without a password,
+they default to a placeholder token.
 
 The UI command:
 
@@ -202,20 +232,19 @@ The local Claude environment config is stored next to the auth file as
 `extraEnv` adds or updates more keys inside `~/.claude/settings.json` -> `env`.
 `unsetEnv` removes the listed keys from that same `env` object during
 `/set-claude-env`, and both lists are also included in `/unset-claude-env`.
-Other top-level settings in `~/.claude/settings.json` are preserved. Built-in
-defaults, locked env values, and editable env keys are defined in
-`src/claude-code-env.config.ts`.
+Other top-level settings in `~/.claude/settings.json` are preserved.
 
 ## UI Commands
 
 ```text
-/connect          Add or update an account for the active provider
-/account          Switch active provider account
-/limits           Show active provider account limits
-/logs             Show recent runtime request logs
-/set-claude-env   Edit Claude Code environment exports
-/unset-claude-env Remove Claude Code environment variables
-/quit             Quit codex2claudecode
+/connect           Add or update an account for the active provider
+/switch-provider   Switch between Codex and Kiro providers
+/account           Switch active provider account
+/limits            Show active provider account limits
+/logs              Show recent runtime request logs
+/set-claude-env    Edit Claude Code environment exports
+/unset-claude-env  Remove Claude Code environment variables
+/quit              Quit codex2claudecode
 ```
 
 `/set-claude-env` writes the managed keys into `~/.claude/settings.json` under
@@ -234,14 +263,132 @@ http://127.0.0.1:8787
 Supported endpoints:
 
 ```text
-POST /v1/messages
-POST /v1/messages/count_tokens
-POST /v1/responses
-POST /v1/chat/completions
-GET  /usage
-GET  /environments
-GET  /health
+GET  /                          Server info and config
+POST /v1/messages               Claude Messages API
+POST /v1/messages/count_tokens  Token counting
+POST /v1/responses              OpenAI Responses API
+POST /v1/chat/completions       OpenAI Chat Completions API
+GET  /v1/models                 Model listing
+GET  /usage                     Usage statistics
+GET  /environments              Environment info
+GET  /health                    Health check
+GET  /test-connection            Connection test
 ```
+
+Both Claude and OpenAI-compatible endpoints support streaming (`stream: true`)
+and non-streaming (`stream: false`) requests. Non-streaming requests accumulate
+the full response before returning a single JSON body.
+
+### API Password Protection
+
+Start the server with `--password` or `API_PASSWORD` to require authentication:
+
+```sh
+bunx codex2claudecode --password mysecret
+# or
+API_PASSWORD=mysecret bunx codex2claudecode
+```
+
+Protected endpoints require one of:
+
+```text
+X-Api-Key: mysecret
+Authorization: Bearer mysecret
+```
+
+Unprotected endpoints (no auth required):
+
+```text
+GET  /               Server info (includes password_protected: true/false)
+GET  /health         Health check
+GET  /test-connection Connection test
+OPTIONS *            CORS preflight
+```
+
+Password comparison uses constant-time comparison to prevent timing attacks.
+
+### Examples
+
+Check server info:
+
+```sh
+curl http://127.0.0.1:8787/
+```
+
+Health check:
+
+```sh
+curl http://127.0.0.1:8787/health
+```
+
+Send a Claude Messages request (streaming):
+
+```sh
+curl http://127.0.0.1:8787/v1/messages \
+  -H "Content-Type: application/json" \
+  -H "X-Api-Key: mysecret" \
+  -d '{
+    "model": "gpt-5.4",
+    "max_tokens": 1024,
+    "stream": true,
+    "messages": [{"role": "user", "content": "Hello"}]
+  }'
+```
+
+Send a Claude Messages request (non-streaming):
+
+```sh
+curl http://127.0.0.1:8787/v1/messages \
+  -H "Content-Type: application/json" \
+  -H "X-Api-Key: mysecret" \
+  -d '{
+    "model": "gpt-5.4",
+    "max_tokens": 1024,
+    "stream": false,
+    "messages": [{"role": "user", "content": "Hello"}]
+  }'
+```
+
+Send an OpenAI Chat Completions request:
+
+```sh
+curl http://127.0.0.1:8787/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer mysecret" \
+  -d '{
+    "model": "gpt-5.4",
+    "stream": true,
+    "messages": [{"role": "user", "content": "Hello"}]
+  }'
+```
+
+Send an OpenAI Responses request:
+
+```sh
+curl http://127.0.0.1:8787/v1/responses \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer mysecret" \
+  -d '{
+    "model": "gpt-5.4",
+    "input": "Hello"
+  }'
+```
+
+List available models:
+
+```sh
+curl http://127.0.0.1:8787/v1/models \
+  -H "X-Api-Key: mysecret"
+```
+
+View usage statistics:
+
+```sh
+curl http://127.0.0.1:8787/usage \
+  -H "X-Api-Key: mysecret"
+```
+
+Without password protection, omit the `-H "X-Api-Key: ..."` or `-H "Authorization: Bearer ..."` headers.
 
 In Kiro mode, `/v1/responses` and `/v1/chat/completions` are supported.
 `/v1/responses` expects Responses-style `input` and `text.format`; `/v1/chat/completions`
@@ -306,10 +453,7 @@ If no suffix is supplied for a GPT-5 model, `medium` is used.
 
 ## Development
 
-From this repository:
-
 ```sh
-cd standalone
 bun install
 bun run start
 bun run start -- --port 8786
@@ -318,78 +462,17 @@ bun run test
 bun run coverage
 ```
 
-`bun run typecheck` runs the strict source config first. It then runs a test
-config that keeps strict null and structural checks but relaxes `noImplicitAny`
-for terse test doubles such as inline `fetch` mocks.
+`bun run typecheck` runs the strict source config first, then a test config that
+relaxes `noImplicitAny` for terse test doubles such as inline `fetch` mocks.
 
-Current deterministic test status:
-
-```text
-bun run check
-PASS - typecheck + Bun bundle
-
-bun run test
-PASS - deterministic suites pass
-```
-
-Current `bun run coverage` uses Vitest + Istanbul to report all key coverage metrics:
-
-```sh
-bun run coverage
-```
-
-Latest tracked metrics:
-
-| Metric | Value |
-| --- | --- |
-| Statements | 100% |
-| Branches | 100% |
-| Functions | 100% |
-| Lines | 100% |
+`bun run coverage` uses Vitest + Istanbul to report line, branch, function, and
+statement coverage.
 
 Live smoke test using `auth-codex.json`:
 
 ```sh
 bun run test:live
 ```
-
-The publish workflow also runs:
-
-```text
-bun install --frozen-lockfile
-bun run check
-bun run test
-npm pack --dry-run
-npm publish --access public --provenance
-```
-
-CI matrix workflow also runs `bun run test` and `bun run coverage` on:
-
-```text
-Bun 1.3.13
-Bun latest
-```
-
-## CI Evidence
-
-GitHub Actions workflow:
-
-```text
-https://github.com/alvin0/codex2claudecode/actions/workflows/publish.yml
-https://github.com/alvin0/codex2claudecode/actions/workflows/ci.yml
-```
-
-Every publish run uploads an artifact named `npm-publish-evidence` containing:
-
-```text
-check.log
-test.log
-npm-pack.log
-```
-
-Use those artifacts as release evidence that the package was built, tested, and dry-packed before publishing.
-
-The CI workflow also uploads `test.log` and `coverage.log` for each Bun version matrix run.
 
 ## License
 
@@ -398,8 +481,7 @@ MIT. See [LICENSE](./LICENSE).
 ## Notes
 
 - `auth-codex.json` and `kiro-state.json` contain secrets. Do not commit them.
-- `.account-info.json` and `.claude-env.json` do not contain OAuth tokens, but may contain email/account metadata.
-- `bun run coverage` reports line, branch, function and statement coverage.
+- `.account-info.json` and `.claude-env.json` do not contain OAuth tokens but may contain email/account metadata.
 
 ## Author
 

@@ -43,11 +43,11 @@ export function canonicalUsageFromWireUsage(value: unknown): Partial<Canonical_U
 }
 
 export function mergeCanonicalUsage(target: Canonical_Usage, usage: Partial<Canonical_Usage>) {
-  if (typeof usage.inputTokens === "number") target.inputTokens = usage.inputTokens
-  if (typeof usage.outputTokens === "number") target.outputTokens = usage.outputTokens
-  if (typeof usage.cacheCreationInputTokens === "number") target.cacheCreationInputTokens = usage.cacheCreationInputTokens
-  if (typeof usage.cacheReadInputTokens === "number") target.cacheReadInputTokens = usage.cacheReadInputTokens
-  if (typeof usage.outputReasoningTokens === "number") target.outputReasoningTokens = usage.outputReasoningTokens
+  if (typeof usage.inputTokens === "number") target.inputTokens = Math.max(target.inputTokens, usage.inputTokens)
+  if (typeof usage.outputTokens === "number") target.outputTokens = Math.max(target.outputTokens, usage.outputTokens)
+  if (typeof usage.cacheCreationInputTokens === "number") target.cacheCreationInputTokens = Math.max(target.cacheCreationInputTokens ?? 0, usage.cacheCreationInputTokens)
+  if (typeof usage.cacheReadInputTokens === "number") target.cacheReadInputTokens = Math.max(target.cacheReadInputTokens ?? 0, usage.cacheReadInputTokens)
+  if (typeof usage.outputReasoningTokens === "number") target.outputReasoningTokens = Math.max(target.outputReasoningTokens ?? 0, usage.outputReasoningTokens)
   if (usage.serverToolUse) {
     target.serverToolUse = {
       ...(target.serverToolUse ?? {}),

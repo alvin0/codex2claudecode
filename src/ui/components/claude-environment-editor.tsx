@@ -15,11 +15,17 @@ export function ClaudeEnvironmentEditor(props: {
   confirm: boolean
   shell: ShellKind
   settingsTarget: string
+  apiPassword?: string
 }) {
   const modelKeyCount = CLAUDE_MODEL_ENV_KEYS.length
+  const authValue = props.apiPassword || EXPORT_ENV_STATIC_ENTRIES.find((e) => e.key === "ANTHROPIC_AUTH_TOKEN")?.value || "codex2claudecode"
   const lockedEntries: Array<{ key: string; value: string }> = [
     { key: "ANTHROPIC_BASE_URL", value: props.baseUrl },
-    ...EXPORT_ENV_STATIC_ENTRIES,
+    ...EXPORT_ENV_STATIC_ENTRIES.map((entry) =>
+      entry.key === "ANTHROPIC_AUTH_TOKEN" || entry.key === "ANTHROPIC_API_KEY"
+        ? { ...entry, value: authValue }
+        : entry,
+    ),
   ]
 
   return (

@@ -1,4 +1,5 @@
 import { bootstrapRuntime } from "./bootstrap"
+import { checkAuth } from "../core/auth-guard"
 import { LOG_BODY_PREVIEW_LIMIT } from "../core/constants"
 import { cors, responseHeaders } from "../core/http"
 import type { Route_Descriptor, Upstream_Provider } from "../core/interfaces"
@@ -29,6 +30,7 @@ export async function startRuntimeWithBootstrap(
   const healthTimeoutMs = options?.healthTimeoutMs ?? Number(process.env.HEALTH_TIMEOUT_MS || 5000)
   const logBody = options?.logBody ?? process.env.LOG_BODY !== "0"
   const requestLogMode = requestLogModeResolver(options?.requestLogMode ?? process.env.REQUEST_LOG_MODE)
+  const apiPassword = options?.apiPassword || process.env.API_PASSWORD || undefined
   const quiet = options?.quiet ?? false
   const onRequestLogStart = options?.onRequestLogStart
   const onRequestLog = options?.onRequestLog
@@ -52,6 +54,8 @@ export async function startRuntimeWithBootstrap(
         async fetch(request, bunServer) {
         const started = Date.now()
         const url = new URL(request.url)
+        const authResponse = checkAuth(request, url, apiPassword)
+        if (authResponse) return authResponse
         const matched = registry.match(request.method, url.pathname, request.headers)
         if (matched && isV1ApiRoute(matched.descriptor, url.pathname)) disableIdleTimeout(bunServer, request, quiet)
         const requestLogModeForRequest = requestLogMode()
@@ -177,6 +181,7 @@ export async function startRuntimeWithBootstrap(
                 config: {
                   hostname,
                   port: server.port,
+                  password_protected: Boolean(apiPassword),
                   health_interval_ms: healthIntervalMs,
                   health_timeout_ms: healthTimeoutMs,
                   log_body: logBody,
@@ -367,6 +372,7 @@ export async function startRuntimeWithBootstrap(
     console.log(`Health interval:  ${healthIntervalMs}ms`)
     console.log(`Log body:         ${logBody ? "enabled" : "disabled"}${logBody ? " (set LOG_BODY=0 to disable)" : ""}`)
     console.log(`Request logs:     ${requestLogMode()}${typeof options?.requestLogMode === "function" ? " (dynamic)" : ""}`)
+    if (apiPassword) console.log(`API password:     enabled`)
     console.log(`Auth file:        ${authFile}`)
     if (authAccount) console.log(`Auth account:     ${authAccount}`)
     for (const route of routes) {

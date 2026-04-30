@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test"
+import { describe, expect, test } from "bun:test"
 
 import { parseCliOptions } from "../src/app/cli"
 
@@ -45,3 +45,46 @@ async function streamText(stream: ReadableStream<Uint8Array> | number | undefine
   }
   return output + decoder.decode()
 }
+
+describe("password flag parsing", () => {
+  test("--password <value> parses the password", () => {
+    expect(parseCliOptions(["--password", "mysecret"])).toEqual({ password: "mysecret" })
+  })
+
+  test("--password=<value> parses the password", () => {
+    expect(parseCliOptions(["--password=mysecret"])).toEqual({ password: "mysecret" })
+  })
+
+  test("--password without a value throws an error", () => {
+    expect(() => parseCliOptions(["--password"])).toThrow("--password requires a value")
+  })
+
+  test("--password followed by another flag throws an error", () => {
+    expect(() => parseCliOptions(["--password", "--port"])).toThrow("--password requires a value")
+    expect(() => parseCliOptions(["--password", "-p"])).toThrow("--password requires a value")
+    expect(() => parseCliOptions(["--password", "-H"])).toThrow("--password requires a value")
+  })
+
+  test("no --password flag returns options without password", () => {
+    const result = parseCliOptions([])
+    expect(result).toEqual({})
+    expect("password" in result).toBe(false)
+  })
+
+  test("-p 8080 still works for port (no conflict with password)", () => {
+    expect(parseCliOptions(["-p", "8080"])).toEqual({ port: 8080 })
+  })
+
+  test("--password and -p can be used together", () => {
+    expect(parseCliOptions(["--password", "secret123", "-p", "9090"])).toEqual({
+      password: "secret123",
+      port: 9090,
+    })
+  })
+
+  test("--password= with empty value returns no password", () => {
+    const result = parseCliOptions(["--password="])
+    expect(result).toEqual({})
+    expect("password" in result).toBe(false)
+  })
+})

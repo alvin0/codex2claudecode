@@ -39,6 +39,7 @@ export interface RequestLogEntry {
 export type RequestLogMode = "sync" | "async" | "off"
 
 export interface RuntimeOptions {
+  apiPassword?: string
   authFile?: string
   authAccount?: string
   hostname?: string

@@ -9,6 +9,16 @@ This project follows [Semantic Versioning](https://semver.org/).
 ### Added
 
 - Added model metadata registries for Codex and Kiro, populated from upstream APIs at startup with per-model token limits, capabilities, and supported input types.
+- Added API password protection via `--password` CLI flag or `API_PASSWORD` environment variable. Protected endpoints require `X-Api-Key` or `Authorization: Bearer` headers; health, root, and OPTIONS requests remain open.
+- Added timing-safe password comparison (`timingSafeCompare`) to prevent password length leaking via timing side-channels.
+- Added non-streaming response accumulation for clients that send `stream: false` — both Claude and OpenAI-compatible inbound providers now collect the canonical stream and return a single JSON response.
+- Added `backfillInputTokens` fallback for upstream providers that don't report input token counts — Claude inbound uses a purpose-built tokenizer, OpenAI inbound uses `gpt-tokenizer` as a crude approximation.
+- Added Kiro `"(empty)"` sentinel filter — Kiro sends `content: "(empty)"` when the model produces no text before a tool call; this is now silently discarded instead of forwarded as real content.
+- Added empty delta guard in Claude SSE stream conversion — empty string deltas from upstream are filtered before they can open spurious content blocks.
+- Added `password_protected` field to `GET /` config response so clients can detect whether auth is required.
+- Added auth token redaction in Claude environment preview lines and `formatManagedEnvironment` output.
+- Added property-based tests (fast-check) for auth guard, empty delta guard, and Kiro sentinel filter.
+- Added integration tests for API password protection covering all protected/unprotected endpoints and backward compatibility.
 - Added `/v1/models?origin=true` passthrough for raw upstream model list responses.
 - Added PDF and image binary attachment support in Kiro payload conversion — previously these were skipped.
 - Added core stream utilities (`interceptResponseStream`, `withChunkCallback`) replacing duplicated response body logging across providers.
@@ -26,6 +36,9 @@ This project follows [Semantic Versioning](https://semver.org/).
 - Kiro `estimateInputTokens` now uses per-model `maxInputTokens` from the metadata registry instead of a hardcoded default.
 - Claude Codex adapter now uses a dynamic model resolver wired to `upstream.listModels()` at bootstrap.
 - Added `x-accel-buffering: no` header to Claude SSE responses for better proxy compatibility.
+- `mergeCanonicalUsage` now uses `Math.max` semantics for all usage fields instead of simple assignment, ensuring monotonic growth across streaming events.
+- Claude environment helpers (`managedEnvironmentEntries`, `claudeEnvironmentPreviewLines`, `persistClaudeEnvironment`, etc.) now accept and thread `apiPassword` through the full call chain.
+- `WelcomePanel` displays auth status as `"enabled"` / `"none"` instead of exposing the raw password value.
 - Rebuilt the bundled `dist/index.js` artifact for this release.
 
 ### Fixed
@@ -33,6 +46,8 @@ This project follows [Semantic Versioning](https://semver.org/).
 - Fixed Kiro base64 image payloads causing false "context window exceeded" errors and inflated input token estimates.
 - Fixed Kiro event-stream parser matching patterns inside JSON string values, causing mid-string splits on nested JSON.
 - Fixed request log writes being non-atomic — now uses temp-file + rename so the original is preserved on failure.
+- Fixed `stream` default in Claude inbound convert — reverted from `stream: body.stream ?? false` back to `stream: body.stream ?? true` to preserve existing streaming behavior.
+- Fixed `useProviderRuntime` React hook missing `apiPassword` in the `useEffect` dependency array, which could cause stale closures when the password changes.
 
 ## [0.2.1] - 2026-04-27
 

@@ -1,5 +1,6 @@
 import type { Canonical_ErrorResponse, Canonical_PassthroughResponse, Canonical_Response, Canonical_StreamResponse } from "../../core/canonical"
 import type { Inbound_Provider, RequestHandlerContext, Route_Descriptor, UpstreamProviderKind, UpstreamResult, Upstream_Provider } from "../../core/interfaces"
+import { accumulateCanonicalStream } from "../../core/canonical-accumulator"
 import { LOG_BODY_PREVIEW_LIMIT } from "../../core/constants"
 import { createKiroDebugBundle, kiroDebugOnErrorEnabled, redactSensitiveText } from "../../core/debug-capture"
 import { createLogPreview } from "../../core/log-preview"
@@ -183,6 +184,12 @@ export class Claude_Inbound_Provider implements Inbound_Provider {
     if (proxyLog) context.onProxy?.(proxyLog)
 
     if (isCanonicalStream(result)) {
+      if (body.stream === false || body.stream === undefined) {
+        const accumulated = await accumulateCanonicalStream(result)
+        backfillInputTokens(accumulated, body)
+        if (proxyLog && shouldCaptureProxyBody) proxyLog.responseBody = upstreamResponseBody?.()
+        return Response.json(await canonicalResponseToClaudeMessage(accumulated, body))
+      }
       if (!proxyLog) return claudeCanonicalStreamResponse(result, body)
       return claudeCanonicalStreamResponse(withLoggedCanonicalStream(result, proxyLog, started, upstreamResponseBody), body, {
         onCancel: (reason) => {
@@ -193,6 +200,7 @@ export class Claude_Inbound_Provider implements Inbound_Provider {
       })
     }
     if (isCanonicalResponse(result)) {
+      backfillInputTokens(result, body)
       if (proxyLog && shouldCaptureProxyBody) proxyLog.responseBody = upstreamResponseBody?.()
       return Response.json(await canonicalResponseToClaudeMessage(result, body))
     }
@@ -327,6 +335,12 @@ function reasonText(reason: unknown) {
   if (reason === undefined) return "client disconnected"
   if (reason instanceof Error) return reason.message
   return String(reason)
+}
+
+function backfillInputTokens(response: Canonical_Response, body: ClaudeMessagesRequest) {
+  if (response.usage.inputTokens === 0) {
+    response.usage.inputTokens = countClaudeInputTokens(body)
+  }
 }
 
 function isCanonicalError(result: UpstreamResult): result is Canonical_ErrorResponse {

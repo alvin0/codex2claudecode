@@ -53,6 +53,7 @@ export interface ClaudeEnvironmentRunOptions {
   authFile?: string
   persist?: boolean
   settingsFile?: string
+  apiPassword?: string
 }
 
 interface ClaudeSettingsFile {
@@ -148,16 +149,16 @@ export async function writeClaudeEnvironmentConfig(authFile: string, draft: Clau
   await writeTextFile(claudeEnvironmentConfigPath(authFile), `${JSON.stringify(normalizeClaudeEnvironment(draft, providerMode), null, 2)}\n`)
 }
 
-export function claudeEnvironmentExports(draft: ClaudeEnvironmentDraft, baseUrl: string) {
-  return claudeEnvironmentPreviewLines(draft, baseUrl)
+export function claudeEnvironmentExports(draft: ClaudeEnvironmentDraft, baseUrl: string, apiPassword?: string) {
+  return claudeEnvironmentPreviewLines(draft, baseUrl, apiPassword)
 }
 
-export function claudeEnvironmentCommands(draft: ClaudeEnvironmentDraft, baseUrl: string, _shell: ShellKind | ShellDetection = detectShell()) {
-  return claudeEnvironmentPreviewLines(draft, baseUrl)
+export function claudeEnvironmentCommands(draft: ClaudeEnvironmentDraft, baseUrl: string, _shell: ShellKind | ShellDetection = detectShell(), apiPassword?: string) {
+  return claudeEnvironmentPreviewLines(draft, baseUrl, apiPassword)
 }
 
-export function claudeEnvironmentPowerShellCommands(draft: ClaudeEnvironmentDraft, baseUrl: string) {
-  return claudeEnvironmentPreviewLines(draft, baseUrl)
+export function claudeEnvironmentPowerShellCommands(draft: ClaudeEnvironmentDraft, baseUrl: string, apiPassword?: string) {
+  return claudeEnvironmentPreviewLines(draft, baseUrl, apiPassword)
 }
 
 export function applyClaudeEnvironment(_draft: ClaudeEnvironmentDraft, _baseUrl: string) {
@@ -172,14 +173,14 @@ export function claudeEnvironmentUnsetCommands(draft: ClaudeEnvironmentDraft = d
   return managedEnvironmentKeys(draft).map((key) => key)
 }
 
-export async function echoClaudeEnvironment(draft: ClaudeEnvironmentDraft, baseUrl: string, shell: ShellKind | ShellDetection = detectShell()) {
-  const output = claudeEnvironmentCommands(draft, baseUrl, shell).join("\n")
+export async function echoClaudeEnvironment(draft: ClaudeEnvironmentDraft, baseUrl: string, shell: ShellKind | ShellDetection = detectShell(), apiPassword?: string) {
+  const output = claudeEnvironmentCommands(draft, baseUrl, shell, apiPassword).join("\n")
   return echoShellOutput(output, shell)
 }
 
 export async function runClaudeEnvironmentSet(draft: ClaudeEnvironmentDraft, baseUrl: string, shell: ShellKind | ShellDetection = detectShell(), options?: ClaudeEnvironmentRunOptions) {
   if (options?.persist !== false) await persistClaudeEnvironment(draft, baseUrl, shell, options)
-  return appendPersistenceNote(formatManagedEnvironment(managedEnvironmentEntries(draft, baseUrl), options?.settingsFile), options)
+  return appendPersistenceNote(formatManagedEnvironment(managedEnvironmentEntries(draft, baseUrl, options?.apiPassword), options?.settingsFile), options)
 }
 
 export async function echoClaudeEnvironmentUnset(draft: ClaudeEnvironmentDraft = defaultClaudeEnvironment(), shell: ShellKind | ShellDetection = detectShell()) {
@@ -196,9 +197,9 @@ export async function persistClaudeEnvironment(draft: ClaudeEnvironmentDraft, ba
   const settings = await readClaudeSettingsFile(options?.settingsFile)
   const nextEnv = {
     ...settings.env,
-    ...Object.fromEntries(managedEnvironmentEntries(draft, baseUrl)),
+    ...Object.fromEntries(managedEnvironmentEntries(draft, baseUrl, options?.apiPassword)),
   }
-  unsetKeysForSet(draft, baseUrl).forEach((key) => {
+  unsetKeysForSet(draft, baseUrl, options?.apiPassword).forEach((key) => {
     delete nextEnv[key]
   })
   await writeClaudeSettingsFile({ ...settings, env: nextEnv }, options?.settingsFile)
@@ -281,19 +282,23 @@ function modelEnvValue(key: ClaudeCodeEditableEnvKey, fallback: string, provider
   return process.env[key] ?? fallback
 }
 
-function claudeEnvironmentPreviewLines(draft: ClaudeEnvironmentDraft, baseUrl: string) {
+function claudeEnvironmentPreviewLines(draft: ClaudeEnvironmentDraft, baseUrl: string, apiPassword?: string) {
   return [
     `Target file: ${claudeSettingsPath()}`,
-    ...managedEnvironmentEntries(draft, baseUrl).map(([key, value]) => `${key} = ${JSON.stringify(value)}`),
-    ...unsetKeysForSet(draft, baseUrl).map((key) => `delete ${key}`),
+    ...managedEnvironmentEntries(draft, baseUrl, apiPassword).map(([key, value]) =>
+      key === "ANTHROPIC_AUTH_TOKEN" || key === "ANTHROPIC_API_KEY" ? `${key} = [redacted]` : `${key} = ${JSON.stringify(value)}`,
+    ),
+    ...unsetKeysForSet(draft, baseUrl, apiPassword).map((key) => `delete ${key}`),
   ]
 }
 
-function managedEnvironmentEntries(draft: ClaudeEnvironmentDraft, baseUrl: string): Array<[string, string]> {
+function managedEnvironmentEntries(draft: ClaudeEnvironmentDraft, baseUrl: string, apiPassword?: string): Array<[string, string]> {
   const normalized = normalizeClaudeEnvironment(draft)
+  const authValue = apiPassword || CLAUDE_ENV_FIXED.ANTHROPIC_AUTH_TOKEN
   return [
     ["ANTHROPIC_BASE_URL", baseUrl],
-    ...Object.entries(CLAUDE_ENV_FIXED),
+    ["ANTHROPIC_AUTH_TOKEN", authValue],
+    ["ANTHROPIC_API_KEY", authValue],
     ...CLAUDE_MODEL_ENV_KEYS.map((key) => [key, normalized[key]] as [string, string]),
     ...Object.entries(normalized.extraEnv),
   ]
@@ -304,8 +309,8 @@ function managedEnvironmentKeys(draft: ClaudeEnvironmentDraft) {
   return [...new Set([...CLAUDE_ENV_KEYS, ...Object.keys(normalized.extraEnv), ...normalized.unsetEnv])]
 }
 
-function unsetKeysForSet(draft: ClaudeEnvironmentDraft, baseUrl: string) {
-  const managedKeys = new Set(managedEnvironmentEntries(draft, baseUrl).map(([key]) => key))
+function unsetKeysForSet(draft: ClaudeEnvironmentDraft, baseUrl: string, apiPassword?: string) {
+  const managedKeys = new Set(managedEnvironmentEntries(draft, baseUrl, apiPassword).map(([key]) => key))
   return normalizeClaudeEnvironment(draft).unsetEnv.filter((key) => !managedKeys.has(key))
 }
 
@@ -353,7 +358,9 @@ function formatManagedEnvironment(entries: Array<[string, string]>, settingsFile
   if (!entries.length) return `Updated ${claudeSettingsPath(settingsFile)} env object.`
   return [
     `Updated ${claudeSettingsPath(settingsFile)} env object:`,
-    ...entries.map(([key, value]) => `${key}=${value}`),
+    ...entries.map(([key, value]) =>
+      key === "ANTHROPIC_AUTH_TOKEN" || key === "ANTHROPIC_API_KEY" ? `${key}=[redacted]` : `${key}=${value}`,
+    ),
   ].join("\n")
 }
 

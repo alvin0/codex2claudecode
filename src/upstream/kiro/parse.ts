@@ -410,6 +410,9 @@ async function* iterateKiroEvents(
       if (chunk.done) break
       for (const event of parser.feed(chunk.value)) {
         if ("content" in event) {
+          // Skip Kiro sentinel "(empty)" content — Kiro sends this when the model
+          // produces no text before a tool call. It's not real content.
+          if (event.content === "(empty)") continue
           const extracted = thinking.feed(event.content)
           if (extracted.thinking !== undefined) {
             sawThinking = true
