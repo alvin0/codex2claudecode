@@ -52,7 +52,7 @@ test("formats preview lines for Claude settings updates", async () => {
   expect(claudeEnvironmentExports(value, "http://127.0.0.1:8787")).toContain(`Target file: ${claudeSettingsPath()}`)
   expect(claudeEnvironmentCommands(value, "http://127.0.0.1:8787", "posix")).toContain('ANTHROPIC_BASE_URL = "http://127.0.0.1:8787"')
   expect(claudeEnvironmentPowerShellCommands(value, "http://127.0.0.1:8787")).toContain('ANTHROPIC_DEFAULT_OPUS_MODEL = "gpt-5.4"')
-  expect(claudeEnvironmentCommands(value, "http://127.0.0.1:8787", "posix")).toContain('ANTHROPIC_AUTH_TOKEN = "codex2claudecode"')
+  expect(claudeEnvironmentCommands(value, "http://127.0.0.1:8787", "posix")).toContain("ANTHROPIC_AUTH_TOKEN = [redacted]")
   await expect(echoClaudeEnvironment(value, "http://127.0.0.1:8787", "posix")).resolves.toContain('ANTHROPIC_DEFAULT_HAIKU_MODEL = "gpt-5.4-mini"')
   await expect(echoClaudeEnvironment(value, "http://127.0.0.1:8787", "posix")).resolves.toContain('CLAUDE_CODE_DISABLE_1M_CONTEXT = "1"')
   await expect(echoClaudeEnvironment(value, "http://127.0.0.1:8787", "posix")).resolves.toContain('CLAUDE_AUTOCOMPACT_PCT_OVERRIDE = "64"')
