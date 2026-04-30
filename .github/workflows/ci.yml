@@ -26,6 +26,9 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      - name: Smoke test (server starts and /health responds)
+        run: bun test test/smoke.test.ts
+
       - name: Run test suite
         run: |
           set -o pipefail
@@ -72,3 +75,101 @@ jobs:
           path: |
             test.log
             coverage.log
+
+  package:
+    name: Package tarball
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build tarball
+        run: npm pack
+
+      - name: Upload tarball
+        uses: actions/upload-artifact@v4
+        with:
+          name: tarball
+          path: "*.tgz"
+
+  install-smoke:
+    name: Install smoke (${{ matrix.runtime }})
+    needs: package
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        runtime:
+          - bun
+          - node
+    steps:
+      - name: Checkout (test scripts only)
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: test
+          path: repo
+
+      - name: Setup Bun
+        if: matrix.runtime == 'bun'
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Setup Node
+        if: matrix.runtime == 'node'
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Download tarball
+        uses: actions/download-artifact@v4
+        with:
+          name: tarball
+
+      - name: Install from tarball
+        run: |
+          mkdir test-project && cd test-project
+          npm init -y
+          npm install ../*.tgz
+
+      - name: Verify package contents
+        working-directory: test-project
+        run: |
+          test -f node_modules/codex2claudecode/dist/index.js || { echo "FAIL: dist/index.js missing"; exit 1; }
+          test -f node_modules/codex2claudecode/bin/codex2claudecode || { echo "FAIL: bin/codex2claudecode missing"; exit 1; }
+          test -f node_modules/codex2claudecode/package.json || { echo "FAIL: package.json missing"; exit 1; }
+          test -d node_modules/codex2claudecode/src || { echo "FAIL: src/ missing"; exit 1; }
+          echo "Package contents OK"
+
+      - name: Load dist/index.js (Bun)
+        if: matrix.runtime == 'bun'
+        working-directory: test-project
+        run: bun -e 'await import("./node_modules/codex2claudecode/dist/index.js"); console.log("dist/index.js loaded OK")'
+
+      - name: Start server and test /health (Bun)
+        if: matrix.runtime == 'bun'
+        working-directory: test-project
+        run: bun run ../repo/test/ci-install-smoke.ts ./node_modules/codex2claudecode
+
+      - name: Verify binary entry point (Node)
+        if: matrix.runtime == 'node'
+        working-directory: test-project
+        run: |
+          test -L node_modules/.bin/codex2claudecode || test -f node_modules/.bin/codex2claudecode || { echo "FAIL: binary not linked"; exit 1; }
+          echo "Binary symlink OK"
+          OUTPUT=$(node node_modules/.bin/codex2claudecode 2>&1 || true)
+          echo "$OUTPUT"
+          if echo "$OUTPUT" | grep -qi "Cannot find module\|SyntaxError\|ERR_MODULE_NOT_FOUND"; then
+            echo "FAIL: binary has import/module errors"
+            exit 1
+          fi
+          echo "Binary entry point OK (Bun not installed — expected graceful exit)"
