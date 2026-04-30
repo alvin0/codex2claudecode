@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # Usage: ./scripts/generate-release-notes.sh <tag> <repo> <output-file>
-# Example: ./scripts/generate-release-notes.sh v0.2.2 alvin0/codex2claudecode release-notes.md
+# Example: ./scripts/generate-release-notes.sh 0.2.3 alvin0/codex2claudecode release-notes.md
 
 TAG="${1:?Usage: $0 <tag> <repo> <output-file>}"
 REPO="${2:?Usage: $0 <tag> <repo> <output-file>}"

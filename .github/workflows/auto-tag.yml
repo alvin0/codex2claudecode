@@ -43,7 +43,7 @@ jobs:
         if: steps.version.outputs.version
         id: check
         run: |
-          TAG="v${{ steps.version.outputs.version }}"
+          TAG="${{ steps.version.outputs.version }}"
           if git rev-parse "$TAG" >/dev/null 2>&1; then
             echo "Tag $TAG already exists, skipping"
             echo "exists=true" >> "$GITHUB_OUTPUT"
@@ -57,7 +57,7 @@ jobs:
         env:
           TAG_BODY: ${{ steps.version.outputs.body }}
         run: |
-          TAG="v${{ steps.version.outputs.version }}"
+          TAG="${{ steps.version.outputs.version }}"
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           printf '%s' "$TAG_BODY" > /tmp/tag-message.txt
