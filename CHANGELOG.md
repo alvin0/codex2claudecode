@@ -4,6 +4,19 @@ All notable changes to this package are documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [0.2.3] - 2026-04-30
+
+### Added
+
+- Standalone binaries for macOS, Linux, and Windows — download and run directly, no Bun or Node.js needed.
+- Auto-release workflow: pushing a version tag builds all platforms and uploads binaries to GitHub Releases.
+- README quick-start section for standalone binary installation with one-liner curl commands.
+
+### Changed
+
+- npm package no longer bundles standalone binaries, keeping the download size small.
+- Rebuilt the bundled `dist/index.js` artifact for this release.
+
 ## [0.2.2] - 2026-04-29
 
 ### Added

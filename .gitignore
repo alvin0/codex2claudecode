@@ -10,3 +10,4 @@ auth-codex.json
 .kiro/specs
 .vscode
 coverage
+dist/standalone

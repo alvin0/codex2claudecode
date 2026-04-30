@@ -1,6 +1,6 @@
 {
   "name": "codex2claudecode",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "Bun-powered Claude-compatible local API for Codex and Kiro credentials.",
   "author": "alvin0 <chaulamdinhai@gmail.com>",
   "license": "MIT",
@@ -30,7 +30,7 @@
   },
   "files": [
     "bin",
-    "dist",
+    "dist/index.js",
     "images",
     "src",
     "kiro-models.json",
@@ -42,6 +42,8 @@
   ],
   "scripts": {
     "build": "bun build index.ts --target=bun --outfile=dist/index.js",
+    "build:compile": "bun run scripts/build-standalone.ts",
+    "build:compile:all": "bun run scripts/build-standalone.ts --all",
     "start": "bun index.ts",
     "dev": "bun --watch index.ts",
     "example": "CODEX_RUN_EXAMPLE=1 bun index.ts",

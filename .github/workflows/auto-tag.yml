@@ -1,0 +1,66 @@
+name: Auto Tag from Changelog
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - CHANGELOG.md
+
+permissions:
+  contents: write
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Extract version from CHANGELOG.md
+        id: version
+        run: |
+          VERSION=$(grep -m1 -oP '(?<=^## \[)\d+\.\d+\.\d+(?=\])' CHANGELOG.md)
+          if [ -z "$VERSION" ]; then
+            echo "No version found in CHANGELOG.md"
+            exit 0
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Found version: $VERSION"
+
+          # Extract changelog body for this version (between first ## and next ##)
+          BODY=$(awk '/^## \['"$VERSION"'\]/{found=1; next} found && /^## \[/{exit} found{print}' CHANGELOG.md)
+          # Write multiline body to output
+          {
+            echo "body<<CHANGELOG_EOF"
+            echo "$BODY"
+            echo "CHANGELOG_EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Check if tag already exists
+        if: steps.version.outputs.version
+        id: check
+        run: |
+          TAG="v${{ steps.version.outputs.version }}"
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "Tag $TAG already exists, skipping"
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Tag $TAG does not exist"
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create and push tag
+        if: steps.version.outputs.version && steps.check.outputs.exists == 'false'
+        env:
+          TAG_BODY: ${{ steps.version.outputs.body }}
+        run: |
+          TAG="v${{ steps.version.outputs.version }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          printf '%s' "$TAG_BODY" > /tmp/tag-message.txt
+          git tag -a "$TAG" -F /tmp/tag-message.txt
+          git push origin "$TAG"
+          echo "Created and pushed tag $TAG"

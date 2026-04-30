@@ -26,9 +26,78 @@ own account, model list, and usage tracking. Switching providers restarts the
 runtime with the new provider's credentials — active Claude Code sessions will
 reconnect automatically.
 
-## Quick Start
+## Quick Start (Standalone Binary — No Runtime Required)
 
-codex2claudecode runs on Bun. Install Bun first:
+Pre-built standalone binaries are available for every release. They embed the
+entire runtime, so you do not need to install Bun, Node.js, npm, or any other
+dependency.
+
+**macOS (Apple Silicon)**
+
+```sh
+curl -fsSL https://github.com/alvin0/codex2claudecode/releases/latest/download/codex2claudecode-darwin-arm64.tar.gz | tar xz
+chmod +x codex2claudecode-darwin-arm64
+./codex2claudecode-darwin-arm64
+```
+
+**macOS (Intel)**
+
+```sh
+curl -fsSL https://github.com/alvin0/codex2claudecode/releases/latest/download/codex2claudecode-darwin-x64.tar.gz | tar xz
+chmod +x codex2claudecode-darwin-x64
+./codex2claudecode-darwin-x64
+```
+
+**Linux (x64)**
+
+```sh
+curl -fsSL https://github.com/alvin0/codex2claudecode/releases/latest/download/codex2claudecode-linux-x64.tar.gz | tar xz
+chmod +x codex2claudecode-linux-x64
+./codex2claudecode-linux-x64
+```
+
+**Linux (ARM64)**
+
+```sh
+curl -fsSL https://github.com/alvin0/codex2claudecode/releases/latest/download/codex2claudecode-linux-arm64.tar.gz | tar xz
+chmod +x codex2claudecode-linux-arm64
+./codex2claudecode-linux-arm64
+```
+
+**Windows (x64, PowerShell)**
+
+```powershell
+Invoke-WebRequest -Uri "https://github.com/alvin0/codex2claudecode/releases/latest/download/codex2claudecode-windows-x64.exe.zip" -OutFile codex2claudecode.zip
+Expand-Archive codex2claudecode.zip -DestinationPath .
+.\codex2claudecode-windows-x64.exe
+```
+
+**One-liner install to PATH (Linux/macOS)**
+
+This command auto-detects your OS and architecture:
+
+```sh
+curl -fsSL https://github.com/alvin0/codex2claudecode/releases/latest/download/codex2claudecode-$(uname -s | tr '[:upper:]' '[:lower:]')-$(uname -m | sed 's/aarch64/arm64/;s/x86_64/x64/').tar.gz | sudo tar xz -C /usr/local/bin
+```
+
+After installing, run from anywhere:
+
+```sh
+codex2claudecode-darwin-arm64 --port 8787
+```
+
+Or rename the binary for convenience:
+
+```sh
+sudo mv /usr/local/bin/codex2claudecode-* /usr/local/bin/codex2claudecode
+codex2claudecode --port 8787
+```
+
+All CLI flags work the same as the npm version (`--port`, `--password`, etc.).
+
+## Quick Start (npm — Requires Bun)
+
+If you prefer npm, codex2claudecode runs on Bun. Install Bun first:
 
 ```sh
 curl -fsSL https://bun.sh/install | bash
@@ -84,7 +153,9 @@ When a password is set, all API endpoints except `/`, `/health`, `/test-connecti
 
 codex2claudecode requires Bun `>=1.3.0`. The `npx` entry point is a compatibility
 launcher that falls back to the npm-published Bun package when possible and prints
-installation instructions if no usable Bun is available.
+installation instructions if no usable Bun is available. Alternatively, use the
+[standalone binary](#quick-start-standalone-binary--no-runtime-required) which
+has no runtime requirement at all.
 
 ## Connect an Account
 
