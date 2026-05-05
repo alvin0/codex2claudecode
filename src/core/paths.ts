@@ -1,5 +1,3 @@
-import { runBunCommand, windowsPowerShellCommands } from "./bun-command"
-
 export const APP_DATA_DIR_NAME = ".codex2claudecode"
 export const AUTH_FILE_NAME = "auth-codex.json"
 
@@ -49,12 +47,8 @@ export async function makeDir(dir: string) {
   if (!dir || dir === ".") return
   if (await isDirectory(dir)) return
 
-  await runBunCommand(
-    process.platform === "win32"
-      ? windowsPowerShellCommands("New-Item -ItemType Directory -Force -LiteralPath $args[0] | Out-Null", dir)
-      : [["mkdir", "-p", "--", dir]],
-    { action: "create directory", target: dir },
-  )
+  const fs = await import("node:fs/promises")
+  await fs.mkdir(dir, { recursive: true })
 }
 
 export function joinPath(...parts: string[]) {

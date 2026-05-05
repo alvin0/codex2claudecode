@@ -40,7 +40,8 @@ describe("bun-fs helpers", () => {
 
   test("handles shell metacharacters as literal path text", async () => {
     const root = await tempRoot()
-    const literal = joinPath(root, 'literal ; "quoted" path')
+    const literalName = process.platform === "win32" ? "literal ; 'quoted' path" : 'literal ; "quoted" path'
+    const literal = joinPath(root, literalName)
     const file = joinPath(literal, "child.txt")
 
     await writeTextFile(file, "safe")
@@ -69,7 +70,9 @@ describe("bun-fs helpers", () => {
 
     const content = JSON.parse(await readTextFile(file))
     expect(content).toEqual(data)
-    expect((await fileStat(file)).mode & 0o777).toBe(0o600)
+    if (process.platform !== "win32") {
+      expect((await fileStat(file)).mode & 0o777).toBe(0o600)
+    }
   })
 
   test("atomicJsonWrite preserves old file on write failure", async () => {

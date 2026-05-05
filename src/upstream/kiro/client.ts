@@ -54,7 +54,7 @@ export class Kiro_Client {
   async checkHealth(timeoutMs: number): Promise<HealthStatus> {
     const started = Date.now()
     try {
-      const response = await this.requestOnce(this.modelsUrl().toString(), "GET", undefined, { signal: AbortSignal.timeout(timeoutMs) })
+      const response = await this.requestOnce(this.modelsUrl().toString(), "GET", undefined, { timeoutMs })
       return {
         ok: response.ok,
         checkedAt: new Date().toISOString(),
@@ -74,7 +74,7 @@ export class Kiro_Client {
 
   async getUsageLimits(): Promise<Response> {
     const url = this.usageLimitsUrl()
-    return this.requestOnce(url.toString(), "GET", undefined, { signal: AbortSignal.timeout(10_000) })
+    return this.requestOnce(url.toString(), "GET", undefined, { timeoutMs: 10_000 })
   }
 
   async callMcpWebSearch(query: string, options: { signal?: AbortSignal; toolUseId?: string } = {}) {
@@ -101,7 +101,7 @@ export class Kiro_Client {
     }
   }
 
-  private async requestWithRetries(url: string, method: string, body?: string, options: { signal?: AbortSignal; stream?: boolean } = {}): Promise<Response> {
+  private async requestWithRetries(url: string, method: string, body?: string, options: RequestSignalOptions = {}): Promise<Response> {
     let lastError: KiroHttpError | undefined
     const maxAttempts = MAX_RETRIES + 1
 
@@ -125,30 +125,38 @@ export class Kiro_Client {
     throw lastError ?? new KiroNetworkError("Kiro request failed without a response")
   }
 
-  private async requestOnce(url: string, method: string, body?: string, options: { signal?: AbortSignal; stream?: boolean } = {}, attempt = 1) {
+  private async requestOnce(url: string, method: string, body?: string, options: RequestSignalOptions = {}, attempt = 1) {
     const accessToken = await this.auth.getAccessToken()
+    const requestSignal = createRequestSignal(options)
     try {
       return await this.fetchFn(url, {
         method,
         headers: this.headers(accessToken, method, attempt),
         body,
-        signal: requestSignal(options),
+        signal: requestSignal.signal,
       })
     } catch (error) {
-      if (isAbortError(error) && options.signal?.aborted) throw error
+      if (isAbortError(error) && (options.signal?.aborted || options.timeoutMs !== undefined && !options.stream)) throw error
       throw new KiroNetworkError(error)
+    } finally {
+      requestSignal.cleanup()
     }
   }
 
   private async requestMcpOnce(url: string, body: string, options: { signal?: AbortSignal } = {}) {
     const request = async () => {
       const accessToken = await this.auth.getAccessToken()
-      return this.fetchFn(url, {
-        method: "POST",
-        headers: this.mcpHeaders(accessToken),
-        body,
-        signal: mcpSignal(options.signal),
-      })
+      const requestSignal = createRequestSignal({ signal: options.signal, timeoutMs: 60_000 })
+      try {
+        return this.fetchFn(url, {
+          method: "POST",
+          headers: this.mcpHeaders(accessToken),
+          body,
+          signal: requestSignal.signal,
+        })
+      } finally {
+        requestSignal.cleanup()
+      }
     }
 
     try {
@@ -213,15 +221,31 @@ function randomId(length: number) {
   return Array.from(values, (value) => alphabet[value % alphabet.length]).join("")
 }
 
-function mcpSignal(signal?: AbortSignal) {
-  const timeout = AbortSignal.timeout(60_000)
-  return signal ? AbortSignal.any([signal, timeout]) : timeout
+interface RequestSignalOptions {
+  signal?: AbortSignal
+  stream?: boolean
+  timeoutMs?: number
 }
 
-function requestSignal(options: { signal?: AbortSignal; stream?: boolean }) {
-  if (!options.stream) return options.signal
-  const timeout = AbortSignal.timeout(STREAMING_READ_TIMEOUT_MS)
-  return options.signal ? AbortSignal.any([options.signal, timeout]) : timeout
+function createRequestSignal(options: RequestSignalOptions) {
+  const timeoutMs = options.timeoutMs ?? (options.stream ? STREAMING_READ_TIMEOUT_MS : undefined)
+  if (timeoutMs === undefined) return { signal: options.signal, cleanup: () => {} }
+
+  const controller = new AbortController()
+  const abortFromCaller = () => controller.abort(options.signal?.reason)
+  if (options.signal?.aborted) {
+    abortFromCaller()
+  } else {
+    options.signal?.addEventListener("abort", abortFromCaller, { once: true })
+  }
+
+  const timeout = setTimeout(() => controller.abort(new DOMException("Signal timed out", "AbortError")), timeoutMs)
+  return {
+    signal: controller.signal,
+    cleanup: () => {
+      clearTimeout(timeout)
+    },
+  }
 }
 
 function renderTemplate(template: string, fingerprint: string, kiroVersion: string) {

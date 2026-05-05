@@ -1,6 +1,6 @@
 import { ensureParentDir, makeDir } from "./paths"
 import { bunPath as path } from "./paths"
-import { runBunCommand, windowsPowerShellCommands } from "./bun-command"
+import { runBunCommand } from "./bun-command"
 
 export interface BunWriteFileOptions {
   mode?: number
@@ -16,6 +16,7 @@ export async function readTextFile(file: string) {
 }
 
 export async function writeTextFile(file: string, content: string, options: BunWriteFileOptions = {}) {
+  await ensureParentDir(file)
   await Bun.write(file, content, options.mode === undefined ? undefined : { mode: options.mode })
 }
 
@@ -62,8 +63,13 @@ export async function makeTempDir(prefix: string) {
 }
 
 export async function setFileMode(file: string, mode: number) {
-  if (process.platform === "win32") return
-  await runBunCommand([["chmod", mode.toString(8), file]], { action: `set mode ${mode.toString(8)} on`, target: file })
+  const fs = await import("node:fs/promises")
+  try {
+    await fs.chmod(file, mode)
+  } catch (error) {
+    if (process.platform === "win32") throw error
+    await runBunCommand([["chmod", mode.toString(8), file]], { action: `set mode ${mode.toString(8)} on`, target: file })
+  }
 }
 
 export async function fileStat(file: string) {
@@ -110,14 +116,6 @@ export async function atomicJsonWrite(file: string, content: unknown, options: {
 async function removeWithCommand(target: string, force = false, recursive = true) {
   if (force && !(await pathExists(target))) return
 
-  const forceFlag = force ? " -Force" : ""
-  const recurseFlag = recursive ? " -Recurse" : ""
-  await runBunCommand(
-    process.platform === "win32"
-      ? windowsPowerShellCommands(`Remove-Item -LiteralPath $args[0]${recurseFlag}${forceFlag} -ErrorAction Stop`, target)
-      : recursive
-        ? [["rm", force ? "-rf" : "-r", "--", target]]
-        : [["rm", ...(force ? ["-f"] : []), "--", target]],
-    { action: "remove", target },
-  )
+  const fs = await import("node:fs/promises")
+  await fs.rm(target, { recursive, force })
 }

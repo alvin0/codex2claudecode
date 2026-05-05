@@ -8,7 +8,7 @@ function responseFromEvents(events: unknown[]) {
   return new Response(sse(events), { headers: { "content-type": "text/event-stream" } })
 }
 
-const minimalRequest = { model: "m", messages: [], stream: true } as const
+const minimalRequest = { model: "m", messages: [], stream: true }
 
 /** Filter SSE events to only text-related ones (content_block_start with type "text" and content_block_delta with text_delta). */
 function textEvents(events: Array<{ event?: string; data: any }>) {
