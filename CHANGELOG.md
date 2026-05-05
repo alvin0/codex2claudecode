@@ -4,6 +4,13 @@ All notable changes to this package are documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [0.2.4] - 2026-05-05
+
+### Changed
+
+- Updated Codex default model: `ANTHROPIC_DEFAULT_SONNET_MODEL` changed from `gpt-5.5` to `gpt-5.4`.
+- Updated Kiro default models: `ANTHROPIC_MODEL` changed to `claude-opus-4.7`, `ANTHROPIC_DEFAULT_OPUS_MODEL` changed to `claude-opus-4.7`, `ANTHROPIC_DEFAULT_SONNET_MODEL` changed to `claude-sonnet-4.6`.
+
 ## [0.2.3] - 2026-04-30
 
 ### Added
