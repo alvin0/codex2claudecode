@@ -871,8 +871,9 @@ See https://react.dev/link/invalid-hook-call for tips about how to debug and fix
 
 // node_modules/react/index.js
 var require_react = __commonJS((exports, module) => {
+  var react_development = __toESM(require_react_development());
   if (false) {} else {
-    module.exports = require_react_development();
+    module.exports = react_development;
   }
 });
 
@@ -1315,8 +1316,9 @@ var require_scheduler_development = __commonJS((exports) => {
 
 // node_modules/scheduler/index.js
 var require_scheduler = __commonJS((exports, module) => {
+  var scheduler_development = __toESM(require_scheduler_development());
   if (false) {} else {
-    module.exports = require_scheduler_development();
+    module.exports = scheduler_development;
   }
 });
 
@@ -29172,8 +29174,9 @@ React keys must be passed directly to JSX without using spread:
 
 // node_modules/react/jsx-dev-runtime.js
 var require_jsx_dev_runtime = __commonJS((exports, module) => {
+  var react_jsx_dev_runtime_development = __toESM(require_react_jsx_dev_runtime_development());
   if (false) {} else {
-    module.exports = require_react_jsx_dev_runtime_development();
+    module.exports = react_jsx_dev_runtime_development;
   }
 });
 
@@ -36933,6 +36936,7 @@ function initialStreamInputTokens(request) {
 var kiro_models_default = {
   source: "https://openrouter.ai/api/v1/models",
   aliases: {
+    "claude-4.8-opus": "claude-opus-4.8",
     "claude-4.7-opus": "claude-opus-4.7",
     "claude-4.6-opus": "claude-opus-4.6",
     "claude-4.6-opus-fast": "claude-opus-4.6-fast",
@@ -36981,7 +36985,30 @@ var kiro_models_default = {
       id: "claude-opus-latest",
       display_name: "Claude Opus Latest",
       created_at: "2026-04-21T18:16:01Z",
-      max_input_tokens: 250000,
+      max_input_tokens: 1e6,
+      max_tokens: 128000,
+      capabilities: {
+        batch: false,
+        citations: false,
+        code_execution: false,
+        image_input: true,
+        pdf_input: false,
+        structured_outputs: true,
+        thinking: true,
+        thinking_adaptive: true,
+        effort_low: true,
+        effort_medium: true,
+        effort_high: true,
+        effort_xhigh: true,
+        effort_max: false,
+        context_management: true
+      }
+    },
+    {
+      id: "claude-opus-4.8",
+      display_name: "Claude Opus 4.7",
+      created_at: "2026-04-28T14:51:40Z",
+      max_input_tokens: 1e6,
       max_tokens: 128000,
       capabilities: {
         batch: false,
@@ -37004,7 +37031,7 @@ var kiro_models_default = {
       id: "claude-opus-4.7",
       display_name: "Claude Opus 4.7",
       created_at: "2026-04-16T14:51:40Z",
-      max_input_tokens: 250000,
+      max_input_tokens: 1e6,
       max_tokens: 128000,
       capabilities: {
         batch: false,
@@ -37027,7 +37054,7 @@ var kiro_models_default = {
       id: "claude-opus-4.6-fast",
       display_name: "Claude Opus 4.6 (Fast)",
       created_at: "2026-04-07T20:07:52Z",
-      max_input_tokens: 250000,
+      max_input_tokens: 1e6,
       max_tokens: 128000,
       capabilities: {
         batch: false,
@@ -37050,7 +37077,7 @@ var kiro_models_default = {
       id: "claude-sonnet-4.6",
       display_name: "Claude Sonnet 4.6",
       created_at: "2026-02-17T15:43:10Z",
-      max_input_tokens: 250000,
+      max_input_tokens: 1e6,
       max_tokens: 128000,
       capabilities: {
         batch: false,
@@ -37073,7 +37100,7 @@ var kiro_models_default = {
       id: "claude-opus-4.6",
       display_name: "Claude Opus 4.6",
       created_at: "2026-02-04T15:30:50Z",
-      max_input_tokens: 250000,
+      max_input_tokens: 1e6,
       max_tokens: 128000,
       capabilities: {
         batch: false,
@@ -40911,6 +40938,7 @@ function toCanonicalPassthrough(response) {
 
 // src/upstream/kiro/constants.ts
 var KIRO_AUTH_TOKEN_PATH = "~/.aws/sso/cache/kiro-auth-token.json";
+var KIRO_AUTH_TOKEN_CLI_PATH = "~/.aws/sso/cache/kiro-auth-token-cli.json";
 var KIRO_DESKTOP_REFRESH_TEMPLATE = "https://prod.{region}.auth.desktop.kiro.dev/refreshToken";
 var SSO_OIDC_ENDPOINT_TEMPLATE = "https://oidc.{region}.amazonaws.com/token";
 var KIRO_API_HOST_TEMPLATE = "https://q.{region}.amazonaws.com";
@@ -40971,6 +40999,22 @@ var HIDDEN_KIRO_MODELS = [
   "claude-3.7-sonnet",
   "claude-opus-4.1"
 ];
+
+// src/upstream/kiro/auth-source.ts
+var DEFAULT_KIRO_SOURCE_PATHS = [KIRO_AUTH_TOKEN_PATH, KIRO_AUTH_TOKEN_CLI_PATH];
+function kiroSourceAuthCandidates(env = process.env) {
+  if (env.KIRO_AUTH_FILE)
+    return [expandHome(env.KIRO_AUTH_FILE)];
+  return DEFAULT_KIRO_SOURCE_PATHS.map((candidate) => expandHome(candidate));
+}
+async function resolveKiroSourceAuthFile(env = process.env) {
+  const candidates = kiroSourceAuthCandidates(env);
+  for (const candidate of candidates) {
+    if (await pathExists(candidate))
+      return candidate;
+  }
+  return candidates[0];
+}
 
 // src/upstream/kiro/errors.ts
 var REDACTED = "[redacted]";
@@ -43981,7 +44025,7 @@ async function bootstrapRuntime(options) {
   if (isKiro) {
     const authAccount2 = options?.authAccount ?? process.env.KIRO_AUTH_ACCOUNT;
     const requestedAuthFile = expandHome(options?.authFile ?? process.env.KIRO_AUTH_FILE ?? KIRO_AUTH_TOKEN_PATH);
-    const fallbackAuthFile = expandHome(process.env.KIRO_AUTH_FILE ?? KIRO_AUTH_TOKEN_PATH);
+    const fallbackAuthFile = await resolveKiroSourceAuthFile();
     const upstreamAuthFile = await fileExists(requestedAuthFile) ? requestedAuthFile : fallbackAuthFile;
     const upstream2 = await Kiro_Upstream_Provider.fromAuthFile(upstreamAuthFile, { authAccount: authAccount2 });
     const runtimeAuthFile = options?.authFile ? requestedAuthFile : bunPath.join(appDataDir(), KIRO_STATE_FILE_NAME);
@@ -45296,7 +45340,7 @@ var patchConsole = (callback) => {
 var dist_default = patchConsole;
 
 // node_modules/ink/build/ink.js
-var import_constants27 = __toESM(require_constants(), 1);
+var import_constants28 = __toESM(require_constants(), 1);
 
 // node_modules/yoga-layout/dist/binaries/yoga-wasm-base64-esm.js
 var loadYoga = (() => {
@@ -47742,7 +47786,7 @@ var getWindowSize = (stdout) => {
 
 // node_modules/ink/build/reconciler.js
 var import_react_reconciler = __toESM(require_react_reconciler(), 1);
-var import_constants26 = __toESM(require_constants(), 1);
+var import_constants27 = __toESM(require_constants(), 1);
 var Scheduler = __toESM(require_scheduler(), 1);
 import process4 from "process";
 var import_react = __toESM(require_react(), 1);
@@ -49588,7 +49632,7 @@ var cleanupYogaNode = (node) => {
   node?.unsetMeasureFunc();
   node?.freeRecursive();
 };
-var currentUpdatePriority = import_constants26.NoEventPriority;
+var currentUpdatePriority = import_constants27.NoEventPriority;
 var currentRootNode;
 async function loadPackageJson() {
   const fs2 = await import("fs");
@@ -49777,10 +49821,10 @@ var reconciler_default = import_react_reconciler.default({
   },
   getCurrentUpdatePriority: () => currentUpdatePriority,
   resolveUpdatePriority() {
-    if (currentUpdatePriority !== import_constants26.NoEventPriority) {
+    if (currentUpdatePriority !== import_constants27.NoEventPriority) {
       return currentUpdatePriority;
     }
-    return import_constants26.DefaultEventPriority;
+    return import_constants27.DefaultEventPriority;
   },
   maySuspendCommit() {
     return true;
@@ -52595,7 +52639,7 @@ class Ink {
     this.lastOutputHeight = 0;
     this.lastTerminalWidth = getWindowSize(this.options.stdout).columns;
     this.fullStaticOutput = "";
-    const rootTag = options.concurrent ? import_constants27.ConcurrentRoot : import_constants27.LegacyRoot;
+    const rootTag = options.concurrent ? import_constants28.ConcurrentRoot : import_constants28.LegacyRoot;
     this.container = reconciler_default.createContainer(this.rootNode, rootTag, null, false, null, "id", () => {}, () => {}, () => {}, () => {});
     this.unsubscribeExit = import_signal_exit2.default(this.unmount, { alwaysLast: false });
     this.setAlternateScreen(Boolean(options.alternateScreen));
@@ -53132,7 +53176,7 @@ var getInstance = (stdout, createInstance) => {
   return instance;
 };
 // node_modules/ink/build/render-to-string.js
-var import_constants28 = __toESM(require_constants(), 1);
+var import_constants29 = __toESM(require_constants(), 1);
 // node_modules/ink/build/components/Static.js
 var import_react17 = __toESM(require_react(), 1);
 // node_modules/ink/build/components/Transform.js
@@ -53714,8 +53758,8 @@ var config = {
   },
   kiro: {
     canEdit: {
-      ANTHROPIC_MODEL: "claude-opus-4.7",
-      ANTHROPIC_DEFAULT_OPUS_MODEL: "claude-opus-4.7",
+      ANTHROPIC_MODEL: "claude-opus-4.8",
+      ANTHROPIC_DEFAULT_OPUS_MODEL: "claude-opus-4.8",
       ANTHROPIC_DEFAULT_SONNET_MODEL: "claude-sonnet-4.6",
       ANTHROPIC_DEFAULT_HAIKU_MODEL: "claude-haiku-4.5",
       CLAUDE_CODE_DISABLE_1M_CONTEXT: "1",
@@ -54852,10 +54896,11 @@ function fieldHint(field) {
 // src/ui/components/connect-source-selector.tsx
 var jsx_dev_runtime10 = __toESM(require_jsx_dev_runtime(), 1);
 function ConnectSourceSelector(props) {
-  const sources = [
-    { label: props.connect.sourceLabel, description: props.connect.sourceDescription },
+  const entries = [
+    ...props.connect.sources.map((source) => ({ label: source.label, description: source.description })),
     { label: "Manual", description: props.connect.manualDescription }
   ];
+  const activeSavingMessage = props.saving ? props.connect.sources[props.selected]?.savingMessage ?? undefined : undefined;
   return /* @__PURE__ */ jsx_dev_runtime10.jsxDEV(Box_default, {
     flexDirection: "column",
     marginTop: 1,
@@ -54881,7 +54926,7 @@ function ConnectSourceSelector(props) {
       /* @__PURE__ */ jsx_dev_runtime10.jsxDEV(Box_default, {
         marginTop: 1,
         flexDirection: "column",
-        children: sources.map((source, index) => /* @__PURE__ */ jsx_dev_runtime10.jsxDEV(Box_default, {
+        children: entries.map((entry, index) => /* @__PURE__ */ jsx_dev_runtime10.jsxDEV(Box_default, {
           children: [
             /* @__PURE__ */ jsx_dev_runtime10.jsxDEV(Box_default, {
               width: 4,
@@ -54898,21 +54943,21 @@ function ConnectSourceSelector(props) {
               width: 32,
               children: /* @__PURE__ */ jsx_dev_runtime10.jsxDEV(Text, {
                 color: index === props.selected ? "white" : "#aab3cf",
-                children: source.label
+                children: entry.label
               }, undefined, false, undefined, this)
             }, undefined, false, undefined, this),
             /* @__PURE__ */ jsx_dev_runtime10.jsxDEV(Text, {
               color: "gray",
-              children: source.description
+              children: entry.description
             }, undefined, false, undefined, this)
           ]
-        }, source.label, true, undefined, this))
+        }, entry.label, true, undefined, this))
       }, undefined, false, undefined, this),
-      props.saving && /* @__PURE__ */ jsx_dev_runtime10.jsxDEV(Box_default, {
+      activeSavingMessage && /* @__PURE__ */ jsx_dev_runtime10.jsxDEV(Box_default, {
         marginTop: 1,
         children: /* @__PURE__ */ jsx_dev_runtime10.jsxDEV(Text, {
           color: "gray",
-          children: props.connect.sourceSavingMessage
+          children: activeSavingMessage
         }, undefined, false, undefined, this)
       }, undefined, false, undefined, this)
     ]
@@ -56423,9 +56468,17 @@ var codexProviderDefinition = {
     persistActive: (authFile, data, accountKey) => persistCodexActiveAccount(authFile, data, accountKey),
     connect: {
       title: "Connect Codex account",
-      sourceLabel: "Add from ~/.codex/auth.json",
-      sourceDescription: "Import ChatGPT tokens from Codex CLI auth file",
-      sourceSavingMessage: "Importing from ~/.codex/auth.json...",
+      sources: [
+        {
+          label: "Add from ~/.codex/auth.json",
+          description: "Import ChatGPT tokens from Codex CLI auth file",
+          savingMessage: "Importing from ~/.codex/auth.json...",
+          import: async (authFile) => {
+            const result2 = await connectAccountFromCodexAuth(authFile);
+            return { accountKey: requireAccountKey(result2.accountId), data: result2.data };
+          }
+        }
+      ],
       manualDescription: "Paste account credentials. Tokens are hidden while typing.",
       fields: [
         { key: "accountId", label: "accountId" },
@@ -56433,10 +56486,6 @@ var codexProviderDefinition = {
         { key: "refreshToken", label: "refreshToken", secret: true }
       ],
       defaultDraft: () => ({ accountId: "", accessToken: "", refreshToken: "" }),
-      importFromSource: async (authFile) => {
-        const result2 = await connectAccountFromCodexAuth(authFile);
-        return { accountKey: requireAccountKey(result2.accountId), data: result2.data };
-      },
       connectManual: async (authFile, draft) => {
         const result2 = await connectAccount(authFile, draft);
         return { accountKey: requireAccountKey(result2.accountId), data: result2.data };
@@ -56500,9 +56549,28 @@ var kiroProviderDefinition = {
     persistActive: (authFile, data, accountKey) => writeActiveKiroAccount(authFile, data, accountKey),
     connect: {
       title: "Connect Kiro account",
-      sourceLabel: "Add from Kiro IDE auth",
-      sourceDescription: "Import tokens from the Kiro auth token cache",
-      sourceSavingMessage: "Importing from Kiro IDE auth...",
+      sources: [
+        {
+          label: "Add from Kiro IDE auth",
+          description: "Import tokens from ~/.aws/sso/cache/kiro-auth-token.json",
+          savingMessage: "Importing from Kiro IDE auth...",
+          import: async (authFile) => {
+            const source = process.env.KIRO_AUTH_FILE ? expandHome(process.env.KIRO_AUTH_FILE) : expandHome(KIRO_AUTH_TOKEN_PATH);
+            const result2 = await connectKiroAccountFromKiroAuth(authFile, source);
+            return { accountKey: result2.accountKey, data: result2.data };
+          }
+        },
+        {
+          label: "Add from Kiro CLI auth",
+          description: "Import tokens from ~/.aws/sso/cache/kiro-auth-token-cli.json",
+          savingMessage: "Importing from Kiro CLI auth...",
+          import: async (authFile) => {
+            const source = process.env.KIRO_AUTH_FILE ? expandHome(process.env.KIRO_AUTH_FILE) : expandHome(KIRO_AUTH_TOKEN_CLI_PATH);
+            const result2 = await connectKiroAccountFromKiroAuth(authFile, source);
+            return { accountKey: result2.accountKey, data: result2.data };
+          }
+        }
+      ],
       manualDescription: "Paste Kiro account credentials. Tokens are hidden while typing.",
       fields: [
         { key: "label", label: "label", optional: true },
@@ -56512,10 +56580,6 @@ var kiroProviderDefinition = {
         { key: "profileArn", label: "profileArn", optional: true }
       ],
       defaultDraft: () => ({ label: "", accessToken: "", refreshToken: "", region: "us-east-1", profileArn: "" }),
-      importFromSource: async (authFile) => {
-        const result2 = await connectKiroAccountFromKiroAuth(authFile, kiroAuthFile());
-        return { accountKey: result2.accountKey, data: result2.data };
-      },
       connectManual: async (authFile, draft) => {
         const result2 = await connectKiroAccount(authFile, draft);
         return { accountKey: result2.accountKey, data: result2.data };
@@ -56537,20 +56601,17 @@ async function refreshKiroLimits(upstream) {
   };
 }
 async function loadKiroAccountState(authFile) {
-  const data = await readKiroAuthFileData(authFile).catch(() => readKiroAuthFileData(kiroAuthFile()));
+  const data = await readKiroAuthFileData(authFile).catch(async () => readKiroAuthFileData(await resolveKiroSourceAuthFile()));
   return {
     data,
     selected: selectedKiroAccountIndex(data, process.env.KIRO_AUTH_ACCOUNT)
   };
 }
-function kiroAuthFile() {
-  return expandHome(process.env.KIRO_AUTH_FILE ?? KIRO_AUTH_TOKEN_PATH);
-}
 async function resolveKiroRuntimeAuthFile(authFile = bunPath.join(appDataDir(), KIRO_STATE_FILE_NAME)) {
   if (await pathExists(authFile)) {
     return authFile;
   }
-  return kiroAuthFile();
+  return resolveKiroSourceAuthFile();
 }
 function selectedKiroAccountIndex(data, account) {
   try {
@@ -57371,9 +57432,10 @@ function CodexCodeApp(props) {
           setInputMessage("Connect is not available for this provider");
           return;
         }
-        if (connectSourceIndex === 0) {
+        const selectedSource = connectCapability.sources[connectSourceIndex];
+        if (selectedSource) {
           setConnectSaving(true);
-          connectCapability.importFromSource(authFile).then((result2) => {
+          selectedSource.import(authFile).then((result2) => {
             applyConnectedAccount(result2.data, result2.accountKey);
             setMode("home");
             setInputMessage(`Connected account ${result2.accountKey}`);
@@ -57605,10 +57667,11 @@ function CodexCodeApp(props) {
       return;
     }
     if (mode === "connect-source") {
+      const sourceCount = (connectCapability?.sources.length ?? 0) + 1;
       if (key.upArrow)
-        setConnectSourceIndex((value) => (value - 1 + 2) % 2);
+        setConnectSourceIndex((value) => (value - 1 + sourceCount) % sourceCount);
       if (key.downArrow)
-        setConnectSourceIndex((value) => (value + 1) % 2);
+        setConnectSourceIndex((value) => (value + 1) % sourceCount);
       return;
     }
     if (mode === "logs") {

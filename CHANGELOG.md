@@ -4,7 +4,19 @@ All notable changes to this package are documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
-## [0.2.4] - 2026-05-05
+## [0.2.5] - 2026-05-29
+
+### Added
+
+- Added support for `~/.aws/sso/cache/kiro-auth-token-cli.json` (Kiro CLI / IdC) as a second Kiro auth source alongside the existing desktop cache.
+- The `/connect` menu for Kiro now shows three options: **Add from Kiro IDE auth**, **Add from Kiro CLI auth**, and **Manual**.
+
+### Changed
+
+- Bootstrap and UI now auto-discover the CLI cache as a fallback when the desktop cache is absent and `KIRO_AUTH_FILE` is not set.
+- Rebuilt the bundled `dist/index.js` artifact for this release.
+
+
 
 ### Changed
 

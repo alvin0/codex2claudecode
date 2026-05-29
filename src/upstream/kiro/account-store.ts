@@ -71,6 +71,28 @@ export async function connectKiroAccountFromKiroAuth(authFile: string, source = 
   })
 }
 
+/**
+ * Imports the active account from each provided Kiro source auth file into the
+ * managed auth file. Sources are processed in order; unreadable sources are
+ * skipped. Throws when none of the sources can be imported.
+ */
+export async function connectKiroAccountsFromKiroAuth(authFile: string, sources: string[]) {
+  let result: { accountKey: string; data: KiroAuthFileData } | undefined
+  const failures: string[] = []
+  for (const source of sources) {
+    try {
+      result = await connectKiroAccountFromKiroAuth(authFile, source)
+    } catch (error) {
+      failures.push(`${source}: ${error instanceof Error ? error.message : String(error)}`)
+    }
+  }
+  if (!result) {
+    const detail = failures.length ? `:\n${failures.join("\n")}` : ""
+    throw new Error(`No Kiro auth token files could be imported${detail}`)
+  }
+  return result
+}
+
 export async function writeActiveKiroAccount(authFile: string, data: KiroAuthFileData, account: string) {
   const selected = selectKiroAuthEntry(data, account, authFile)
   await writeKiroManagedAuthFile(authFile, managedKiroAuthFile(data, selected.key, kiroAuthEntries(data)))

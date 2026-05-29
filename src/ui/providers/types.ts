@@ -22,15 +22,20 @@ export interface ProviderAccountConnectResult {
   data: ProviderAccountData
 }
 
+export interface ProviderConnectSource {
+  label: string
+  description: string
+  savingMessage: string
+  import: (authFile: string) => Promise<ProviderAccountConnectResult>
+}
+
 export interface ProviderAccountConnectDefinition {
   title: string
-  sourceLabel: string
-  sourceDescription: string
-  sourceSavingMessage: string
+  /** Extra import sources shown before the Manual option. */
+  sources: ProviderConnectSource[]
   manualDescription: string
   fields: ProviderConnectField[]
   defaultDraft: () => ProviderConnectDraft
-  importFromSource: (authFile: string) => Promise<ProviderAccountConnectResult>
   connectManual: (authFile: string, draft: ProviderConnectDraft) => Promise<ProviderAccountConnectResult>
 }
 

@@ -3,16 +3,15 @@ import { Box, Text } from "ink"
 
 import type { ProviderAccountConnectDefinition } from "../providers/types"
 
-export const CONNECT_SOURCES = [
-  { label: "Add from ~/.codex/auth.json", description: "Import ChatGPT tokens from Codex CLI auth file" },
-  { label: "Manual", description: "Paste accountId, accessToken, and refreshToken manually" },
-]
-
 export function ConnectSourceSelector(props: { connect: ProviderAccountConnectDefinition; selected: number; saving?: boolean }) {
-  const sources = [
-    { label: props.connect.sourceLabel, description: props.connect.sourceDescription },
+  const entries = [
+    ...props.connect.sources.map((source) => ({ label: source.label, description: source.description })),
     { label: "Manual", description: props.connect.manualDescription },
   ]
+
+  const activeSavingMessage = props.saving
+    ? (props.connect.sources[props.selected]?.savingMessage ?? undefined)
+    : undefined
 
   return (
     <Box flexDirection="column" marginTop={1}>
@@ -22,21 +21,21 @@ export function ConnectSourceSelector(props: { connect: ProviderAccountConnectDe
         <Text color="gray">  ↑/↓ choose · Enter continue · Esc cancel</Text>
       </Box>
       <Box marginTop={1} flexDirection="column">
-        {sources.map((source, index) => (
-          <Box key={source.label}>
+        {entries.map((entry, index) => (
+          <Box key={entry.label}>
             <Box width={4}>
               <Text color={index === props.selected ? "#d97757" : "gray"}>{index === props.selected ? "›" : " "}{index + 1}.</Text>
             </Box>
             <Box width={32}>
-              <Text color={index === props.selected ? "white" : "#aab3cf"}>{source.label}</Text>
+              <Text color={index === props.selected ? "white" : "#aab3cf"}>{entry.label}</Text>
             </Box>
-            <Text color="gray">{source.description}</Text>
+            <Text color="gray">{entry.description}</Text>
           </Box>
         ))}
       </Box>
-      {props.saving && (
+      {activeSavingMessage && (
         <Box marginTop={1}>
-          <Text color="gray">{props.connect.sourceSavingMessage}</Text>
+          <Text color="gray">{activeSavingMessage}</Text>
         </Box>
       )}
     </Box>

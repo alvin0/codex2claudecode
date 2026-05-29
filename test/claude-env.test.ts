@@ -90,8 +90,8 @@ test("uses OpenRouter Codex model recommendations", () => {
 test("uses Kiro Claude model defaults when provider mode is Kiro", async () => {
   const recommended = recommendedClaudeEnvironment("kiro")
   expect(recommended).toMatchObject({
-    ANTHROPIC_MODEL: "claude-opus-4.7",
-    ANTHROPIC_DEFAULT_OPUS_MODEL: "claude-opus-4.7",
+    ANTHROPIC_MODEL: "claude-opus-4.8",
+    ANTHROPIC_DEFAULT_OPUS_MODEL: "claude-opus-4.8",
     ANTHROPIC_DEFAULT_SONNET_MODEL: "claude-sonnet-4.6",
     ANTHROPIC_DEFAULT_HAIKU_MODEL: "claude-haiku-4.5",
   })
@@ -101,8 +101,8 @@ test("uses Kiro Claude model defaults when provider mode is Kiro", async () => {
     await writeFile(settingsFile, `${JSON.stringify({ env: {} }, null, 2)}\n`)
 
     await expect(readClaudeSettingsEnvAsDraft(settingsFile, "kiro")).resolves.toMatchObject({
-      ANTHROPIC_MODEL: "claude-opus-4.7",
-      ANTHROPIC_DEFAULT_OPUS_MODEL: "claude-opus-4.7",
+      ANTHROPIC_MODEL: "claude-opus-4.8",
+      ANTHROPIC_DEFAULT_OPUS_MODEL: "claude-opus-4.8",
       ANTHROPIC_DEFAULT_SONNET_MODEL: "claude-sonnet-4.6",
       ANTHROPIC_DEFAULT_HAIKU_MODEL: "claude-haiku-4.5",
     })

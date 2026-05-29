@@ -216,14 +216,16 @@ Add from Kiro IDE auth
 Manual
 ```
 
-`Add from Kiro IDE auth` imports from the Kiro auth token cache:
+`Add from Kiro IDE auth` imports from the Kiro auth token caches:
 
 ```text
 ~/.aws/sso/cache/kiro-auth-token.json
+~/.aws/sso/cache/kiro-auth-token-cli.json
 ```
 
-or from `KIRO_AUTH_FILE` when that environment variable is set. Manual mode
-asks for:
+Both files are imported when present (the desktop cache takes priority), or a
+single file is read from `KIRO_AUTH_FILE` when that environment variable is set.
+Manual mode asks for:
 
 ```text
 label

@@ -203,7 +203,6 @@
       "path": "src/ui/components/connect-source-selector",
       "file": "src/ui/components/connect-source-selector.tsx",
       "exports": [
-        "CONNECT_SOURCES",
         "ConnectSourceSelector"
       ]
     },

@@ -5,6 +5,7 @@ import { bunPath as path } from "../../core/paths"
 import {
   connectKiroAccount,
   connectKiroAccountFromKiroAuth,
+  connectKiroAccountsFromKiroAuth,
   kiroAccountKey,
   kiroAuthEntries,
   readKiroAuthFileData,
@@ -12,7 +13,8 @@ import {
   writeActiveKiroAccount,
   type ConnectKiroAccountDraft,
 } from "../../upstream/kiro/account-store"
-import { KIRO_AUTH_TOKEN_PATH, KIRO_STATE_FILE_NAME } from "../../upstream/kiro/constants"
+import { KIRO_AUTH_TOKEN_CLI_PATH, KIRO_AUTH_TOKEN_PATH, KIRO_STATE_FILE_NAME } from "../../upstream/kiro/constants"
+import { existingKiroSourceAuthFiles, resolveKiroSourceAuthFile } from "../../upstream/kiro/auth-source"
 import { Kiro_Upstream_Provider } from "../../upstream/kiro"
 import type { KiroAuthFileData, KiroAuthTokenFile } from "../../upstream/kiro/types"
 import { kiroUsageLimitsToView, type LimitGroupView } from "../limits"
@@ -40,9 +42,32 @@ export const kiroProviderDefinition: UiProviderDefinition = {
     persistActive: (authFile, data, accountKey) => writeActiveKiroAccount(authFile, data as KiroAuthFileData, accountKey),
     connect: {
       title: "Connect Kiro account",
-      sourceLabel: "Add from Kiro IDE auth",
-      sourceDescription: "Import tokens from the Kiro auth token cache",
-      sourceSavingMessage: "Importing from Kiro IDE auth...",
+      sources: [
+        {
+          label: "Add from Kiro IDE auth",
+          description: "Import tokens from ~/.aws/sso/cache/kiro-auth-token.json",
+          savingMessage: "Importing from Kiro IDE auth...",
+          import: async (authFile) => {
+            const source = process.env.KIRO_AUTH_FILE
+              ? expandHome(process.env.KIRO_AUTH_FILE)
+              : expandHome(KIRO_AUTH_TOKEN_PATH)
+            const result = await connectKiroAccountFromKiroAuth(authFile, source)
+            return { accountKey: result.accountKey, data: result.data }
+          },
+        },
+        {
+          label: "Add from Kiro CLI auth",
+          description: "Import tokens from ~/.aws/sso/cache/kiro-auth-token-cli.json",
+          savingMessage: "Importing from Kiro CLI auth...",
+          import: async (authFile) => {
+            const source = process.env.KIRO_AUTH_FILE
+              ? expandHome(process.env.KIRO_AUTH_FILE)
+              : expandHome(KIRO_AUTH_TOKEN_CLI_PATH)
+            const result = await connectKiroAccountFromKiroAuth(authFile, source)
+            return { accountKey: result.accountKey, data: result.data }
+          },
+        },
+      ],
       manualDescription: "Paste Kiro account credentials. Tokens are hidden while typing.",
       fields: [
         { key: "label", label: "label", optional: true },
@@ -52,10 +77,6 @@ export const kiroProviderDefinition: UiProviderDefinition = {
         { key: "profileArn", label: "profileArn", optional: true },
       ],
       defaultDraft: () => ({ label: "", accessToken: "", refreshToken: "", region: "us-east-1", profileArn: "" }),
-      importFromSource: async (authFile) => {
-        const result = await connectKiroAccountFromKiroAuth(authFile, kiroAuthFile())
-        return { accountKey: result.accountKey, data: result.data }
-      },
       connectManual: async (authFile, draft) => {
         const result = await connectKiroAccount(authFile, draft as unknown as ConnectKiroAccountDraft)
         return { accountKey: result.accountKey, data: result.data }
@@ -78,22 +99,18 @@ export async function refreshKiroLimits(upstream: Upstream_Provider): Promise<{ 
 }
 
 export async function loadKiroAccountState(authFile: string): Promise<{ data: KiroAuthFileData; selected: number }> {
-  const data = await readKiroAuthFileData(authFile).catch(() => readKiroAuthFileData(kiroAuthFile()))
+  const data = await readKiroAuthFileData(authFile).catch(async () => readKiroAuthFileData(await resolveKiroSourceAuthFile()))
   return {
     data,
     selected: selectedKiroAccountIndex(data, process.env.KIRO_AUTH_ACCOUNT),
   }
 }
 
-function kiroAuthFile() {
-  return expandHome(process.env.KIRO_AUTH_FILE ?? KIRO_AUTH_TOKEN_PATH)
-}
-
 async function resolveKiroRuntimeAuthFile(authFile = path.join(appDataDir(), KIRO_STATE_FILE_NAME)) {
   if (await pathExists(authFile)) {
     return authFile
   }
-  return kiroAuthFile()
+  return resolveKiroSourceAuthFile()
 }
 
 function selectedKiroAccountIndex(data: KiroAuthFileData, account?: string) {

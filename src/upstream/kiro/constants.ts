@@ -1,4 +1,5 @@
 export const KIRO_AUTH_TOKEN_PATH = "~/.aws/sso/cache/kiro-auth-token.json"
+export const KIRO_AUTH_TOKEN_CLI_PATH = "~/.aws/sso/cache/kiro-auth-token-cli.json"
 export const KIRO_DESKTOP_REFRESH_TEMPLATE = "https://prod.{region}.auth.desktop.kiro.dev/refreshToken"
 export const SSO_OIDC_ENDPOINT_TEMPLATE = "https://oidc.{region}.amazonaws.com/token"
 

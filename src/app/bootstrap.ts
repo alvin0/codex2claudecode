@@ -9,6 +9,7 @@ import { OpenAI_Inbound_Provider } from "../inbound/openai"
 import { OpenAI_Kiro_Inbound_Adapter } from "../inbound/openai/kiro"
 import { Codex_Upstream_Provider } from "../upstream/codex"
 import { KIRO_AUTH_TOKEN_PATH, KIRO_STATE_FILE_NAME } from "../upstream/kiro/constants"
+import { resolveKiroSourceAuthFile } from "../upstream/kiro/auth-source"
 import { Kiro_Upstream_Provider } from "../upstream/kiro"
 import { readProviderConfig, resolveProviderMode, type ProviderMode } from "./provider-config"
 
@@ -20,7 +21,7 @@ export async function bootstrapRuntime(options?: RuntimeOptions & { providerMode
   if (isKiro) {
     const authAccount = options?.authAccount ?? process.env.KIRO_AUTH_ACCOUNT
     const requestedAuthFile = expandHome(options?.authFile ?? process.env.KIRO_AUTH_FILE ?? KIRO_AUTH_TOKEN_PATH)
-    const fallbackAuthFile = expandHome(process.env.KIRO_AUTH_FILE ?? KIRO_AUTH_TOKEN_PATH)
+    const fallbackAuthFile = await resolveKiroSourceAuthFile()
     const upstreamAuthFile = await fileExists(requestedAuthFile) ? requestedAuthFile : fallbackAuthFile
     const upstream = await Kiro_Upstream_Provider.fromAuthFile(upstreamAuthFile, { authAccount })
     const runtimeAuthFile = options?.authFile ? requestedAuthFile : path.join(appDataDir(), KIRO_STATE_FILE_NAME)

@@ -32,9 +32,17 @@ export const codexProviderDefinition: UiProviderDefinition = {
     persistActive: (authFile, data, accountKey) => persistCodexActiveAccount(authFile, data as AuthFileData, accountKey),
     connect: {
       title: "Connect Codex account",
-      sourceLabel: "Add from ~/.codex/auth.json",
-      sourceDescription: "Import ChatGPT tokens from Codex CLI auth file",
-      sourceSavingMessage: "Importing from ~/.codex/auth.json...",
+      sources: [
+        {
+          label: "Add from ~/.codex/auth.json",
+          description: "Import ChatGPT tokens from Codex CLI auth file",
+          savingMessage: "Importing from ~/.codex/auth.json...",
+          import: async (authFile) => {
+            const result = await connectAccountFromCodexAuth(authFile)
+            return { accountKey: requireAccountKey(result.accountId), data: result.data }
+          },
+        },
+      ],
       manualDescription: "Paste account credentials. Tokens are hidden while typing.",
       fields: [
         { key: "accountId", label: "accountId" },
@@ -42,10 +50,6 @@ export const codexProviderDefinition: UiProviderDefinition = {
         { key: "refreshToken", label: "refreshToken", secret: true },
       ],
       defaultDraft: () => ({ accountId: "", accessToken: "", refreshToken: "" }),
-      importFromSource: async (authFile) => {
-        const result = await connectAccountFromCodexAuth(authFile)
-        return { accountKey: requireAccountKey(result.accountId), data: result.data }
-      },
       connectManual: async (authFile, draft) => {
         const result = await connectAccount(authFile, draft as unknown as ConnectAccountDraft)
         return { accountKey: requireAccountKey(result.accountId), data: result.data }

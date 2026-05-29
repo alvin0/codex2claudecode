@@ -501,9 +501,10 @@ export function CodexCodeApp(props: { port?: number; hostname?: string; apiPassw
           setInputMessage("Connect is not available for this provider")
           return
         }
-        if (connectSourceIndex === 0) {
+        const selectedSource = connectCapability.sources[connectSourceIndex]
+        if (selectedSource) {
           setConnectSaving(true)
-          void connectCapability.importFromSource(authFile)
+          void selectedSource.import(authFile)
             .then((result) => {
               applyConnectedAccount(result.data, result.accountKey)
               setMode("home")
@@ -513,6 +514,7 @@ export function CodexCodeApp(props: { port?: number; hostname?: string; apiPassw
             .finally(() => setConnectSaving(false))
           return
         }
+        // Last entry is Manual
         setConnectDraft(connectCapability.defaultDraft())
         setConnectStep(0)
         setMode("connect-account")
@@ -746,8 +748,9 @@ export function CodexCodeApp(props: { port?: number; hostname?: string; apiPassw
       return
     }
     if (mode === "connect-source") {
-      if (key.upArrow) setConnectSourceIndex((value) => (value - 1 + 2) % 2)
-      if (key.downArrow) setConnectSourceIndex((value) => (value + 1) % 2)
+      const sourceCount = (connectCapability?.sources.length ?? 0) + 1 // +1 for Manual
+      if (key.upArrow) setConnectSourceIndex((value) => (value - 1 + sourceCount) % sourceCount)
+      if (key.downArrow) setConnectSourceIndex((value) => (value + 1) % sourceCount)
       return
     }
     if (mode === "logs") {
