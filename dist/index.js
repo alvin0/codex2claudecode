@@ -29222,7 +29222,7 @@ function parsePort(value) {
 // package.json
 var package_default = {
   name: "codex2claudecode",
-  version: "0.2.4",
+  version: "0.2.5",
   description: "Bun-powered Claude-compatible local API for Codex and Kiro credentials.",
   author: "alvin0 <chaulamdinhai@gmail.com>",
   license: "MIT",
