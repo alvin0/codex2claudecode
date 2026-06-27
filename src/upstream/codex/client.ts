@@ -1,5 +1,6 @@
 import { writeTextFile } from "../../core/bun-fs"
 import { resolveAuthFile } from "../../core/paths"
+import { isProviderStatePath, updateProviderSection } from "../../core/provider-state"
 import { normalizeReasoningBody } from "../../core/reasoning"
 import type { HealthStatus, JsonObject, RequestOptions } from "../../core/types"
 import { accountInfoKey, writeAccountInfoFile } from "./account-info"
@@ -286,6 +287,18 @@ export class CodexStandaloneClient {
 
   private async saveAuthFile() {
     if (!this.authFile) return
+    if (isProviderStatePath(this.authFile)) {
+      const file = await readAuthFileData(this.authFile)
+      const entries = Array.isArray(file.data) ? file.data : [file.data]
+      const index = this.authEntryIndex ?? 0
+      entries[index] = this.authFileContent(entries[index])
+      await updateProviderSection("codex", this.authFile, async () => ({
+        data: entries,
+        activeAccount: accountInfoKey(entries[index], index),
+      }))
+      return
+    }
+
     if (this.authFileIsArray) {
       const file = await readAuthFileData(this.authFile)
       const entries = Array.isArray(file.data) ? file.data : [file.data]

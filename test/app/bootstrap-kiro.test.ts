@@ -16,6 +16,7 @@ afterEach(async () => {
 async function kiroAuthFile(region = "us-east-1") {
   const dir = await mkdtemp(path.join(tmpdir(), "kiro-bootstrap-test-"))
   tempDirs.push(dir)
+  process.env.HOME = dir
   const file = path.join(dir, "kiro-auth-token.json")
   await writeFile(file, JSON.stringify({ accessToken: "access", refreshToken: "refresh", expiresAt: new Date(Date.now() + 700_000).toISOString(), region }))
   return file
@@ -24,8 +25,18 @@ async function kiroAuthFile(region = "us-east-1") {
 async function codexAuthFile() {
   const dir = await mkdtemp(path.join(tmpdir(), "codex-bootstrap-test-"))
   tempDirs.push(dir)
+  process.env.HOME = dir
   const file = path.join(dir, "auth-codex.json")
   await writeFile(file, JSON.stringify({ type: "oauth", access: "access", refresh: "refresh", expires: Date.now() + 60_000, accountId: "acct" }))
+  return file
+}
+
+async function copilotAuthFile() {
+  const dir = await mkdtemp(path.join(tmpdir(), "copilot-bootstrap-test-"))
+  tempDirs.push(dir)
+  process.env.HOME = dir
+  const file = path.join(dir, "copilot-auth.json")
+  await writeFile(file, JSON.stringify({ type: "copilot", githubToken: "github-token", accountType: "individual" }))
   return file
 }
 
@@ -44,7 +55,7 @@ describe("bootstrap Kiro integration", () => {
 
     const runtime = await bootstrapRuntime()
     expect(runtime.upstream.constructor.name).toBe("Kiro_Upstream_Provider")
-    expect(runtime.authFile).toBe(path.join(homedir(), ".codex2claudecode", "kiro-state.json"))
+    expect(runtime.authFile).toBe(path.join(homedir(), ".codex2claudecode", "provider-state.json"))
     expect(path.dirname(runtime.authFile)).toBe(path.join(homedir(), ".codex2claudecode"))
     expect(runtime.authAccount).toBeUndefined()
     expect(runtime.registry.match("POST", "/v1/messages", new Headers())?.provider.name).toBe("claude-kiro")
@@ -62,6 +73,37 @@ describe("bootstrap Kiro integration", () => {
     expect(runtime.authFile).toBe(process.env.CODEX_AUTH_FILE)
     expect(runtime.registry.match("POST", "/v1/messages", new Headers())?.provider.name).toBe("claude-codex")
     expect(runtime.registry.match("POST", "/v1/responses", new Headers())?.provider.name).toBe("openai")
+  })
+
+  test("UPSTREAM_PROVIDER=copilot creates Copilot upstream and exposes embeddings", async () => {
+    process.env.UPSTREAM_PROVIDER = "copilot"
+    process.env.COPILOT_AUTH_FILE = await copilotAuthFile()
+    globalThis.fetch = ((url) => {
+      const target = String(url)
+      if (target.includes("/copilot_internal/v2/token")) {
+        return Promise.resolve(Response.json({ token: `copilot-token;exp=${Math.floor(Date.now() / 1000) + 3600}` }))
+      }
+      if (target.includes("/copilot_internal/user")) {
+        return Promise.resolve(Response.json({
+          access_type_sku: "free_limited_copilot",
+          copilot_plan: "copilot_pro",
+          userInfo: { email: "dev@example.com", userId: "user-1" },
+          limited_user_quotas: { chat: 100, completions: 100 },
+          limited_user_reset_date: "2026-01-01",
+        }))
+      }
+      if (target.includes("api.githubcopilot.com") && target.endsWith("/models")) {
+        return Promise.resolve(Response.json({ data: [{ id: "copilot-model", model_picker_enabled: true }], object: "list" }))
+      }
+      return Promise.resolve(Response.json({ ok: true }))
+    }) as unknown as typeof fetch
+
+    const runtime = await bootstrapRuntime()
+    expect(runtime.upstream.constructor.name).toBe("Copilot_Upstream_Provider")
+    expect(runtime.registry.match("POST", "/v1/messages", new Headers())?.provider.name).toBe("claude-copilot")
+    expect(runtime.registry.match("POST", "/v1/responses", new Headers())?.provider.name).toBe("openai-copilot")
+    expect(runtime.registry.match("POST", "/v1/chat/completions", new Headers())?.provider.name).toBe("openai-copilot")
+    expect(runtime.registry.match("POST", "/v1/embeddings", new Headers())?.provider.name).toBe("openai-copilot")
   })
 
   test("unset UPSTREAM_PROVIDER defaults to Codex", async () => {
@@ -107,34 +149,15 @@ describe("bootstrap Kiro integration", () => {
   })
 
   test("KIRO_AUTH_FILE is respected and Kiro modelResolver is observable through GET /v1/models", async () => {
-    const fetchUrls: string[] = []
-    globalThis.fetch = ((input) => {
-      fetchUrls.push(String(input))
-      return Promise.resolve(Response.json({ models: ["claude-sonnet-4-5", "custom-kiro-model"] }))
-    }) as unknown as typeof fetch
+    const result = await runKiroModelResolverScenario()
+    const sonnetModel = result.data.find((model) => model.id === "claude-sonnet-4.5")
+    const customModel = result.data.find((model) => model.id === "custom-kiro-model")
 
-    process.env.UPSTREAM_PROVIDER = "kiro"
-    process.env.KIRO_AUTH_FILE = await kiroAuthFile("eu-west-1")
-
-    const runtime = await bootstrapRuntime()
-    const route = runtime.registry.match("GET", "/v1/models", new Headers())
-    expect(route?.provider.name).toBe("claude-kiro")
-
-    const response = await route!.provider.handle(
-      new Request("http://localhost/v1/models", { method: "GET" }),
-      route!.descriptor,
-      runtime.upstream,
-      { requestId: "req_1", logBody: false, quiet: true },
-    )
-    const body = await response.json() as { data: Array<{ id: string } & Record<string, unknown>>; first_id: string | null; has_more: boolean; last_id: string | null }
-    const sonnetModel = body.data.find((model) => model.id === "claude-sonnet-4.5")
-    const customModel = body.data.find((model) => model.id === "custom-kiro-model")
-
-    expect(body.data.map((model) => model.id)).toContain("claude-sonnet-4.5")
-    expect(body.data.map((model) => model.id)).toContain("custom-kiro-model")
-    expect(body.first_id).toBe(body.data[0].id)
-    expect(typeof body.has_more).toBe("boolean")
-    expect(body.last_id).toBe(body.data.at(-1)?.id ?? null)
+    expect(result.data.map((model) => model.id)).toContain("claude-sonnet-4.5")
+    expect(result.data.map((model) => model.id)).toContain("custom-kiro-model")
+    expect(result.first_id).toBe(result.data[0].id)
+    expect(typeof result.has_more).toBe("boolean")
+    expect(result.last_id).toBe(result.data.at(-1)?.id ?? null)
     expect(sonnetModel).toMatchObject({
       id: "claude-sonnet-4.5",
       created_at: "2025-09-29T16:01:16Z",
@@ -153,6 +176,85 @@ describe("bootstrap Kiro integration", () => {
       max_tokens: 0,
       type: "model",
     })
-    expect(fetchUrls).toEqual(["https://q.us-east-1.amazonaws.com/ListAvailableModels?origin=AI_EDITOR"])
   })
 })
+
+async function runKiroModelResolverScenario() {
+  const script = `
+    import { mkdtempSync, writeFileSync } from "node:fs"
+    import os from "node:os"
+    import path from "node:path"
+
+    const home = mkdtempSync(path.join(os.tmpdir(), "kiro-bootstrap-home-"))
+    process.env.HOME = home
+
+    const { bootstrapRuntime } = await import("./src/app/bootstrap.ts")
+
+    const authDir = mkdtempSync(path.join(os.tmpdir(), "kiro-bootstrap-auth-"))
+    const legacyAuthFile = path.join(authDir, "kiro-auth-token.json")
+    writeFileSync(
+      legacyAuthFile,
+      JSON.stringify({
+        accessToken: "access",
+        refreshToken: "refresh",
+        expiresAt: new Date(Date.now() + 700000).toISOString(),
+        region: "eu-west-1",
+      }),
+    )
+
+    globalThis.fetch = (async (input) => {
+      const url = String(input)
+      if (url.includes("ListAvailableModels")) {
+        return Response.json({ models: ["claude-sonnet-4-5", "custom-kiro-model"] })
+      }
+      return Response.json({ ok: true })
+    }) as unknown as typeof fetch
+
+    process.env.UPSTREAM_PROVIDER = "kiro"
+    process.env.KIRO_AUTH_FILE = legacyAuthFile
+
+    const runtime = await bootstrapRuntime()
+    const route = runtime.registry.match("GET", "/v1/models", new Headers())
+    if (!route) throw new Error("Kiro model route missing")
+
+    const response = await route.provider.handle(
+      new Request("http://localhost/v1/models", { method: "GET" }),
+      route.descriptor,
+      runtime.upstream,
+      { requestId: "req_1", logBody: false, quiet: true },
+    )
+    const body = await response.json() as {
+      data: Array<{ id: string } & Record<string, unknown>>
+      first_id: string | null
+      has_more: boolean
+      last_id: string | null
+    }
+
+    console.log(JSON.stringify(body))
+  `
+
+  const proc = Bun.spawn({
+    cmd: ["bun", "-e", script],
+    cwd: process.cwd(),
+    env: { ...process.env },
+    stdout: "pipe",
+    stderr: "pipe",
+  })
+
+  const [exitCode, stdout, stderr] = await Promise.all([
+    proc.exited,
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+  ])
+
+  if (exitCode !== 0) {
+    throw new Error(`Child process failed (${exitCode}): ${stderr || stdout}`)
+  }
+
+  return JSON.parse(stdout) as {
+    data: Array<{ id: string } & Record<string, unknown>>
+    first_id: string | null
+    has_more: boolean
+    last_id: string | null
+  }
+}

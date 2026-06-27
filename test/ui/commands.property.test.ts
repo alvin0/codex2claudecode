@@ -7,7 +7,7 @@ import type { ProviderMode } from "../../src/ui/types"
 describe("UI commands properties", () => {
   test("filterCommands returns a valid subset of getCommands", () => {
     fc.assert(
-      fc.property(fc.constantFrom<ProviderMode>("codex", "kiro"), fc.string(), (mode, query) => {
+      fc.property(fc.constantFrom<ProviderMode>("codex", "kiro", "copilot"), fc.string(), (mode, query) => {
         const filtered = filterCommands(query, mode)
         const names = new Set(getCommands(mode).map((command) => command.name))
 

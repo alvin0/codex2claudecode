@@ -4,6 +4,23 @@ All notable changes to this package are documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [0.3.0] - 2026-06-27
+
+### Added
+
+- Added Copilot as a first-class provider alongside Codex and Kiro.
+- Added Copilot device-code login with visible verification URL and user code in the terminal UI.
+- Added Copilot `POST /v1/embeddings` support.
+- Added shared filesystem-backed provider state and cache files so provider switching does not depend on Cloudflare storage.
+
+### Changed
+
+- Consolidated provider auth/state storage into `provider-state.json` and `provider-cache.json`, while keeping legacy files migratable.
+- `/switch-provider` now exposes Codex, Kiro, and Copilot as switch targets.
+- Switching providers now persists the selected provider back to the shared provider-state file.
+- Empty auth scaffolds are now created up front so switching works even before a provider is connected.
+- Rebuilt the bundled `dist/index.js` artifact for this release.
+
 ## [0.2.5] - 2026-05-29
 
 ### Added

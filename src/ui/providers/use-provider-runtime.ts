@@ -70,7 +70,18 @@ export function useProviderRuntime(options: UseProviderRuntimeOptions) {
   useEffect(() => {
     if (!providerReady) return
     if (loadError) return
-    if (providerMode === "codex" && !accountKey) return
+    if (!accountKey) {
+      setUpstream(undefined)
+      const pendingSwitch = pendingProviderSwitch.current
+      if (pendingSwitch?.targetMode === providerMode) {
+        void writeProviderConfig(providerMode)
+        pendingProviderSwitch.current = undefined
+        setSwitchingProvider(false)
+        onMessage(`Switched to ${pendingSwitch.targetLabel}. No account connected yet.`)
+      }
+      setRuntime({ status: "error", error: `No ${providerDefinition(providerMode).label} account connected. Use /connect to add one.` })
+      return
+    }
 
     const provider = providerDefinition(providerMode)
     const context = { authFile, accountKey, authRevision }
@@ -165,8 +176,12 @@ export function useProviderRuntime(options: UseProviderRuntimeOptions) {
   ])
 
   const runningServer = runtime.status === "running" ? runtime.server : undefined
-  const switchProvider = useCallback(async (switchOptions: SwitchProviderOptions = {}) => {
-    const target = nextProviderDefinition(providerMode)
+  const switchProvider = useCallback(async (targetMode?: ProviderMode, switchOptions: SwitchProviderOptions = {}) => {
+    const target = targetMode ? providerDefinition(targetMode) : nextProviderDefinition(providerMode)
+    if (target.mode === providerMode) {
+      onMessage(`Already using ${target.label}`)
+      return
+    }
 
     setSwitchingProvider(true)
     onMessage(`Validating ${target.label} credentials...`)

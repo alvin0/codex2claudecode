@@ -365,6 +365,7 @@ export async function startRuntimeWithBootstrap(
     if (hasRoute(routes, "GET", "/v1/models")) console.log(`Models:           ${localUrl}/v1/models`)
     if (hasRoute(routes, "POST", "/v1/responses")) console.log(`Responses:        ${localUrl}/v1/responses`)
     if (hasRoute(routes, "POST", "/v1/chat/completions")) console.log(`Chat completions: ${localUrl}/v1/chat/completions`)
+    if (hasRoute(routes, "POST", "/v1/embeddings")) console.log(`Embeddings:       ${localUrl}/v1/embeddings`)
     if (upstream.usage) console.log(`Usage:            ${localUrl}/usage`)
     if (upstream.environments) console.log(`Environments:     ${localUrl}/environments`)
     console.log(`Health:           ${localUrl}/health`)
@@ -416,6 +417,7 @@ function runtimeEndpoints(routes: Array<{ method: string; path: string }>, upstr
     ...(hasRoute(routes, "GET", "/v1/models") ? { models: "/v1/models" } : {}),
     ...(hasRoute(routes, "POST", "/v1/responses") ? { responses: "/v1/responses" } : {}),
     ...(hasRoute(routes, "POST", "/v1/chat/completions") ? { chat_completions: "/v1/chat/completions" } : {}),
+    ...(hasRoute(routes, "POST", "/v1/embeddings") ? { embeddings: "/v1/embeddings" } : {}),
     ...(upstream.usage ? { usage: "/usage" } : {}),
     ...(upstream.environments ? { environments: "/environments" } : {}),
     health: "/health",

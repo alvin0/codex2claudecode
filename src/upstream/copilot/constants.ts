@@ -1,0 +1,12 @@
+export const COPILOT_AUTH_FILE_NAME = "provider-state.json"
+export const COPILOT_CACHE_FILE_NAME = "provider-cache.json"
+export const COPILOT_MODEL_CACHE_TTL_SECONDS = 3600
+export const COPILOT_TOKEN_REFRESH_MARGIN_SECONDS = 60
+export const COPILOT_GITHUB_API_BASE_URL = "https://api.github.com"
+export const COPILOT_GITHUB_BASE_URL = "https://github.com"
+export const COPILOT_GITHUB_CLIENT_ID = "Iv1.b507a08c87ecfe98"
+export const COPILOT_GITHUB_APP_SCOPES = ["read:user"].join(" ")
+export const COPILOT_GITHUB_VERSION = "0.39.2"
+export const COPILOT_EDITOR_PLUGIN_VERSION = `copilot-chat/${COPILOT_GITHUB_VERSION}`
+export const COPILOT_USER_AGENT = `GitHubCopilotChat/${COPILOT_GITHUB_VERSION}`
+export const COPILOT_API_VERSION = "2025-04-01"

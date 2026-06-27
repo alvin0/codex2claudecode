@@ -12,7 +12,7 @@ export type RuntimeState =
   | { status: "running"; server: ReturnType<typeof Bun.serve>; startedAt: number }
   | { status: "error"; error: string }
 
-export type ProviderMode = "codex" | "kiro"
+export type ProviderMode = "codex" | "kiro" | "copilot"
 
 export interface ProviderInfoBase {
   mode: ProviderMode
@@ -35,4 +35,14 @@ export interface KiroProviderInfo extends ProviderInfoBase {
   email?: string
 }
 
-export type ProviderInfo = CodexProviderInfo | KiroProviderInfo
+export interface CopilotProviderInfo extends ProviderInfoBase {
+  mode: "copilot"
+  label: "Copilot"
+  authType?: "GitHub Token" | "Device Code" | "Unknown"
+  accountType?: string
+  email?: string
+  plan?: string
+  authFilePath: string
+}
+
+export type ProviderInfo = CodexProviderInfo | KiroProviderInfo | CopilotProviderInfo

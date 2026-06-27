@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test"
 
 import { OpenAI_Inbound_Provider } from "../../src/inbound/openai"
+import { OpenAI_Copilot_Inbound_Adapter } from "../../src/inbound/openai/copilot"
 import { OpenAI_Kiro_Inbound_Adapter } from "../../src/inbound/openai/kiro"
 import { codexConfigPath, writeCodexFastModeConfig } from "../../src/upstream/codex/fast-mode"
 import { normalizeCanonicalRequest, normalizeRequestBody } from "../../src/inbound/openai/normalize"
@@ -213,6 +214,78 @@ describe("OpenAI inbound provider", () => {
       other: { value: true },
       fastMode: { enabled: true },
     })
+  })
+
+  test("Copilot adapter advertises embeddings route", () => {
+    const provider = new OpenAI_Copilot_Inbound_Adapter()
+    const routes = provider.routes()
+
+    expect(routes).toHaveLength(3)
+    expect(routes.some((r) => r.path === "/v1/responses" && r.method === "POST")).toBe(true)
+    expect(routes.some((r) => r.path === "/v1/chat/completions" && r.method === "POST")).toBe(true)
+    expect(routes.some((r) => r.path === "/v1/embeddings" && r.method === "POST")).toBe(true)
+  })
+
+  test("Copilot adapter forwards embeddings requests to the raw upstream embeddings endpoint", async () => {
+    const provider = new OpenAI_Copilot_Inbound_Adapter()
+    let capturedBody: unknown
+    let capturedOptions: { headers?: HeadersInit; signal?: AbortSignal } | undefined
+    let capturedProxy: any
+    const upstream = {
+      providerKind: "copilot" as const,
+      embeddingsRaw: (body: Record<string, unknown>, options?: { headers?: HeadersInit; signal?: AbortSignal }) => {
+        capturedBody = body
+        capturedOptions = options
+        return Promise.resolve(new Response(JSON.stringify({
+          object: "list",
+          data: [{ object: "embedding", index: 0, embedding: [1, 2, 3] }],
+          model: "text-embedding-3-large",
+        }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }))
+      },
+      proxy: () => {
+        throw new Error("responses proxy should not be used for embeddings")
+      },
+      checkHealth: () => Promise.resolve({ ok: true }),
+    }
+
+    const response = await provider.handle(
+      new Request("http://localhost/v1/embeddings", {
+        method: "POST",
+        body: JSON.stringify({
+          model: "github_copilot/text-embedding-3-large",
+          input: "hello",
+          stream: true,
+          user: "tester",
+        }),
+      }),
+      { path: "/v1/embeddings", method: "POST" },
+      upstream,
+      { requestId: "req_1", logBody: true, quiet: true, onProxy: (entry) => { capturedProxy = entry } },
+    )
+
+    const body = await response.json() as { object: string; data: Array<{ embedding: number[] }>; model: string }
+    expect(capturedBody).toMatchObject({
+      model: "text-embedding-3-large",
+      input: ["hello"],
+      user: "tester",
+    })
+    expect("stream" in (capturedBody as Record<string, unknown>)).toBe(false)
+    expect(capturedOptions).toBeDefined()
+    expect(body).toMatchObject({
+      object: "list",
+      model: "text-embedding-3-large",
+    })
+    expect(capturedProxy).toMatchObject({
+      label: "Copilot OpenAI",
+      method: "POST",
+      target: "upstream",
+      status: 200,
+    })
+    expect(capturedProxy.requestBody).toContain('"text-embedding-3-large"')
+    expect(capturedProxy.responseBody).toContain('"embedding"')
   })
 })
 

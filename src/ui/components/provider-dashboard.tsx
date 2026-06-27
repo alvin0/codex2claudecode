@@ -44,7 +44,13 @@ export function ProviderDashboard(props: {
         <Box width={1} borderStyle="single" borderColor="#7f4f45" />
       )}
       <Box flexDirection="column" paddingX={props.compact ? 1 : 2} marginTop={props.compact ? 1 : 0} width={detailsWidth}>
-        <AccountInfoPanel account={props.account} info={props.activeAccountInfo} providerMode={props.providerMode} kiroInfo={props.providerInfo.mode === "kiro" ? props.providerInfo : undefined} />
+        <AccountInfoPanel
+          account={props.account}
+          info={props.activeAccountInfo}
+          providerMode={props.providerMode}
+          kiroInfo={props.providerInfo.mode === "kiro" ? props.providerInfo : undefined}
+          copilotInfo={props.providerInfo.mode === "copilot" ? props.providerInfo : undefined}
+        />
         {props.providerMode === "codex" && <CodexFastModeStatus enabled={props.codexFastMode} />}
         <LimitsPanel limitGroups={props.limitGroups} loading={props.limitsLoading} error={props.limitsError} compact={props.compact} width={detailsWidth} providerMode={props.providerMode} />
       </Box>

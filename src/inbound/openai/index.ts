@@ -84,6 +84,42 @@ export class OpenAI_Inbound_Provider implements Inbound_Provider {
     const upstreamRequestPreview = shouldCaptureProxyBody ? createLogPreview() : undefined
     const upstreamResponsePreview = shouldCaptureProxyBody ? createLogPreview() : undefined
     const started = Date.now()
+
+    if (route.path === "/v1/embeddings") {
+      if (!upstream.embeddingsRaw) return openAIErrorResponse("Embeddings are not supported by this upstream provider.", 501, "server_error")
+
+      const embeddingsBody = normalizeRequestBody(route.path, wireBody)
+      const response = await upstream.embeddingsRaw(embeddingsBody, {
+        headers: request.headers,
+        signal: request.signal,
+        ...(upstreamRequestPreview ? {
+          onRequestBody: (nextBody) => upstreamRequestPreview.append(nextBody),
+        } : {}),
+      })
+      const durationMs = Date.now() - started
+      const proxyRequestBody = upstreamRequestPreview?.text() || requestBody
+      const proxyLog: RequestProxyLog | undefined = context.onProxy ? {
+        label: this.upstreamLogLabel,
+        method: "POST",
+        target: this.upstreamTarget,
+        status: response.status,
+        durationMs,
+        error: response.ok ? "-" : response.statusText || `HTTP ${response.status}`,
+        requestBody: proxyRequestBody,
+        responseBody: undefined,
+      } : undefined
+      if (proxyLog) context.onProxy?.(proxyLog)
+      if (!response.body || !shouldCaptureProxyBody || !proxyLog) return response
+      return interceptResponseStream(response, {
+        onComplete: (responseBody) => {
+          proxyLog.responseBody = responseBody
+          if (response.status >= 400) {
+            proxyLog.error = responseBody ? previewText(responseBody) || proxyLog.error : proxyLog.error
+          }
+        },
+      })
+    }
+
     const result = await upstream.proxy(normalizeCanonicalRequest(route.path, wireBody, { passthrough: this.passthrough }), {
       headers: request.headers,
       signal: request.signal,
@@ -271,6 +307,11 @@ function openAIErrorResponse(message: string, status: number, type: string, sour
 function validateOpenAIRequestShape(pathname: string, body: JsonObject): string | undefined {
   if (!hasRequiredModel(body)) return "Missing required parameter: 'model'."
 
+  if (pathname === "/v1/embeddings") {
+    if (typeof body.input !== "string" && !Array.isArray(body.input)) return "Embeddings request requires `input` (string or array)."
+    return
+  }
+
   if (pathname === "/v1/responses") {
     if ("messages" in body) return "Unsupported parameter: 'messages'. Use 'input' with /v1/responses."
     if ("response_format" in body) return "Unsupported parameter: 'response_format'. Use 'text.format' with /v1/responses."
@@ -302,4 +343,3 @@ function passthroughBodyInit(body: Canonical_PassthroughResponse["body"]): BodyI
   if (body instanceof Uint8Array) return body.buffer.slice(body.byteOffset, body.byteOffset + body.byteLength) as ArrayBuffer
   return body
 }
-

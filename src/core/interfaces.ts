@@ -5,7 +5,7 @@ import type {
   Canonical_Response,
   Canonical_StreamResponse,
 } from "./canonical"
-import type { HealthStatus, RequestOptions, RequestProxyLog } from "./types"
+import type { HealthStatus, JsonObject, RequestOptions, RequestProxyLog } from "./types"
 
 export type UpstreamResult =
   | Canonical_Response
@@ -13,7 +13,7 @@ export type UpstreamResult =
   | Canonical_ErrorResponse
   | Canonical_PassthroughResponse
 
-export type UpstreamProviderKind = "codex" | "kiro"
+export type UpstreamProviderKind = "codex" | "kiro" | "copilot"
 
 export interface Upstream_Provider {
   readonly providerKind?: UpstreamProviderKind
@@ -23,6 +23,7 @@ export interface Upstream_Provider {
   usage?(options?: RequestOptions): Promise<Response>
   environments?(options?: RequestOptions): Promise<Response>
   modelsRaw?(options?: RequestOptions): Promise<Response>
+  embeddingsRaw?(body: JsonObject, options?: RequestOptions): Promise<Response>
 }
 
 export interface TokenCredentialProvider<T = unknown> {

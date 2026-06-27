@@ -1,5 +1,6 @@
 import { readTextFile } from "../../core/bun-fs"
 import { resolveAuthFile } from "../../core/paths"
+import { isProviderStatePath, readProviderSection } from "../../core/provider-state"
 import type { AuthFileContent, AuthFileData, TokenResponse } from "./types"
 
 export async function readAuthFile(path: string, account?: string) {
@@ -7,9 +8,18 @@ export async function readAuthFile(path: string, account?: string) {
 }
 
 export async function readAuthFileData(path: string) {
+  const resolved = resolveAuthFile(path)
+  if (isProviderStatePath(resolved)) {
+    const section = await readProviderSection<AuthFileData>("codex", resolved)
+    return {
+      path: resolved,
+      data: section?.data ?? [],
+    }
+  }
+
   return {
-    path: resolveAuthFile(path),
-    data: JSON.parse(await readTextFile(resolveAuthFile(path))) as AuthFileData,
+    path: resolved,
+    data: JSON.parse(await readTextFile(resolved)) as AuthFileData,
   }
 }
 

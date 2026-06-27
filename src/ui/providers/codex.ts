@@ -1,9 +1,9 @@
-import { pathExists } from "../../core/bun-fs"
-import { readAccountInfoFile, refreshActiveAccountInfo, writeAccountInfoFile, writeActiveAccountInfo, type AccountInfo } from "../../upstream/codex/account-info"
+import { ensureCodexAuthFile, readAccountInfoFile, refreshActiveAccountInfo, writeAccountInfoFile, writeActiveAccountInfo, type AccountInfo } from "../../upstream/codex/account-info"
 import { readAuthFileData } from "../../upstream/codex/auth"
 import { CodexStandaloneClient } from "../../upstream/codex/client"
 import { connectAccount, connectAccountFromCodexAuth, type ConnectAccountDraft } from "../../upstream/codex/connect-account"
 import { resolveAuthFile } from "../../core/paths"
+import { providerStatePath } from "../../core/provider-state"
 import type { AuthFileData } from "../../upstream/codex/types"
 import { authDataToAccounts, selectedAccountIndex } from "../accounts"
 import { usageToView, type LimitGroupView } from "../limits"
@@ -12,7 +12,7 @@ import type { UiProviderDefinition } from "./types"
 export const codexProviderDefinition: UiProviderDefinition = {
   mode: "codex",
   label: "Codex",
-  authFile: () => resolveAuthFile(process.env.CODEX_AUTH_FILE),
+  authFile: () => process.env.CODEX_AUTH_FILE ? resolveAuthFile(process.env.CODEX_AUTH_FILE) : providerStatePath(),
   bootstrapOptions: (context) => ({
     providerMode: "codex",
     authFile: context.authFile,
@@ -20,10 +20,10 @@ export const codexProviderDefinition: UiProviderDefinition = {
   }),
   runtimeSignature: (context) => `codex:${context.authFile}:${context.accountKey ?? ""}:${context.authRevision}`,
   validate: async () => {
-    const authFile = resolveAuthFile(process.env.CODEX_AUTH_FILE)
-    if (!(await pathExists(authFile))) throw new Error(`File not found: ${authFile}`)
+    const authFile = process.env.CODEX_AUTH_FILE ? resolveAuthFile(process.env.CODEX_AUTH_FILE) : providerStatePath()
+    await ensureCodexAuthFile(authFile)
   },
-  validationError: (error) => `Codex auth file not found at ${resolveAuthFile(process.env.CODEX_AUTH_FILE)}. (${errorMessage(error)})`,
+  validationError: (error) => `Codex auth file not found at ${process.env.CODEX_AUTH_FILE ? resolveAuthFile(process.env.CODEX_AUTH_FILE) : providerStatePath()}. (${errorMessage(error)})`,
   accounts: {
     selectorTitle: "Select account",
     selectorDescription: "Switch between Codex accounts. Applies to this session and future requests.",
@@ -72,6 +72,7 @@ export async function refreshCodexLimits(authFile: string, accountKey: string): 
 }
 
 export async function loadCodexAccountState(authFile: string): Promise<{ data: AuthFileData; selected: number }> {
+  await ensureCodexAuthFile(authFile)
   const [file, info] = await Promise.all([readAuthFileData(authFile), readAccountInfoFile(authFile)])
   const activeAccount = process.env.CODEX_AUTH_ACCOUNT ?? info?.activeAccount
   void writeAccountInfoFile(authFile, file.data, activeAccount).catch(() => {})

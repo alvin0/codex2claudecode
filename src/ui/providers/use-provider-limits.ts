@@ -5,6 +5,7 @@ import type { Upstream_Provider } from "../../core/interfaces"
 import type { LimitGroupView } from "../limits"
 import type { ProviderMode, RuntimeState } from "../types"
 import { refreshCodexLimits } from "./codex"
+import { refreshCopilotLimits } from "./copilot"
 import { refreshKiroLimits } from "./kiro"
 
 const LIMITS_REFRESH_INTERVAL_MS = 5 * 60_000
@@ -86,6 +87,38 @@ export function useProviderLimits(options: UseProviderLimitsOptions) {
 
       void refreshKiro()
       const timer = setInterval(() => void refreshKiro(), LIMITS_REFRESH_INTERVAL_MS)
+      return () => {
+        active = false
+        clearInterval(timer)
+      }
+    }
+
+    if (providerMode === "copilot") {
+      if (runtimeStatus !== "running" || !upstream) {
+        resetLimits()
+        return
+      }
+      const copilotUpstream = upstream
+
+      let active = true
+      async function refreshCopilot() {
+        try {
+          setLimitsState((state) => ({ ...state, limitsLoading: true, limitsError: undefined }))
+          const snapshot = await refreshCopilotLimits(copilotUpstream)
+          if (!active) return
+          if (!snapshot) {
+            resetLimits()
+            return
+          }
+          setLimitsState({ activeAccountInfo: snapshot.accountInfo ? { ...snapshot.accountInfo, updatedAt: snapshot.accountInfo.updatedAt } as AccountInfo : undefined, limitGroups: snapshot.limitGroups, limitsLoading: false })
+        } catch (error) {
+          if (!active) return
+          setLimitsState({ limitGroups: [], limitsLoading: false, limitsError: error instanceof Error ? error.message : "Network error" })
+        }
+      }
+
+      void refreshCopilot()
+      const timer = setInterval(() => void refreshCopilot(), LIMITS_REFRESH_INTERVAL_MS)
       return () => {
         active = false
         clearInterval(timer)

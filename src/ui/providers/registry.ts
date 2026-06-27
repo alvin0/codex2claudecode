@@ -2,19 +2,26 @@ import { readProviderConfig, resolveProviderMode } from "../../app/provider-conf
 import type { Upstream_Provider } from "../../core/interfaces"
 import { buildProviderInfo } from "../provider-info"
 import type { ProviderInfo, ProviderMode } from "../types"
+import { copilotProviderDefinition } from "./copilot"
 import { codexProviderDefinition } from "./codex"
 import { kiroProviderDefinition } from "./kiro"
 import type { UiProviderDefinition } from "./types"
 
-const PROVIDERS: UiProviderDefinition[] = [codexProviderDefinition, kiroProviderDefinition]
+const PROVIDERS: UiProviderDefinition[] = [codexProviderDefinition, kiroProviderDefinition, copilotProviderDefinition]
+
+export const PROVIDER_MODE_SEQUENCE: ProviderMode[] = ["codex", "kiro", "copilot"]
 
 export function providerDefinition(mode: ProviderMode): UiProviderDefinition {
   return PROVIDERS.find((provider) => provider.mode === mode) ?? codexProviderDefinition
 }
 
 export function nextProviderDefinition(mode: ProviderMode): UiProviderDefinition {
-  const index = PROVIDERS.findIndex((provider) => provider.mode === mode)
-  return PROVIDERS[(index + 1) % PROVIDERS.length] ?? codexProviderDefinition
+  const index = PROVIDER_MODE_SEQUENCE.indexOf(mode)
+  return providerDefinition(PROVIDER_MODE_SEQUENCE[(index + 1) % PROVIDER_MODE_SEQUENCE.length] ?? "codex")
+}
+
+export function providerDefinitions() {
+  return PROVIDER_MODE_SEQUENCE.map((mode) => providerDefinition(mode))
 }
 
 export async function resolveInitialProviderMode() {

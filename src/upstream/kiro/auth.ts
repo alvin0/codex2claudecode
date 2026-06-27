@@ -1,6 +1,7 @@
 import { readTextFile, setFileMode, writeTextFile } from "../../core/bun-fs"
 import { expandHome } from "../../core/paths"
 import { bunPath as path, homeDir } from "../../core/paths"
+import { isProviderStatePath, updateProviderSection } from "../../core/provider-state"
 import { KIRO_AUTH_TOKEN_PATH, KIRO_DESKTOP_REFRESH_TEMPLATE, SSO_OIDC_ENDPOINT_TEMPLATE, TOKEN_REFRESH_THRESHOLD_SECONDS } from "./constants"
 import { kiroAccountKey, pullKiroSourceAuth, readKiroAuthFileSelection, syncKiroSourceAuth, updateKiroAuthSelection, type KiroAuthFileSelection } from "./account-store"
 import type { KiroAuthTokenFile, KiroAuthType, KiroDeviceRegistrationFile, KiroRefreshResponse, SsoOidcRefreshResponse } from "./types"
@@ -207,6 +208,13 @@ export class Kiro_Auth_Manager {
         ...next,
         sourceAccountKey: this.originalCredentials.sourceAccountKey ?? next.sourceAccountKey,
       })
+    }
+    if (isProviderStatePath(this.authFilePath)) {
+      await updateProviderSection("kiro", this.authFilePath, async () => ({
+        data: payload,
+        activeAccount: this.selection?.key,
+      }))
+      return
     }
     await writeTextFile(this.authFilePath, `${JSON.stringify(payload, null, 2)}\n`, { mode: 0o600 })
     await setFileMode(this.authFilePath, 0o600)

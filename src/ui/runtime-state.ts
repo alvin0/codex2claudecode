@@ -10,7 +10,7 @@ export function accountShortLabel(account: AccountView) {
 }
 
 export function runtimeLine(runtime: RuntimeState, hostname: string, port: number, providerMode: ProviderMode = "codex") {
-  const label = providerMode === "kiro" ? "Kiro" : "Codex"
+  const label = providerMode === "kiro" ? "Kiro" : providerMode === "copilot" ? "Copilot" : "Codex"
   if (runtime.status === "starting") return `Starting ${label} runtime...`
   if (runtime.status === "error") return `Runtime error: ${runtime.error}`
   return `${label} runtime listening on http://${hostname}:${port} · started ${new Date(runtime.startedAt).toLocaleTimeString()}`

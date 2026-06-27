@@ -145,6 +145,95 @@ export function kiroUsageLimitsToView(data: unknown): KiroUsageLimitsView {
   return { tier, email, limitGroups: rows.length ? [{ rows }] : [] }
 }
 
+export function copilotUsageToView(data: unknown): UsageView {
+  if (!data || typeof data !== "object") return { limitGroups: [] }
+  const item = data as {
+    access_type_sku?: unknown
+    copilot_plan?: unknown
+    quota_reset_date?: unknown
+    quota_reset_date_utc?: unknown
+    quota_snapshots?: unknown
+    limited_user_quotas?: unknown
+    limited_user_reset_date?: unknown
+    monthly_quotas?: unknown
+    userInfo?: unknown
+  }
+
+  const userInfo = item.userInfo && typeof item.userInfo === "object" && !Array.isArray(item.userInfo)
+    ? item.userInfo as { email?: unknown; userId?: unknown }
+    : undefined
+  const quotaSnapshots = item.quota_snapshots && typeof item.quota_snapshots === "object" && !Array.isArray(item.quota_snapshots)
+    ? item.quota_snapshots as Record<string, unknown>
+    : undefined
+  const limitedQuotas = item.limited_user_quotas && typeof item.limited_user_quotas === "object" && !Array.isArray(item.limited_user_quotas)
+    ? item.limited_user_quotas as Record<string, unknown>
+    : undefined
+  const monthlyQuotas = item.monthly_quotas && typeof item.monthly_quotas === "object" && !Array.isArray(item.monthly_quotas)
+    ? item.monthly_quotas as Record<string, unknown>
+    : undefined
+
+  const rows: LimitRowView[] = []
+  const addQuotaRow = (label: string, value: unknown, resetLabel: string) => {
+    if (typeof value !== "number") return
+    const used = Math.max(0, Math.min(100, Math.round(100 - value)))
+    rows.push({
+      label,
+      used,
+      left: `${formatNumber(value)} left`,
+      reset: resetLabel,
+    })
+  }
+
+  if (quotaSnapshots) {
+    for (const [key, value] of Object.entries(quotaSnapshots)) {
+      if (!value || typeof value !== "object") continue
+      const quota = value as {
+        remaining?: unknown
+        quota_remaining?: unknown
+        percent_remaining?: unknown
+        quota_id?: unknown
+        unlimited?: unknown
+      }
+      const label = `${formatCopilotQuotaLabel(key)} limit:`
+      const remaining = typeof quota.quota_remaining === "number"
+        ? quota.quota_remaining
+        : typeof quota.remaining === "number"
+          ? quota.remaining
+          : typeof quota.percent_remaining === "number"
+            ? quota.percent_remaining
+            : 0
+      const leftLabel = typeof quota.quota_remaining === "number" || typeof quota.remaining === "number"
+        ? `${formatNumber(remaining)} left`
+        : `${formatNumber(remaining)}% left`
+      rows.push({
+        label,
+        used: typeof quota.percent_remaining === "number" ? Math.max(0, 100 - Math.round(quota.percent_remaining)) : 0,
+        left: leftLabel,
+        reset: typeof item.quota_reset_date_utc === "string"
+          ? `resets ${item.quota_reset_date_utc}`
+          : typeof item.quota_reset_date === "string"
+            ? `resets ${item.quota_reset_date}`
+            : "reset unknown",
+      })
+    }
+  } else if (limitedQuotas || monthlyQuotas) {
+    const reset = typeof item.limited_user_reset_date === "string" ? item.limited_user_reset_date : "reset unknown"
+    const quotaSource = limitedQuotas ?? monthlyQuotas ?? {}
+    for (const [key, value] of Object.entries(quotaSource)) {
+      addQuotaRow(`${formatCopilotQuotaLabel(key)} limit:`, value, `resets ${reset}`)
+    }
+  }
+
+  return {
+    accountInfo: {
+      ...(typeof userInfo?.email === "string" ? { email: userInfo.email } : {}),
+      ...(typeof item.copilot_plan === "string" ? { plan: item.copilot_plan } : {}),
+      updatedAt: new Date().toISOString(),
+    },
+    limitGroups: rows.length ? [{ rows }] : [],
+  }
+}
+
 function unwrapKiroUsageLimits(data: unknown): Record<string, unknown> | undefined {
   if (!data || typeof data !== "object") return
   const item = data as Record<string, unknown>
@@ -183,4 +272,8 @@ function formatResetEpoch(epochSeconds: number) {
   const date = new Date(epochSeconds * 1000)
   if (Number.isNaN(date.getTime())) return "unknown"
   return `${date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false })} on ${date.getDate()} ${date.toLocaleString([], { month: "short" })}`
+}
+
+function formatCopilotQuotaLabel(key: string) {
+  return key.replace(/_/g, " ").replace(/\b\w/g, (match) => match.toUpperCase())
 }

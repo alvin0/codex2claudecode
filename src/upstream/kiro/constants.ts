@@ -60,7 +60,7 @@ export const REASONING_EFFORT_BUDGETS: Record<string, number> = {
 
 export const USER_AGENT_TEMPLATE = "aws-sdk-js/1.0.27 ua/2.1 os/{platform}#{version} lang/js md/nodejs#{nodeVersion} api/codewhispererstreaming#1.0.27 m/E KiroIDE-{kiroVersion}-{fingerprint}"
 export const X_AMZ_USER_AGENT_TEMPLATE = "aws-sdk-js/1.0.27 KiroIDE-{kiroVersion}-{fingerprint}"
-export const KIRO_STATE_FILE_NAME = "kiro-state.json"
+export const KIRO_STATE_FILE_NAME = "provider-state.json"
 
 // Fallback models used only when Kiro's ListAvailableModels endpoint fails.
 // The normal model path fetches the upstream list and caches it to avoid stale

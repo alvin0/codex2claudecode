@@ -16,4 +16,17 @@ describe("WelcomePanel endpoint list", () => {
   test("Codex mode keeps Chat Completions endpoint", () => {
     expect(welcomeEndpointLines("codex")).toContainEqual({ label: "", value: "/v1/chat/completions" })
   })
+
+  test("Copilot mode advertises embeddings endpoint", () => {
+    expect(welcomeEndpointLines("copilot")).toEqual([
+      { label: "Claude", value: "/v1/messages" },
+      { label: "", value: "/v1/messages/count_tokens" },
+      { label: "OpenAI", value: "/v1/responses" },
+      { label: "", value: "/v1/chat/completions" },
+      { label: "", value: "/v1/embeddings" },
+      { label: "Runtime", value: "/usage" },
+      { label: "", value: "/health" },
+      { label: "Models", value: "/v1/models" },
+    ])
+  })
 })

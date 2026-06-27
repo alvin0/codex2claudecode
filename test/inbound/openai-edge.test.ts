@@ -4,6 +4,24 @@ import { OpenAI_Inbound_Provider } from "../../src/inbound/openai"
 import { normalizeCanonicalRequest, normalizeRequestBody } from "../../src/inbound/openai/normalize"
 
 describe("OpenAI normalizeCanonicalRequest edge cases", () => {
+  // --- /v1/embeddings edge cases ---
+
+  test("embeddings: string input is wrapped and Copilot model prefix is stripped", () => {
+    const body = normalizeRequestBody("/v1/embeddings", {
+      model: "github_copilot/text-embedding-3-large",
+      input: "hello",
+      stream: false,
+      user: "tester",
+    })
+
+    expect(body).toMatchObject({
+      model: "text-embedding-3-large",
+      input: ["hello"],
+      user: "tester",
+    })
+    expect(body.stream).toBeUndefined()
+  })
+
   // --- /v1/responses edge cases ---
 
   test("responses: string input is wrapped in user message", () => {

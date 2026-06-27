@@ -1,5 +1,6 @@
 import { writeTextFile } from "../../core/bun-fs"
 import { expandHome } from "../../core/paths"
+import { isProviderStatePath, updateProviderSection } from "../../core/provider-state"
 import { writeAccountInfoFile } from "./account-info"
 import { accessTokenExpiresAt, extractAccountId, readAuthFileData } from "./auth"
 import { DEFAULT_CLIENT_ID, DEFAULT_ISSUER } from "./constants"
@@ -55,12 +56,22 @@ async function connectedAuthEntry(draft: ConnectAccountDraft, options?: ConnectA
 }
 
 async function saveConnectedAuth(authFile: string, auth: AuthFileContent, options?: ConnectAccountOptions) {
-  const file = await readAuthFileData(authFile).catch(() => ({ path: authFile, data: [] as AuthFileContent[] }))
+  const file = await readAuthFileData(authFile).catch(() => ({ path: authFile, data: [] as AuthFileData }))
   const entries = Array.isArray(file.data) ? file.data : [file.data]
   const index = entries.findIndex((entry) => entry.accountId === auth.accountId)
   const nextEntries = index >= 0 ? entries.map((entry, itemIndex) => (itemIndex === index ? { ...entry, ...auth } : entry)) : [...entries, auth]
-  await writeTextFile(authFile, `${JSON.stringify(nextEntries satisfies AuthFileData, null, 2)}\n`)
-  await writeAccountInfoFile(authFile, nextEntries, auth.accountId)
+
+  if (isProviderStatePath(authFile)) {
+    await updateProviderSection("codex", authFile, async (section) => ({
+      ...(section ?? {}),
+      data: nextEntries,
+      activeAccount: auth.accountId,
+    }))
+  } else {
+    await writeTextFile(authFile, `${JSON.stringify(nextEntries satisfies AuthFileData, null, 2)}\n`)
+    await writeAccountInfoFile(authFile, nextEntries, auth.accountId)
+  }
+
   await syncCodexCliAuthTokens({
     accountId: auth.accountId,
     accessToken: auth.access,

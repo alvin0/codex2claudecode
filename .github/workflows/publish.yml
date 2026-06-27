@@ -1,6 +1,10 @@
-name: Publish to npm (manual)
+name: Publish to npm
 
 on:
+  push:
+    tags:
+      - "*.*.*"
+      - "v*.*.*"
   workflow_dispatch:
 
 permissions:
@@ -33,6 +37,16 @@ jobs:
           set -o pipefail
           bun run check 2>&1 | tee check.log
           bun run test 2>&1 | tee test.log
+
+      - name: Verify version matches tag
+        if: github.ref_type == 'tag'
+        run: |
+          VERSION="$(node -p 'require("./package.json").version')"
+          TAG="${GITHUB_REF_NAME#v}"
+          if [ "$TAG" != "$VERSION" ]; then
+            echo "Tag $TAG does not match package.json version $VERSION"
+            exit 1
+          fi
 
       - name: Publish
         run: npm publish --access public --provenance

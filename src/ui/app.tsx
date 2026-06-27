@@ -43,8 +43,8 @@ import {
 } from "./components/request-logs-panel"
 import { StatusHeader } from "./components/resource-usage-header"
 import { SwitchProviderConfirm } from "./components/switch-provider-confirm"
-import { nextProviderDefinition, providerDefinition } from "./providers/registry"
-import type { ProviderAccountData, ProviderConnectDraft, ProviderConnectField } from "./providers/types"
+import { nextProviderDefinition, providerDefinition, providerDefinitions } from "./providers/registry"
+import type { ProviderAccountData, ProviderConnectDraft, ProviderConnectField, ProviderConnectProgress } from "./providers/types"
 import { useCodexFastMode } from "./providers/use-codex-fast-mode"
 import { useProviderLimits } from "./providers/use-provider-limits"
 import { useProviderRuntime } from "./providers/use-provider-runtime"
@@ -76,6 +76,7 @@ export function CodexCodeApp(props: { port?: number; hostname?: string; apiPassw
     | "switch-provider"
   >("home")
   const [selectorIndex, setSelectorIndex] = useState(0)
+  const [switchProviderIndex, setSwitchProviderIndex] = useState(0)
   const [requestLogs, setRequestLogs] = useState<RequestLogEntry[]>([])
   const [requestLogDetails, setRequestLogDetails] = useState<Record<string, RequestLogEntry>>({})
   const [logsSelected, setLogsSelected] = useState(0)
@@ -99,8 +100,11 @@ export function CodexCodeApp(props: { port?: number; hostname?: string; apiPassw
   const [connectSourceIndex, setConnectSourceIndex] = useState(0)
   const [connectStep, setConnectStep] = useState(0)
   const [connectSaving, setConnectSaving] = useState(false)
+  const [connectStatus, setConnectStatus] = useState<string>()
+  const [connectProgress, setConnectProgress] = useState<ProviderConnectProgress>()
   const [authRevision, setAuthRevision] = useState(0)
   const [accountKey, setAccountKey] = useState<string>()
+  const connectOperationId = useRef(0)
   const resetRuntimeLogs = useCallback(() => {
     setRequestLogs([])
     setRequestLogDetails({})
@@ -183,6 +187,10 @@ export function CodexCodeApp(props: { port?: number; hostname?: string; apiPassw
     setAccountData(undefined)
     setAccountKey(undefined)
     setSelected(0)
+    connectOperationId.current += 1
+    setConnectSaving(false)
+    setConnectStatus(undefined)
+    setConnectProgress(undefined)
     setAuthRevision((value) => value + 1)
   }, [clearCommandOutput, resetLimits, resetRuntimeLogs])
   const pkg = useMemo(() => packageInfo(), [])
@@ -192,7 +200,15 @@ export function CodexCodeApp(props: { port?: number; hostname?: string; apiPassw
   const dashboardCompact = contentWidth < 106
   const dashboardInnerWidth = Math.max(32, contentWidth - 4)
   const commands = useMemo(() => getCommands(providerMode), [providerMode])
-  const switchTarget = useMemo(() => nextProviderDefinition(providerMode), [providerMode])
+  const switchProviderOptions = useMemo(() => providerDefinitions(), [])
+  const switchTargetIndex = useMemo(
+    () => {
+      const nextMode = nextProviderDefinition(providerMode).mode
+      const index = switchProviderOptions.findIndex((provider) => provider.mode === nextMode)
+      return index >= 0 ? index : 0
+    },
+    [providerMode, switchProviderOptions],
+  )
   const headerText = `v${pkg.version} · ${shortAuthor(pkg.author)}`
   const dashboardWidth = dashboardCompact ? contentWidth : 2 + 42 + 1 + Math.min(58, Math.max(42, contentWidth - 48))
   const headerResourceWidth = contentWidth >= 104 ? 44 : contentWidth >= 88 ? 34 : 0
@@ -433,6 +449,10 @@ export function CodexCodeApp(props: { port?: number; hostname?: string; apiPassw
         return
       }
       if (mode === "connect-source" || mode === "connect-account") {
+        connectOperationId.current += 1
+        setConnectSaving(false)
+        setConnectStatus(undefined)
+        setConnectProgress(undefined)
         setMode("home")
         setConnectDraft(connectCapability?.defaultDraft() ?? {})
         setConnectSourceIndex(0)
@@ -489,10 +509,23 @@ export function CodexCodeApp(props: { port?: number; hostname?: string; apiPassw
       setInputMessage("↑↓ select · enter confirm")
       return
     }
+    if ((mode === "connect-source" || mode === "connect-account") && connectSaving) {
+      return
+    }
     if (key.return) {
       if (mode === "switch-provider") {
+        const target = switchProviderOptions[switchProviderIndex] ?? switchProviderOptions[switchTargetIndex]
         setMode("home")
-        void switchProvider({ onBeforeApply: resetForProviderSwitch })
+        setCommandIndex(0)
+        if (!target) {
+          setInputMessage("No provider targets available")
+          return
+        }
+        if (target.mode === providerMode) {
+          setInputMessage(`Already using ${target.label}`)
+          return
+        }
+        void switchProvider(target.mode, { onBeforeApply: resetForProviderSwitch })
         return
       }
       if (mode === "connect-source") {
@@ -503,18 +536,43 @@ export function CodexCodeApp(props: { port?: number; hostname?: string; apiPassw
         }
         const selectedSource = connectCapability.sources[connectSourceIndex]
         if (selectedSource) {
+          const operationId = ++connectOperationId.current
           setConnectSaving(true)
-          void selectedSource.import(authFile)
+          setConnectStatus(selectedSource.savingMessage)
+          setConnectProgress(undefined)
+          void selectedSource.import(authFile, {
+            report: (message) => {
+              if (connectOperationId.current === operationId) setConnectStatus(message)
+            },
+            reportProgress: (progress) => {
+              if (connectOperationId.current !== operationId) return
+              setConnectProgress(progress)
+              if (!progress) return
+              if (progress.message) setConnectStatus(progress.message)
+            },
+          })
             .then((result) => {
+              if (connectOperationId.current !== operationId) return
               applyConnectedAccount(result.data, result.accountKey)
+              setConnectStatus(undefined)
+              setConnectProgress(undefined)
               setMode("home")
               setInputMessage(`Connected account ${result.accountKey}`)
             })
-            .catch((error) => setInputMessage(`Connect failed: ${error instanceof Error ? error.message : String(error)}`))
-            .finally(() => setConnectSaving(false))
+            .catch((error) => {
+              if (connectOperationId.current !== operationId) return
+              setConnectProgress(undefined)
+              setConnectStatus(`Connect failed: ${error instanceof Error ? error.message : String(error)}`)
+              setInputMessage(`Connect failed: ${error instanceof Error ? error.message : String(error)}`)
+            })
+            .finally(() => {
+              if (connectOperationId.current === operationId) setConnectSaving(false)
+            })
           return
         }
         // Last entry is Manual
+        setConnectStatus(undefined)
+        setConnectProgress(undefined)
         setConnectDraft(connectCapability.defaultDraft())
         setConnectStep(0)
         setMode("connect-account")
@@ -530,17 +588,27 @@ export function CodexCodeApp(props: { port?: number; hostname?: string; apiPassw
           setConnectStep((step) => step + 1)
           return
         }
+        const operationId = ++connectOperationId.current
         setConnectSaving(true)
+        setConnectProgress(undefined)
         void connectCapability.connectManual(authFile, connectDraft)
           .then((result) => {
+            if (connectOperationId.current !== operationId) return
             applyConnectedAccount(result.data, result.accountKey)
             setMode("home")
             setConnectDraft(connectCapability.defaultDraft())
             setConnectStep(0)
+            setConnectProgress(undefined)
             setInputMessage(`Connected account ${result.accountKey}`)
           })
-          .catch((error) => setInputMessage(`Connect failed: ${error instanceof Error ? error.message : String(error)}`))
-          .finally(() => setConnectSaving(false))
+          .catch((error) => {
+            if (connectOperationId.current !== operationId) return
+            setConnectProgress(undefined)
+            setInputMessage(`Connect failed: ${error instanceof Error ? error.message : String(error)}`)
+          })
+          .finally(() => {
+            if (connectOperationId.current === operationId) setConnectSaving(false)
+          })
         return
       }
       if (mode === "claude-env-scope") {
@@ -656,6 +724,7 @@ export function CodexCodeApp(props: { port?: number; hostname?: string; apiPassw
             setInputMessage("Provider switch already in progress")
             return
           }
+          setSwitchProviderIndex(switchTargetIndex)
           setMode("switch-provider")
           setCommandIndex(0)
           return
@@ -694,6 +763,9 @@ export function CodexCodeApp(props: { port?: number; hostname?: string; apiPassw
             setInputMessage("Connect is not available for this provider")
             return
           }
+          connectOperationId.current += 1
+          setConnectStatus(undefined)
+          setConnectProgress(undefined)
           setConnectDraft(connectCapability.defaultDraft())
           setConnectSourceIndex(0)
           setConnectStep(0)
@@ -741,6 +813,11 @@ export function CodexCodeApp(props: { port?: number; hostname?: string; apiPassw
     if (mode === "account-selector") {
       if (key.upArrow && accounts.length) setSelectorIndex((value) => (value - 1 + accounts.length) % accounts.length)
       if (key.downArrow && accounts.length) setSelectorIndex((value) => (value + 1) % accounts.length)
+      return
+    }
+    if (mode === "switch-provider") {
+      if (key.upArrow && switchProviderOptions.length) setSwitchProviderIndex((value) => (value - 1 + switchProviderOptions.length) % switchProviderOptions.length)
+      if (key.downArrow && switchProviderOptions.length) setSwitchProviderIndex((value) => (value + 1) % switchProviderOptions.length)
       return
     }
     if (mode === "codex-fast-mode") {
@@ -889,9 +966,18 @@ export function CodexCodeApp(props: { port?: number; hostname?: string; apiPassw
       {mode === "home" && <CommandInput selected={commandIndex} message={inputMessage} commands={commands} />}
       {mode === "account-selector" && accountCapability && <AccountSelector accounts={accounts} selected={selectorIndex} title={accountCapability.selectorTitle} description={accountCapability.selectorDescription} />}
       {mode === "codex-fast-mode" && providerMode === "codex" && <CodexFastModeSelector selected={codexFastMode.selected} current={codexFastMode.enabled} />}
-      {mode === "connect-source" && connectCapability && <ConnectSourceSelector connect={connectCapability} selected={connectSourceIndex} saving={connectSaving} />}
+      {mode === "connect-source" && connectCapability && <ConnectSourceSelector connect={connectCapability} selected={connectSourceIndex} saving={connectSaving} status={connectStatus} progress={connectProgress} />}
       {mode === "connect-account" && connectCapability && <ConnectAccountWizard title={connectCapability.title} description={connectCapability.manualDescription} draft={connectDraft} fields={connectFields} step={connectStep} saving={connectSaving} />}
-      {mode === "switch-provider" && <SwitchProviderConfirm currentLabel={providerInfo.label} targetLabel={switchTarget.label} />}
+      {mode === "switch-provider" && (
+        <SwitchProviderConfirm
+          currentLabel={providerInfo.label}
+          selected={switchProviderIndex}
+          options={switchProviderOptions.map((provider) => ({
+            label: provider.label,
+            current: provider.mode === providerMode,
+          }))}
+        />
+      )}
       {mode === "logs" && (
         <RequestLogsPanel
           logs={visibleRequestLogs}

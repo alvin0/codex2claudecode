@@ -1,4 +1,3 @@
-import { pathExists } from "../../core/bun-fs"
 import type { Upstream_Provider } from "../../core/interfaces"
 import { appDataDir, expandHome } from "../../core/paths"
 import { bunPath as path } from "../../core/paths"
@@ -8,14 +7,13 @@ import {
   connectKiroAccountsFromKiroAuth,
   kiroAccountKey,
   kiroAuthEntries,
+  ensureKiroAuthFile,
   readKiroAuthFileData,
   selectKiroAuthEntry,
   writeActiveKiroAccount,
   type ConnectKiroAccountDraft,
 } from "../../upstream/kiro/account-store"
 import { KIRO_AUTH_TOKEN_CLI_PATH, KIRO_AUTH_TOKEN_PATH, KIRO_STATE_FILE_NAME } from "../../upstream/kiro/constants"
-import { existingKiroSourceAuthFiles, resolveKiroSourceAuthFile } from "../../upstream/kiro/auth-source"
-import { Kiro_Upstream_Provider } from "../../upstream/kiro"
 import type { KiroAuthFileData, KiroAuthTokenFile } from "../../upstream/kiro/types"
 import { kiroUsageLimitsToView, type LimitGroupView } from "../limits"
 import type { UiProviderDefinition } from "./types"
@@ -31,7 +29,7 @@ export const kiroProviderDefinition: UiProviderDefinition = {
   }),
   runtimeSignature: (context) => `kiro:${context.authFile}:${context.accountKey ?? ""}:${context.authRevision}`,
   validate: async () => {
-    await Kiro_Upstream_Provider.fromAuthFile(await resolveKiroRuntimeAuthFile())
+    await ensureKiroAuthFile()
   },
   validationError: (error) => `Kiro auth token file not found or invalid. Please log in to Kiro IDE first. (${errorMessage(error)})`,
   accounts: {
@@ -99,18 +97,16 @@ export async function refreshKiroLimits(upstream: Upstream_Provider): Promise<{ 
 }
 
 export async function loadKiroAccountState(authFile: string): Promise<{ data: KiroAuthFileData; selected: number }> {
-  const data = await readKiroAuthFileData(authFile).catch(async () => readKiroAuthFileData(await resolveKiroSourceAuthFile()))
+  const resolvedAuthFile = await ensureKiroAuthFile(authFile)
+  const data = await readKiroAuthFileData(resolvedAuthFile).catch(async (error) => {
+    const message = error instanceof Error ? error.message : String(error)
+    if (!message.includes("does not contain any accounts")) throw error
+    return { activeAccount: undefined, accounts: [] } satisfies KiroAuthFileData
+  })
   return {
     data,
     selected: selectedKiroAccountIndex(data, process.env.KIRO_AUTH_ACCOUNT),
   }
-}
-
-async function resolveKiroRuntimeAuthFile(authFile = path.join(appDataDir(), KIRO_STATE_FILE_NAME)) {
-  if (await pathExists(authFile)) {
-    return authFile
-  }
-  return resolveKiroSourceAuthFile()
 }
 
 function selectedKiroAccountIndex(data: KiroAuthFileData, account?: string) {

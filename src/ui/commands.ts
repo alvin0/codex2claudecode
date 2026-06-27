@@ -25,12 +25,13 @@ const PROVIDER_COMMANDS: Record<ProviderMode, UiCommand[]> = {
     ...ACCOUNT_COMMANDS,
   ],
   kiro: ACCOUNT_COMMANDS,
+  copilot: ACCOUNT_COMMANDS,
 }
 
 export function getCommands(providerMode: ProviderMode): UiCommand[] {
   const switchCommand: UiCommand = {
     name: "/switch-provider",
-    description: providerMode === "codex" ? "Switch to Kiro upstream provider" : "Switch to Codex upstream provider",
+    description: "Switch upstream provider: Codex / Kiro / Copilot",
   }
   const quitCommand: UiCommand = { name: "/quit", description: "Quit Codex2ClaudeCode" }
 

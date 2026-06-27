@@ -67,6 +67,19 @@ export function normalizeCanonicalRequest(pathname: string, body: JsonObject, op
 export function normalizeRequestBody(pathname: string, body: JsonObject): JsonObject {
   const normalizedBody = normalizeReasoningBody(body)
 
+  if (pathname === "/v1/embeddings") {
+    const model = typeof normalizedBody.model === "string" ? normalizedBody.model.trim() : ""
+    const normalizedModel = model.startsWith("github_copilot/") ? model.replace(/^github_copilot\//, "") : model
+    const normalizedInput = typeof normalizedBody.input === "string" ? [normalizedBody.input] : normalizedBody.input
+    const embeddingsBody = {
+      ...normalizedBody,
+      model: normalizedModel,
+      input: normalizedInput,
+    }
+    delete embeddingsBody.stream
+    return embeddingsBody
+  }
+
   if (isChatPath(pathname)) {
     const messages = Array.isArray(normalizedBody.messages) ? normalizedBody.messages : []
     const instructions = messages

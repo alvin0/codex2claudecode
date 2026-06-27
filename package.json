@@ -1,13 +1,13 @@
 {
   "name": "codex2claudecode",
-  "version": "0.2.5",
-  "description": "Bun-powered Claude-compatible local API for Codex and Kiro credentials.",
+  "version": "0.3.0",
+  "description": "Bun-powered Claude-compatible local API for Codex, Kiro, and Copilot credentials.",
   "author": "alvin0 <chaulamdinhai@gmail.com>",
   "license": "MIT",
   "engines": {
     "bun": ">=1.3.0"
   },
-  "packageManager": "bun@1.3.13",
+  "packageManager": "bun@1.3.14",
   "homepage": "https://github.com/alvin0/codex2claudecode#readme",
   "repository": {
     "type": "git",
@@ -21,6 +21,7 @@
     "codex",
     "claude",
     "claude-code",
+    "copilot",
     "openai",
     "kiro"
   ],

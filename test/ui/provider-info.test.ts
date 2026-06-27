@@ -7,6 +7,29 @@ describe("provider info", () => {
     expect(buildProviderInfo("codex", {} as any)).toEqual({ mode: "codex", label: "Codex" })
   })
 
+  test("builds Copilot provider info", () => {
+    expect(
+      buildProviderInfo(
+        "copilot",
+        {
+          getAuthType: () => "github_token",
+          getAccountType: () => "individual",
+          getEmail: () => "dev@example.com",
+          getPlan: () => "copilot_pro",
+        } as any,
+        "/copilot/auth.json",
+      ),
+    ).toEqual({
+      mode: "copilot",
+      label: "Copilot",
+      authType: "GitHub Token",
+      accountType: "individual",
+      email: "dev@example.com",
+      plan: "copilot_pro",
+      authFilePath: "/copilot/auth.json",
+    })
+  })
+
   test("builds Kiro desktop auth provider info", () => {
     expect(
       buildProviderInfo(

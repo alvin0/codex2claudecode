@@ -29,6 +29,12 @@ describe("provider config", () => {
     await expect(readProviderConfig(file)).resolves.toBe("codex")
   })
 
+  test("reads copilot provider", async () => {
+    const file = await tempFile()
+    await writeFile(file, JSON.stringify({ provider: "copilot" }))
+    await expect(readProviderConfig(file)).resolves.toBe("copilot")
+  })
+
   test("invalid JSON defaults to codex and warns", async () => {
     const warnings = captureWarnings()
     const file = await tempFile()
@@ -78,6 +84,7 @@ describe("provider config", () => {
     expect(resolveProviderMode("kiro", "codex")).toBe("kiro")
     expect(resolveProviderMode("codex", "kiro")).toBe("codex")
     expect(resolveProviderMode("anything", "kiro")).toBe("codex")
+    expect(resolveProviderMode("copilot", "kiro")).toBe("copilot")
     expect(resolveProviderMode(undefined, "kiro")).toBe("kiro")
     expect(resolveProviderMode(undefined, undefined)).toBe("codex")
     expect(resolveProviderMode("", "kiro")).toBe("kiro")

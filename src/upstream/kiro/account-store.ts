@@ -1,6 +1,9 @@
-import { readTextFile, setFileMode, writeTextFile } from "../../core/bun-fs"
-import { expandHome } from "../../core/paths"
-import { KIRO_AUTH_TOKEN_PATH } from "./constants"
+import { atomicJsonWrite, pathExists, readTextFile, removePath, setFileMode, writeTextFile } from "../../core/bun-fs"
+import { appDataDir, expandHome } from "../../core/paths"
+import { bunPath as path } from "../../core/paths"
+import { isProviderStatePath, readProviderSection, updateProviderSection, writeProviderSection } from "../../core/provider-state"
+import { KIRO_AUTH_TOKEN_PATH, KIRO_STATE_FILE_NAME } from "./constants"
+import { resolveKiroSourceAuthFile } from "./auth-source"
 import type { KiroAuthFileData, KiroAuthTokenFile, KiroManagedAuthFile } from "./types"
 
 const SOURCE_PULL_OPTIONAL_FIELDS = ["profileArn", "clientIdHash", "clientId", "clientSecret", "accountId"] as const
@@ -36,6 +39,12 @@ interface UpdateKiroAuthSelectionOptions {
 
 export async function readKiroAuthFileSelection(filePath = KIRO_AUTH_TOKEN_PATH, account?: string): Promise<KiroAuthFileSelection> {
   const authFilePath = expandHome(filePath)
+  if (isProviderStatePath(authFilePath)) {
+    const section = await readProviderSection<KiroAuthFileData>("kiro", authFilePath)
+    const parsed = section?.data ?? { activeAccount: undefined, accounts: [] }
+    return selectKiroAuthEntry(parsed, account ?? section?.activeAccount, authFilePath)
+  }
+
   let raw: string
   try {
     raw = await readTextFile(authFilePath)
@@ -54,7 +63,53 @@ export async function readKiroAuthFileSelection(filePath = KIRO_AUTH_TOKEN_PATH,
 }
 
 export async function readKiroAuthFileData(filePath: string): Promise<KiroAuthFileData> {
+  if (isProviderStatePath(filePath)) {
+    const section = await readProviderSection<KiroAuthFileData>("kiro", filePath)
+    return section?.data ?? { activeAccount: undefined, accounts: [] }
+  }
+
   return (await readKiroAuthFileSelection(filePath)).data
+}
+
+export async function ensureKiroAuthFile(authFile = path.join(appDataDir(), KIRO_STATE_FILE_NAME)) {
+  if (await pathExists(authFile)) {
+    const data = await readKiroAuthFileData(authFile).catch(async (error) => {
+      const message = error instanceof Error ? error.message : String(error)
+      if (!message.includes("does not contain any accounts")) throw error
+      return { activeAccount: undefined, accounts: [] } satisfies KiroAuthFileData
+    })
+    if (kiroAuthEntries(data).length) return authFile
+  }
+
+  if (isProviderStatePath(authFile)) {
+    for (const legacyName of ["kiro-state.json", "auth-kiro.json"]) {
+      const legacyPath = path.join(path.dirname(authFile), legacyName)
+      if (!(await pathExists(legacyPath))) continue
+      const legacyData = await readKiroAuthFileData(legacyPath).catch(() => undefined)
+      if (!legacyData || !kiroAuthEntries(legacyData).length) continue
+      const selected = selectKiroAuthEntry(legacyData, undefined, legacyPath)
+      await writeActiveKiroAccount(authFile, legacyData, selected.key)
+      await removePath(legacyPath, { force: true }).catch(() => {})
+      return authFile
+    }
+  }
+
+  const sourceAuthFile = await resolveKiroSourceAuthFile()
+  if (isProviderStatePath(authFile)) {
+    if (sourceAuthFile !== authFile && await pathExists(sourceAuthFile)) {
+      await connectKiroAccountFromKiroAuth(authFile, sourceAuthFile)
+      return authFile
+    }
+    await writeProviderSection("kiro", { data: { activeAccount: undefined, accounts: [] } }, authFile)
+    return authFile
+  }
+
+  if (await pathExists(sourceAuthFile)) {
+    return sourceAuthFile
+  }
+
+  await atomicJsonWrite(authFile, { activeAccount: undefined, accounts: [] }, { mode: 0o600 })
+  return authFile
 }
 
 export async function connectKiroAccount(authFile: string, draft: ConnectKiroAccountDraft) {
@@ -233,6 +288,16 @@ async function writeKiroManagedAuthFile(authFile: string, data: { activeAccount?
 }
 
 async function writeKiroAuthFile(authFile: string, data: KiroAuthFileData) {
+  if (isProviderStatePath(authFile)) {
+    const activeAccount = !Array.isArray(data) && isKiroManagedAuthFile(data) ? data.activeAccount : undefined
+    await updateProviderSection("kiro", authFile, async (section) => ({
+      ...(section ?? {}),
+      data,
+      activeAccount: activeAccount ?? section?.activeAccount,
+    }))
+    return
+  }
+
   await writeTextFile(authFile, `${JSON.stringify(data, null, 2)}\n`, { mode: 0o600 })
   await setFileMode(authFile, 0o600).catch(() => {})
 }

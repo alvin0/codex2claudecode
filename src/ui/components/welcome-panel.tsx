@@ -8,7 +8,7 @@ type EndpointLine = { label: string; value: string }
 export function WelcomePanel(props: { hostname: string; port: number; compact?: boolean; width?: number; providerMode?: ProviderMode; apiPassword?: string }) {
   const width = props.width ?? 42
   const mode = props.providerMode ?? "codex"
-  const title = `Codex2ClaudeCode - ${mode === "kiro" ? "Kiro" : "Codex"} Mode`
+  const title = `Codex2ClaudeCode - ${mode === "kiro" ? "Kiro" : mode === "copilot" ? "Copilot" : "Codex"} Mode`
   const endpoints = welcomeEndpointLines(mode)
   const displayHostname = props.hostname === "0.0.0.0" || props.hostname === "::" ? "127.0.0.1" : props.hostname
   const localUrl = `http://${displayHostname}:${props.port}`
@@ -46,6 +46,18 @@ export function welcomeEndpointLines(mode: ProviderMode): EndpointLine[] {
       { label: "OpenAI", value: "/v1/responses" },
       { label: "", value: "/v1/chat/completions" },
       { label: "Runtime", value: "/health" },
+    ]
+  }
+
+  if (mode === "copilot") {
+    return [
+      ...claude,
+      { label: "OpenAI", value: "/v1/responses" },
+      { label: "", value: "/v1/chat/completions" },
+      { label: "", value: "/v1/embeddings" },
+      { label: "Runtime", value: "/usage" },
+      { label: "", value: "/health" },
+      { label: "Models", value: "/v1/models" },
     ]
   }
 

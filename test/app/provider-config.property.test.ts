@@ -16,7 +16,7 @@ describe("provider config properties", () => {
   test("config round-trip preserves extra fields", async () => {
     await fc.assert(
       fc.asyncProperty(
-        fc.constantFrom<ProviderMode>("codex", "kiro"),
+        fc.constantFrom<ProviderMode>("codex", "kiro", "copilot"),
         fc.dictionary(fc.string().filter((key) => key !== "provider"), fc.jsonValue()),
         async (mode, extraFields) => {
           const file = await tempFile()
@@ -36,7 +36,7 @@ describe("provider config properties", () => {
     console.warn = () => {}
     await fc.assert(
       fc.asyncProperty(
-        fc.string().filter((value) => value !== "codex" && value !== "kiro"),
+        fc.string().filter((value) => value !== "codex" && value !== "kiro" && value !== "copilot"),
         async (invalidValue) => {
           const file = await tempFile()
           await writeFile(file, JSON.stringify({ provider: invalidValue }))
@@ -48,9 +48,9 @@ describe("provider config properties", () => {
 
   test("environment variable override takes precedence", () => {
     fc.assert(
-      fc.property(fc.constantFrom<ProviderMode | undefined>("codex", "kiro", undefined), fc.string({ minLength: 1 }), (configMode, envVar) => {
+      fc.property(fc.constantFrom<ProviderMode | undefined>("codex", "kiro", "copilot", undefined), fc.string({ minLength: 1 }), (configMode, envVar) => {
         const resolved = resolveProviderMode(envVar, configMode)
-        expect(resolved).toBe(envVar === "kiro" ? "kiro" : "codex")
+        expect(resolved).toBe(envVar === "kiro" || envVar === "copilot" ? envVar : "codex")
       }),
     )
   })

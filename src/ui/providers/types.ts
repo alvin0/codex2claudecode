@@ -22,11 +22,22 @@ export interface ProviderAccountConnectResult {
   data: ProviderAccountData
 }
 
+export interface ProviderConnectProgress {
+  message?: string
+  verificationUri?: string
+  userCode?: string
+}
+
+export interface ProviderConnectSourceImportContext {
+  report?: (message: string) => void
+  reportProgress?: (progress: ProviderConnectProgress | undefined) => void
+}
+
 export interface ProviderConnectSource {
   label: string
   description: string
   savingMessage: string
-  import: (authFile: string) => Promise<ProviderAccountConnectResult>
+  import: (authFile: string, context?: ProviderConnectSourceImportContext) => Promise<ProviderAccountConnectResult>
 }
 
 export interface ProviderAccountConnectDefinition {

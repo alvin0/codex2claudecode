@@ -38,9 +38,23 @@ async function kiroAuthFile() {
   return file
 }
 
+async function copilotAuthFile() {
+  const dir = await mkdtemp(path.join(tmpdir(), "copilot-runtime-test-"))
+  tempDirs.push(dir)
+  const file = path.join(dir, "copilot-auth.json")
+  await writeFile(file, JSON.stringify({ type: "copilot", githubToken: "github-token", accountType: "individual" }))
+  return file
+}
+
 function mockFetch(status = 200) {
   return ((url, init) => {
     if (init?.method === "HEAD") return Promise.resolve(new Response(null, { status: 405 }))
+    if (String(url).includes("copilot_internal/v2/token")) return Promise.resolve(Response.json({ token: `copilot-token;exp=${Math.floor(Date.now() / 1000) + 3600}` }))
+    if (String(url).includes("copilot_internal/user")) return Promise.resolve(Response.json({ access_type_sku: "free_limited_copilot", copilot_plan: "copilot_pro", userInfo: { email: "dev@example.com", userId: "user-1" }, limited_user_quotas: { chat: 100, completions: 100 }, limited_user_reset_date: "2026-01-01" }))
+    if (String(url).includes("api.githubcopilot.com") && String(url).endsWith("/models")) return Promise.resolve(Response.json({ data: [{ id: "copilot-model", model_picker_enabled: true }], object: "list" }))
+    if (String(url).includes("api.githubcopilot.com") && String(url).endsWith("/responses")) return Promise.resolve(Response.json({ id: "resp_1", model: "copilot-model", status: "completed", output: [{ type: "message", content: [{ type: "output_text", text: "ok" }] }], usage: { input_tokens: 1, output_tokens: 2 } }))
+    if (String(url).includes("api.githubcopilot.com") && String(url).endsWith("/chat/completions")) return Promise.resolve(Response.json({ id: "chatcmpl_1", model: "copilot-model", choices: [{ index: 0, message: { role: "assistant", content: "ok" }, finish_reason: "stop" }], usage: { prompt_tokens: 1, completion_tokens: 2, total_tokens: 3 } }))
+    if (String(url).includes("api.githubcopilot.com") && String(url).endsWith("/embeddings")) return Promise.resolve(Response.json({ object: "list", data: [{ object: "embedding", index: 0, embedding: [0.1, 0.2] }], model: "copilot-model", usage: { prompt_tokens: 1, total_tokens: 1 } }))
     if (String(url).includes("/usage")) return Promise.resolve(Response.json({ used: true }))
     if (String(url).includes("/environments")) return Promise.resolve(Response.json([]))
     if (String(url).includes("/responses/input_tokens")) return Promise.resolve(Response.json({ object: "response.input_tokens", input_tokens: 7 }))
@@ -195,6 +209,39 @@ describe("runtime server", () => {
       const logFile = await readFile(requestLogFilePath(kiroAuth), "utf8")
       expect(logFile).toContain('"/v1/responses"')
       expect(logFile).toContain('"/v1/chat/completions"')
+    } finally {
+      server.stop(true)
+    }
+  })
+
+  test("Copilot runtime root advertises filesystem-backed endpoints", async () => {
+    globalThis.fetch = mockFetch()
+    process.env.UPSTREAM_PROVIDER = "copilot"
+    const copilotAuth = await copilotAuthFile()
+    process.env.COPILOT_AUTH_FILE = copilotAuth
+
+    const server = await startRuntime({ authFile: copilotAuth, port: 0, healthIntervalMs: 0, logBody: false })
+    const base = `http://${server.hostname}:${server.port}`
+    try {
+      const root = await originalFetch(`${base}/`)
+      expect(root.status).toBe(200)
+      const body = await root.json() as { endpoints: Record<string, string>; registered_routes: Array<{ path: string; method: string; provider: string }> }
+      expect(body.endpoints.messages).toBe("/v1/messages")
+      expect(body.endpoints.responses).toBe("/v1/responses")
+      expect(body.endpoints.chat_completions).toBe("/v1/chat/completions")
+      expect(body.endpoints.embeddings).toBe("/v1/embeddings")
+      expect(body.endpoints.usage).toBe("/usage")
+      expect(body.endpoints.models).toBe("/v1/models")
+      expect(body.endpoints.environments).toBeUndefined()
+      expect(body.registered_routes.some((route) => route.provider === "claude-copilot")).toBe(true)
+      expect(body.registered_routes.some((route) => route.provider === "openai-copilot")).toBe(true)
+      expect(body.registered_routes.some((route) => route.provider === "claude-kiro")).toBe(false)
+      expect(body.registered_routes.some((route) => route.provider === "openai-kiro")).toBe(false)
+      expect((await originalFetch(`${base}/usage`)).status).toBe(200)
+      expect((await originalFetch(`${base}/v1/models`)).status).toBe(200)
+      expect((await originalFetch(`${base}/v1/responses`, { method: "POST", body: JSON.stringify({ model: "m", input: "hi" }) })).status).toBe(200)
+      expect((await originalFetch(`${base}/v1/chat/completions`, { method: "POST", body: JSON.stringify({ model: "m", messages: [{ role: "user", content: "hi" }] }) })).status).toBe(200)
+      expect((await originalFetch(`${base}/v1/embeddings`, { method: "POST", body: JSON.stringify({ model: "m", input: "hi" }) })).status).toBe(200)
     } finally {
       server.stop(true)
     }
