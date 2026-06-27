@@ -3,6 +3,8 @@ import type { JsonObject } from "../../core/types"
 export interface CopilotAuthTokenFile {
   type: "copilot"
   githubToken: string
+  copilotToken?: string
+  copilotTokenExpiresAt?: string
   label?: string
   accountId?: string
   email?: string

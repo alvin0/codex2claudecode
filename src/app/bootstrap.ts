@@ -17,7 +17,8 @@ import { ensureKiroAuthFile } from "../upstream/kiro/account-store"
 import { KIRO_AUTH_TOKEN_PATH, KIRO_STATE_FILE_NAME } from "../upstream/kiro/constants"
 import { Kiro_Upstream_Provider } from "../upstream/kiro"
 import { Copilot_Upstream_Provider } from "../upstream/copilot"
-import { readProviderConfig, resolveProviderMode, type ProviderMode } from "./provider-config"
+import { readProviderConfig, resolveProviderMode } from "./provider-config"
+import type { ProviderMode } from "../core/provider-state"
 
 export async function bootstrapRuntime(options?: RuntimeOptions & { providerMode?: ProviderMode; providerConfigPath?: string }) {
   const configMode = options?.providerMode ? undefined : await readProviderConfig(options?.providerConfigPath)

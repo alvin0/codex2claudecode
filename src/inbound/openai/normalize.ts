@@ -75,9 +75,9 @@ export function normalizeRequestBody(pathname: string, body: JsonObject): JsonOb
       ...normalizedBody,
       model: normalizedModel,
       input: normalizedInput,
-    }
+    } as Record<string, unknown>
     delete embeddingsBody.stream
-    return embeddingsBody
+    return embeddingsBody as JsonObject
   }
 
   if (isChatPath(pathname)) {

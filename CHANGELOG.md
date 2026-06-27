@@ -4,6 +4,15 @@ All notable changes to this package are documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [0.3.1] - 2026-06-27
+
+### Changed
+
+- Updated the npm publish workflow so tagged releases can publish automatically while still supporting manual dispatch.
+- Split GitHub Release and npm publish responsibilities so tag releases no longer try to publish twice.
+- Re-exported provider types and tightened Copilot/OpenAI type surfaces to keep the current codebase type-safe after the provider consolidation work.
+- Rebuilt the bundled `dist/index.js` artifact for this release.
+
 ## [0.3.0] - 2026-06-27
 
 ### Added

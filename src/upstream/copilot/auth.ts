@@ -93,6 +93,10 @@ export class Copilot_Auth_Manager {
     return this.githubToken
   }
 
+  getCopilotToken() {
+    return this.copilotToken
+  }
+
   isTokenExpiringSoon() {
     const time = Date.parse(this.copilotTokenExpiresAt)
     if (Number.isNaN(time)) return true

@@ -7840,7 +7840,7 @@ Learn more about data fetching with Hooks: https://react.dev/link/hooks-data-fet
           offscreenSubtreeIsHidden = prevOffscreenSubtreeIsHidden;
           wasHidden && !hoistableRoot && !prevOffscreenSubtreeIsHidden && !prevOffscreenSubtreeWasHidden && (finishedWork.mode & 2) !== NoMode && 0 <= componentEffectStartTime && 0 <= componentEffectEndTime && 0.05 < componentEffectEndTime - componentEffectStartTime && logComponentReappeared(finishedWork, componentEffectStartTime, componentEffectEndTime);
           commitReconciliationEffects(finishedWork);
-          if (flags & 8192 && (root = finishedWork.stateNode, root._visibility = hoistableRoot ? root._visibility & ~OffscreenVisible : root._visibility | OffscreenVisible, !hoistableRoot || current2 === null || wasHidden || offscreenSubtreeIsHidden || offscreenSubtreeWasHidden || (recursivelyTraverseDisappearLayoutEffects(finishedWork), (finishedWork.mode & 2) !== NoMode && 0 <= componentEffectStartTime && 0 <= componentEffectEndTime && 0.05 < componentEffectEndTime - componentEffectStartTime && logComponentTrigger(finishedWork, componentEffectStartTime, componentEffectEndTime, "Disconnect")), supportsMutation))
+          if (flags & 8192 && (root = finishedWork.stateNode, root._visibility = hoistableRoot ? root._visibility & ~OffscreenVisible : root._visibility | OffscreenVisible, !hoistableRoot || current2 === null || wasHidden || offscreenSubtreeIsHidden || offscreenSubtreeWasHidden || (recursivelyTraverseDisappearLayoutEffects(finishedWork), (finishedWork.mode & 2) !== NoMode && 0 <= componentEffectStartTime && 0 <= componentEffectEndTime && 0.05 < componentEffectEndTime - componentEffectStartTime && logComponentTrigger(finishedWork, componentEffectStartTime, componentEffectEndTime, "Disconnect")), supportsMutation)) {
             a:
               if (current2 = null, supportsMutation)
                 for (root = finishedWork;; ) {
@@ -7890,6 +7890,7 @@ Learn more about data fetching with Hooks: https://react.dev/link/hooks-data-fet
                   root.sibling.return = root.return;
                   root = root.sibling;
                 }
+          }
           flags & 4 && (flags = finishedWork.updateQueue, flags !== null && (current2 = flags.retryQueue, current2 !== null && (flags.retryQueue = null, attachSuspenseRetryListeners(finishedWork, current2))));
           break;
         case 19:
@@ -12553,7 +12554,7 @@ var require_backend = __commonJS((exports, module) => {
         987: (module2, __unused_webpack_exports, __webpack_require__2) => {
           if (true) {
             module2.exports = __webpack_require__2(786);
-          } else {}
+          }
         },
         126: (__unused_webpack_module, exports2, __webpack_require__2) => {
           var process4 = __webpack_require__2(169);
@@ -13003,7 +13004,7 @@ var require_backend = __commonJS((exports, module) => {
         189: (module2, __unused_webpack_exports, __webpack_require__2) => {
           if (true) {
             module2.exports = __webpack_require__2(126);
-          } else {}
+          }
         },
         206: function(module2, exports2, __webpack_require__2) {
           var __WEBPACK_AMD_DEFINE_FACTORY__, __WEBPACK_AMD_DEFINE_ARRAY__, __WEBPACK_AMD_DEFINE_RESULT__;
@@ -13018,7 +13019,7 @@ var require_backend = __commonJS((exports, module) => {
           (function(root, factory) {
             if (true) {
               __WEBPACK_AMD_DEFINE_ARRAY__ = [__webpack_require__2(430)], __WEBPACK_AMD_DEFINE_FACTORY__ = factory, __WEBPACK_AMD_DEFINE_RESULT__ = typeof __WEBPACK_AMD_DEFINE_FACTORY__ === "function" ? __WEBPACK_AMD_DEFINE_FACTORY__.apply(exports2, __WEBPACK_AMD_DEFINE_ARRAY__) : __WEBPACK_AMD_DEFINE_FACTORY__, __WEBPACK_AMD_DEFINE_RESULT__ !== undefined && (module2.exports = __WEBPACK_AMD_DEFINE_RESULT__);
-            } else {}
+            }
           })(this, function ErrorStackParser(StackFrame) {
             var FIREFOX_SAFARI_STACK_REGEXP = /(^|@)\S+:\d+/;
             var CHROME_IE_STACK_REGEXP = /^\s*at .*(\S+:\d+|\(native\))/m;
@@ -13058,10 +13059,10 @@ var require_backend = __commonJS((exports, module) => {
                   var tokens = sanitizedLine.split(/\s+/).slice(1);
                   var locationParts = this.extractLocation(location ? location[1] : tokens.pop());
                   var functionName = tokens.join(" ") || undefined;
-                  var fileName = ["eval", "<anonymous>"].indexOf(locationParts[0]) > -1 ? undefined : locationParts[0];
+                  var fileName2 = ["eval", "<anonymous>"].indexOf(locationParts[0]) > -1 ? undefined : locationParts[0];
                   return new StackFrame({
                     functionName,
-                    fileName,
+                    fileName: fileName2,
                     lineNumber: locationParts[1],
                     columnNumber: locationParts[2],
                     source: line
@@ -13714,7 +13715,7 @@ var require_backend = __commonJS((exports, module) => {
           (function(root, factory) {
             if (true) {
               __WEBPACK_AMD_DEFINE_ARRAY__ = [], __WEBPACK_AMD_DEFINE_FACTORY__ = factory, __WEBPACK_AMD_DEFINE_RESULT__ = typeof __WEBPACK_AMD_DEFINE_FACTORY__ === "function" ? __WEBPACK_AMD_DEFINE_FACTORY__.apply(exports2, __WEBPACK_AMD_DEFINE_ARRAY__) : __WEBPACK_AMD_DEFINE_FACTORY__, __WEBPACK_AMD_DEFINE_RESULT__ !== undefined && (module2.exports = __WEBPACK_AMD_DEFINE_RESULT__);
-            } else {}
+            }
           })(this, function() {
             function _isNumber(n) {
               return !isNaN(parseFloat(n)) && isFinite(n);
@@ -13764,20 +13765,20 @@ var require_backend = __commonJS((exports, module) => {
                 }
               },
               toString: function toString2() {
-                var fileName = this.getFileName() || "";
+                var fileName2 = this.getFileName() || "";
                 var lineNumber = this.getLineNumber() || "";
                 var columnNumber = this.getColumnNumber() || "";
                 var functionName = this.getFunctionName() || "";
                 if (this.getIsEval()) {
-                  if (fileName) {
-                    return "[eval] (" + fileName + ":" + lineNumber + ":" + columnNumber + ")";
+                  if (fileName2) {
+                    return "[eval] (" + fileName2 + ":" + lineNumber + ":" + columnNumber + ")";
                   }
                   return "[eval]:" + lineNumber + ":" + columnNumber;
                 }
                 if (functionName) {
-                  return functionName + " (" + fileName + ":" + lineNumber + ":" + columnNumber + ")";
+                  return functionName + " (" + fileName2 + ":" + lineNumber + ":" + columnNumber + ")";
                 }
-                return fileName + ":" + lineNumber + ":" + columnNumber;
+                return fileName2 + ":" + lineNumber + ":" + columnNumber;
               }
             };
             StackFrame.fromString = function StackFrame$$fromString(str) {
@@ -13788,14 +13789,14 @@ var require_backend = __commonJS((exports, module) => {
               var locationString = str.substring(argsEndIndex + 1);
               if (locationString.indexOf("@") === 0) {
                 var parts = /@(.+?)(?::(\d+))?(?::(\d+))?$/.exec(locationString, "");
-                var fileName = parts[1];
+                var fileName2 = parts[1];
                 var lineNumber = parts[2];
                 var columnNumber = parts[3];
               }
               return new StackFrame({
                 functionName,
                 args: args || undefined,
-                fileName,
+                fileName: fileName2,
                 lineNumber: lineNumber || undefined,
                 columnNumber: columnNumber || undefined
               });
@@ -19088,7 +19089,7 @@ In order to be iterable, non-array objects must have a [Symbol.iterator]() metho
           var suffix = "";
           if (true) {
             suffix = " (<anonymous>)";
-          } else {}
+          }
           return `
 ` + prefix + name + suffix;
         }
@@ -19712,9 +19713,9 @@ In order to be iterable, non-array objects must have a [Symbol.iterator]() metho
             return null;
           }
           for (var i = stackTrace.length - 1;i >= 0; i--) {
-            var _stackTrace$i = parseStackTrace_slicedToArray(stackTrace[i], 6), functionName = _stackTrace$i[0], fileName = _stackTrace$i[1], line = _stackTrace$i[2], col = _stackTrace$i[3], encLine = _stackTrace$i[4], encCol = _stackTrace$i[5];
-            if (fileName.indexOf(":") !== -1) {
-              return [functionName, fileName, encLine || line, encCol || col];
+            var _stackTrace$i = parseStackTrace_slicedToArray(stackTrace[i], 6), functionName = _stackTrace$i[0], fileName2 = _stackTrace$i[1], line = _stackTrace$i[2], col = _stackTrace$i[3], encLine = _stackTrace$i[4], encCol = _stackTrace$i[5];
+            if (fileName2.indexOf(":") !== -1) {
+              return [functionName, fileName2, encLine || line, encCol || col];
             }
           }
           return null;
@@ -19722,9 +19723,9 @@ In order to be iterable, non-array objects must have a [Symbol.iterator]() metho
         function extractLocationFromComponentStack(stack) {
           var stackTrace = parseStackTraceFromString(stack, 0);
           for (var i = 0;i < stackTrace.length; i++) {
-            var _stackTrace$i2 = parseStackTrace_slicedToArray(stackTrace[i], 6), functionName = _stackTrace$i2[0], fileName = _stackTrace$i2[1], line = _stackTrace$i2[2], col = _stackTrace$i2[3], encLine = _stackTrace$i2[4], encCol = _stackTrace$i2[5];
-            if (fileName.indexOf(":") !== -1) {
-              return [functionName, fileName, encLine || line, encCol || col];
+            var _stackTrace$i2 = parseStackTrace_slicedToArray(stackTrace[i], 6), functionName = _stackTrace$i2[0], fileName2 = _stackTrace$i2[1], line = _stackTrace$i2[2], col = _stackTrace$i2[3], encLine = _stackTrace$i2[4], encCol = _stackTrace$i2[5];
+            if (fileName2.indexOf(":") !== -1) {
+              return [functionName, fileName2, encLine || line, encCol || col];
             }
           }
           return null;
@@ -21817,7 +21818,7 @@ In order to be iterable, non-array objects must have a [Symbol.iterator]() metho
                     hasChanges = true;
                     updateMostRecentlyInspectedElementIfNecessary(devtoolsInstance.id);
                   }
-                } else {}
+                }
               }
             } catch (err) {
               _iterator2.e(err);
@@ -23596,7 +23597,7 @@ In order to be iterable, non-array objects must have a [Symbol.iterator]() metho
                       if (contentFiber === null) {
                         throw new Error("There should always be an Offscreen Fiber child in a hydrated Suspense boundary.");
                       }
-                    } else {}
+                    }
                     var _isTimedOut = fiber.memoizedState !== null;
                     if (!_isTimedOut) {
                       newSuspenseNode.rects = measureInstance(newInstance);
@@ -23630,7 +23631,7 @@ In order to be iterable, non-array objects must have a [Symbol.iterator]() metho
                     if (_contentFiber === null) {
                       throw new Error("There should always be an Offscreen Fiber child in a hydrated Suspense boundary.");
                     }
-                  } else {}
+                  }
                   var suspenseState = fiber.memoizedState;
                   var _isTimedOut3 = suspenseState !== null;
                   if (!_isTimedOut3) {
@@ -23730,7 +23731,7 @@ In order to be iterable, non-array objects must have a [Symbol.iterator]() metho
                   trackThrownPromisesFromRetryCache(newSuspenseNode, fiber.stateNode);
                   mountSuspenseChildrenRecursively(_contentFiber2, traceNearestHostComponentUpdate, stashedSuspenseParent, stashedSuspensePrevious, stashedSuspenseRemaining);
                   shouldPopSuspenseNode = false;
-                } else {}
+                }
               } else {
                 if (fiber.child !== null) {
                   mountChildrenRecursively(fiber.child, traceNearestHostComponentUpdate);
@@ -24316,7 +24317,7 @@ In order to be iterable, non-array objects must have a [Symbol.iterator]() metho
                   shouldPopSuspenseNode = false;
                 } else if (previousHydrated && !nextHydrated) {
                   throw new Error("Encountered a dehydrated Suspense boundary that was previously hydrated.");
-                } else {}
+                }
               } else {
                 if (nextFiber.child !== prevFiber.child) {
                   updateFlags |= updateChildrenRecursively(nextFiber.child, prevFiber.child, traceNearestHostComponentUpdate);
@@ -24362,8 +24363,8 @@ In order to be iterable, non-array objects must have a [Symbol.iterator]() metho
                     recordResetChildren(fiberInstance);
                   }
                   updateFlags &= ~ShouldResetChildren;
-                } else {}
-              } else {}
+                }
+              }
               if ((updateFlags & ShouldResetSuspenseChildren) !== NoUpdate) {
                 if (fiberInstance !== null && fiberInstance.kind === FIBER_INSTANCE) {
                   var _suspenseNode3 = fiberInstance.suspenseNode;
@@ -24371,7 +24372,7 @@ In order to be iterable, non-array objects must have a [Symbol.iterator]() metho
                     recordResetSuspenseChildren(_suspenseNode3);
                     updateFlags &= ~ShouldResetSuspenseChildren;
                   }
-                } else {}
+                }
               }
               if ((updateFlags & ShouldResetParentSuspenseChildren) !== NoUpdate) {
                 if (fiberInstance !== null && fiberInstance.kind === FIBER_INSTANCE) {
@@ -24380,7 +24381,7 @@ In order to be iterable, non-array objects must have a [Symbol.iterator]() metho
                     updateFlags &= ~ShouldResetParentSuspenseChildren;
                     updateFlags |= ShouldResetSuspenseChildren;
                   }
-                } else {}
+                }
               }
               return updateFlags;
             } finally {
@@ -27444,7 +27445,7 @@ The error thrown in the component is:
               rendererInterface = renderer_attach(hook, id, renderer, global2, shouldStartProfilingNow, profilingSettings);
             } else if (renderer.ComponentTree) {
               rendererInterface = legacy_renderer_attach(hook, id, renderer, global2);
-            } else {}
+            }
           }
           return rendererInterface;
         }
@@ -29222,14 +29223,14 @@ function parsePort(value) {
 // package.json
 var package_default = {
   name: "codex2claudecode",
-  version: "0.2.5",
-  description: "Bun-powered Claude-compatible local API for Codex and Kiro credentials.",
+  version: "0.3.0",
+  description: "Bun-powered Claude-compatible local API for Codex, Kiro, and Copilot credentials.",
   author: "alvin0 <chaulamdinhai@gmail.com>",
   license: "MIT",
   engines: {
     bun: ">=1.3.0"
   },
-  packageManager: "bun@1.3.13",
+  packageManager: "bun@1.3.14",
   homepage: "https://github.com/alvin0/codex2claudecode#readme",
   repository: {
     type: "git",
@@ -29243,6 +29244,7 @@ var package_default = {
     "codex",
     "claude",
     "claude-code",
+    "copilot",
     "openai",
     "kiro"
   ],
@@ -29441,6 +29443,112 @@ function trimTrailingSlashes(value) {
   return value.replace(/[\\/]+$/, "");
 }
 
+// src/core/registry.ts
+class Provider_Registry {
+  routes = [];
+  register(provider) {
+    for (const descriptor of provider.routes()) {
+      const fullPath = resolveRoutePath(descriptor);
+      const conflict = this.routes.find((registered) => {
+        return registered.descriptor.method === descriptor.method && equivalentPathPattern(registered.fullPath, fullPath) && equivalentDiscriminator(registered.descriptor.headerDiscriminator, descriptor.headerDiscriminator);
+      });
+      if (conflict) {
+        throw new Error(`Route conflict for ${descriptor.method} ${fullPath} between providers ${conflict.provider.name} and ${provider.name}`);
+      }
+      this.routes.push({
+        descriptor,
+        provider,
+        fullPath,
+        registrationOrder: this.routes.length
+      });
+    }
+  }
+  match(method, pathname, headers) {
+    const matches = this.routes.filter((route) => route.descriptor.method === method).filter((route) => matchesPath(route.fullPath, pathname)).map((route) => ({ route, specificity: routeSpecificity(route.descriptor, headers) })).filter((entry) => entry.specificity >= 0).sort((left, right) => {
+      if (right.specificity !== left.specificity)
+        return right.specificity - left.specificity;
+      return left.route.registrationOrder - right.route.registrationOrder;
+    });
+    const winner = matches[0]?.route;
+    return winner ? { descriptor: winner.descriptor, provider: winner.provider } : undefined;
+  }
+  listRoutes() {
+    return this.routes.map((route) => ({
+      path: route.fullPath,
+      method: route.descriptor.method,
+      provider: route.provider.name
+    }));
+  }
+}
+function routeSpecificity(descriptor, headers) {
+  const discriminator = descriptor.headerDiscriminator;
+  if (!discriminator)
+    return 0;
+  const value = headers.get(discriminator.name);
+  if (discriminator.mode === "presence")
+    return value !== null ? 1 : -1;
+  return value === discriminator.value ? 2 : -1;
+}
+function resolveRoutePath(descriptor) {
+  return normalizeJoinedPath(descriptor.basePath, descriptor.path);
+}
+function normalizeJoinedPath(basePath = "", pathname = "") {
+  const base = normalizePathSegment(basePath);
+  const path = normalizePathSegment(pathname);
+  if (base === "/")
+    return path;
+  if (path === "/")
+    return base;
+  return `${base}${path}`.replace(/\/{2,}/g, "/");
+}
+function normalizePathSegment(value) {
+  if (!value || value === "/")
+    return "/";
+  return `/${value.replace(/^\/+|\/+$/g, "")}`;
+}
+function tokenizePath(pathname) {
+  const normalized = normalizePathSegment(pathname);
+  if (normalized === "/")
+    return [];
+  return normalized.slice(1).split("/");
+}
+function matchesPath(pattern, pathname) {
+  const patternSegments = tokenizePath(pattern);
+  const pathSegments = tokenizePath(pathname);
+  if (patternSegments.length !== pathSegments.length)
+    return false;
+  return patternSegments.every((segment, index) => {
+    if (segment.startsWith(":"))
+      return pathSegments[index]?.length > 0;
+    return segment === pathSegments[index];
+  });
+}
+function equivalentPathPattern(left, right) {
+  const leftSegments = tokenizePath(left);
+  const rightSegments = tokenizePath(right);
+  if (leftSegments.length !== rightSegments.length)
+    return false;
+  return leftSegments.every((segment, index) => {
+    const other = rightSegments[index];
+    if (segment.startsWith(":") && other?.startsWith(":"))
+      return true;
+    return segment === other;
+  });
+}
+function equivalentDiscriminator(left, right) {
+  if (!left && !right)
+    return true;
+  if (!left || !right)
+    return false;
+  if (left.mode !== right.mode)
+    return false;
+  if (left.name.toLowerCase() !== right.name.toLowerCase())
+    return false;
+  if (left.mode === "exact")
+    return left.value === right.value;
+  return true;
+}
+
 // src/core/bun-command.ts
 async function runBunCommand(candidates, context) {
   const missingCommands = [];
@@ -29588,110 +29696,80 @@ async function removeWithCommand(target, force = false, recursive = true) {
   await fs.rm(target, { recursive, force });
 }
 
-// src/core/registry.ts
-class Provider_Registry {
-  routes = [];
-  register(provider) {
-    for (const descriptor of provider.routes()) {
-      const fullPath = resolveRoutePath(descriptor);
-      const conflict = this.routes.find((registered) => {
-        return registered.descriptor.method === descriptor.method && equivalentPathPattern(registered.fullPath, fullPath) && equivalentDiscriminator(registered.descriptor.headerDiscriminator, descriptor.headerDiscriminator);
-      });
-      if (conflict) {
-        throw new Error(`Route conflict for ${descriptor.method} ${fullPath} between providers ${conflict.provider.name} and ${provider.name}`);
-      }
-      this.routes.push({
-        descriptor,
-        provider,
-        fullPath,
-        registrationOrder: this.routes.length
-      });
+// src/core/provider-state.ts
+var PROVIDER_STATE_FILE_NAME = "provider-state.json";
+var PROVIDER_CACHE_FILE_NAME = "provider-cache.json";
+var PROVIDER_STATE_PATH = bunPath.join(appDataDir(), PROVIDER_STATE_FILE_NAME);
+var PROVIDER_CACHE_PATH = bunPath.join(appDataDir(), PROVIDER_CACHE_FILE_NAME);
+var writeQueues = new Map;
+function providerStatePath(filePath) {
+  return filePath ? expandHome(filePath) : bunPath.join(appDataDir(), PROVIDER_STATE_FILE_NAME);
+}
+function isProviderStatePath(filePath) {
+  return fileName(expandHome(filePath)) === PROVIDER_STATE_FILE_NAME;
+}
+async function readProviderStateFile(filePath) {
+  const resolved = providerStatePath(filePath);
+  if (!await pathExists(resolved))
+    return {};
+  const parsed = JSON.parse(await readTextFile(resolved));
+  return normalizeProviderStateFile(parsed, resolved);
+}
+async function updateProviderStateFile(filePath, updater) {
+  const resolved = providerStatePath(filePath);
+  await queueWrite(resolved, async () => {
+    const next = await updater(await readProviderStateFile(resolved));
+    await atomicJsonWrite(resolved, normalizeProviderStateFile(next, resolved), { mode: 384 });
+  });
+}
+async function readProviderSection(mode, filePath) {
+  const state = await readProviderStateFile(filePath);
+  const section = state[mode];
+  return normalizeProviderSection(section, mode, providerStatePath(filePath));
+}
+async function writeProviderSection(mode, section, filePath) {
+  await updateProviderStateFile(filePath, async (state) => {
+    state[mode] = normalizeProviderSection(section, mode, providerStatePath(filePath)) ?? { data: section.data };
+    return state;
+  });
+}
+async function updateProviderSection(mode, filePath, updater) {
+  await updateProviderStateFile(filePath, async (state) => {
+    const nextSection = await updater(normalizeProviderSection(state[mode], mode, providerStatePath(filePath)));
+    if (nextSection === undefined) {
+      delete state[mode];
+      return state;
     }
-  }
-  match(method, pathname, headers) {
-    const matches = this.routes.filter((route) => route.descriptor.method === method).filter((route) => matchesPath(route.fullPath, pathname)).map((route) => ({ route, specificity: routeSpecificity(route.descriptor, headers) })).filter((entry) => entry.specificity >= 0).sort((left, right) => {
-      if (right.specificity !== left.specificity)
-        return right.specificity - left.specificity;
-      return left.route.registrationOrder - right.route.registrationOrder;
-    });
-    const winner = matches[0]?.route;
-    return winner ? { descriptor: winner.descriptor, provider: winner.provider } : undefined;
-  }
-  listRoutes() {
-    return this.routes.map((route) => ({
-      path: route.fullPath,
-      method: route.descriptor.method,
-      provider: route.provider.name
-    }));
-  }
-}
-function routeSpecificity(descriptor, headers) {
-  const discriminator = descriptor.headerDiscriminator;
-  if (!discriminator)
-    return 0;
-  const value = headers.get(discriminator.name);
-  if (discriminator.mode === "presence")
-    return value !== null ? 1 : -1;
-  return value === discriminator.value ? 2 : -1;
-}
-function resolveRoutePath(descriptor) {
-  return normalizeJoinedPath(descriptor.basePath, descriptor.path);
-}
-function normalizeJoinedPath(basePath = "", pathname = "") {
-  const base = normalizePathSegment(basePath);
-  const path = normalizePathSegment(pathname);
-  if (base === "/")
-    return path;
-  if (path === "/")
-    return base;
-  return `${base}${path}`.replace(/\/{2,}/g, "/");
-}
-function normalizePathSegment(value) {
-  if (!value || value === "/")
-    return "/";
-  return `/${value.replace(/^\/+|\/+$/g, "")}`;
-}
-function tokenizePath(pathname) {
-  const normalized = normalizePathSegment(pathname);
-  if (normalized === "/")
-    return [];
-  return normalized.slice(1).split("/");
-}
-function matchesPath(pattern, pathname) {
-  const patternSegments = tokenizePath(pattern);
-  const pathSegments = tokenizePath(pathname);
-  if (patternSegments.length !== pathSegments.length)
-    return false;
-  return patternSegments.every((segment, index) => {
-    if (segment.startsWith(":"))
-      return pathSegments[index]?.length > 0;
-    return segment === pathSegments[index];
+    state[mode] = normalizeProviderSection(nextSection, mode, providerStatePath(filePath)) ?? nextSection;
+    return state;
   });
 }
-function equivalentPathPattern(left, right) {
-  const leftSegments = tokenizePath(left);
-  const rightSegments = tokenizePath(right);
-  if (leftSegments.length !== rightSegments.length)
-    return false;
-  return leftSegments.every((segment, index) => {
-    const other = rightSegments[index];
-    if (segment.startsWith(":") && other?.startsWith(":"))
-      return true;
-    return segment === other;
+async function queueWrite(file, task) {
+  const current = writeQueues.get(file) ?? Promise.resolve();
+  const chain = current.then(task);
+  const next = chain.finally(() => {
+    if (writeQueues.get(file) === next)
+      writeQueues.delete(file);
   });
+  writeQueues.set(file, next);
+  return next;
 }
-function equivalentDiscriminator(left, right) {
-  if (!left && !right)
-    return true;
-  if (!left || !right)
-    return false;
-  if (left.mode !== right.mode)
-    return false;
-  if (left.name.toLowerCase() !== right.name.toLowerCase())
-    return false;
-  if (left.mode === "exact")
-    return left.value === right.value;
-  return true;
+function normalizeProviderStateFile(value, filePath) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`Provider state file ${filePath} must contain a JSON object`);
+  }
+  return value;
+}
+function normalizeProviderSection(value, mode, filePath) {
+  if (value === undefined)
+    return;
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`Provider state file ${filePath} has invalid ${mode} section`);
+  }
+  return value;
+}
+function fileName(filePath) {
+  return filePath.split(/[\\/]/).filter(Boolean).at(-1);
 }
 
 // src/core/constants.ts
@@ -38149,6 +38227,19 @@ class Claude_Codex_Inbound_Adapter extends Claude_Inbound_Provider {
   }
 }
 
+// src/inbound/claude/copilot.ts
+class Claude_Copilot_Inbound_Adapter extends Claude_Inbound_Provider {
+  constructor(modelResolver) {
+    super({
+      name: "claude-copilot",
+      modelResolver: modelResolver ?? claudeSettingsModelResolver,
+      upstreamLogLabel: "Copilot messages",
+      inputTokensLogLabel: "Copilot input tokens",
+      expectedUpstreamKind: "copilot"
+    });
+  }
+}
+
 // src/inbound/claude/kiro-count.ts
 var CLAUDE_CORRECTION_FACTOR = 1.15;
 function countKiroClaudeInputTokens(body) {
@@ -38386,6 +38477,18 @@ function normalizeCanonicalRequest(pathname, body, options = {}) {
 }
 function normalizeRequestBody(pathname, body) {
   const normalizedBody = normalizeReasoningBody(body);
+  if (pathname === "/v1/embeddings") {
+    const model = typeof normalizedBody.model === "string" ? normalizedBody.model.trim() : "";
+    const normalizedModel = model.startsWith("github_copilot/") ? model.replace(/^github_copilot\//, "") : model;
+    const normalizedInput = typeof normalizedBody.input === "string" ? [normalizedBody.input] : normalizedBody.input;
+    const embeddingsBody = {
+      ...normalizedBody,
+      model: normalizedModel,
+      input: normalizedInput
+    };
+    delete embeddingsBody.stream;
+    return embeddingsBody;
+  }
   if (isChatPath(pathname)) {
     const messages = Array.isArray(normalizedBody.messages) ? normalizedBody.messages : [];
     const instructions = messages.map((message) => instructionFromMessage(message)).filter((instruction) => Boolean(instruction)).join(`
@@ -39910,6 +40013,42 @@ class OpenAI_Inbound_Provider {
     const upstreamRequestPreview = shouldCaptureProxyBody ? createLogPreview() : undefined;
     const upstreamResponsePreview = shouldCaptureProxyBody ? createLogPreview() : undefined;
     const started = Date.now();
+    if (route.path === "/v1/embeddings") {
+      if (!upstream.embeddingsRaw)
+        return openAIErrorResponse("Embeddings are not supported by this upstream provider.", 501, "server_error");
+      const embeddingsBody = normalizeRequestBody(route.path, wireBody);
+      const response = await upstream.embeddingsRaw(embeddingsBody, {
+        headers: request.headers,
+        signal: request.signal,
+        ...upstreamRequestPreview ? {
+          onRequestBody: (nextBody) => upstreamRequestPreview.append(nextBody)
+        } : {}
+      });
+      const durationMs2 = Date.now() - started;
+      const proxyRequestBody2 = upstreamRequestPreview?.text() || requestBody;
+      const proxyLog = context.onProxy ? {
+        label: this.upstreamLogLabel,
+        method: "POST",
+        target: this.upstreamTarget,
+        status: response.status,
+        durationMs: durationMs2,
+        error: response.ok ? "-" : response.statusText || `HTTP ${response.status}`,
+        requestBody: proxyRequestBody2,
+        responseBody: undefined
+      } : undefined;
+      if (proxyLog)
+        context.onProxy?.(proxyLog);
+      if (!response.body || !shouldCaptureProxyBody || !proxyLog)
+        return response;
+      return interceptResponseStream(response, {
+        onComplete: (responseBody) => {
+          proxyLog.responseBody = responseBody;
+          if (response.status >= 400) {
+            proxyLog.error = responseBody ? previewText2(responseBody) || proxyLog.error : proxyLog.error;
+          }
+        }
+      });
+    }
     const result = await upstream.proxy(normalizeCanonicalRequest(route.path, wireBody, { passthrough: this.passthrough }), {
       headers: request.headers,
       signal: request.signal,
@@ -40086,6 +40225,11 @@ function openAIErrorResponse(message, status, type, sourceHeaders = new Headers)
 function validateOpenAIRequestShape(pathname, body) {
   if (!hasRequiredModel(body))
     return "Missing required parameter: 'model'.";
+  if (pathname === "/v1/embeddings") {
+    if (typeof body.input !== "string" && !Array.isArray(body.input))
+      return "Embeddings request requires `input` (string or array).";
+    return;
+  }
   if (pathname === "/v1/responses") {
     if ("messages" in body)
       return "Unsupported parameter: 'messages'. Use 'input' with /v1/responses.";
@@ -40119,6 +40263,24 @@ function passthroughBodyInit(body) {
   if (body instanceof Uint8Array)
     return body.buffer.slice(body.byteOffset, body.byteOffset + body.byteLength);
   return body;
+}
+
+// src/inbound/openai/copilot.ts
+class OpenAI_Copilot_Inbound_Adapter extends OpenAI_Inbound_Provider {
+  constructor() {
+    super({
+      name: "openai-copilot",
+      passthrough: false,
+      upstreamLogLabel: "Copilot OpenAI",
+      upstreamTarget: "upstream",
+      expectedUpstreamKind: "copilot",
+      routes: [
+        { path: "/v1/responses", method: "POST" },
+        { path: "/v1/chat/completions", method: "POST" },
+        { path: "/v1/embeddings", method: "POST" }
+      ]
+    });
+  }
 }
 
 // src/inbound/openai/kiro.ts
@@ -40181,9 +40343,17 @@ async function readAuthFile(path, account) {
   return selectAuthEntry((await readAuthFileData(path)).data, account, path).auth;
 }
 async function readAuthFileData(path) {
+  const resolved = resolveAuthFile(path);
+  if (isProviderStatePath(resolved)) {
+    const section = await readProviderSection("codex", resolved);
+    return {
+      path: resolved,
+      data: section?.data ?? []
+    };
+  }
   return {
-    path: resolveAuthFile(path),
-    data: JSON.parse(await readTextFile(resolveAuthFile(path)))
+    path: resolved,
+    data: JSON.parse(await readTextFile(resolved))
   };
 }
 function selectAuthEntry(data, account, path = "auth-codex.json") {
@@ -40251,6 +40421,12 @@ function accessTokenExpiresAt(accessToken) {
 
 // src/upstream/codex/account-info.ts
 async function readAccountInfoFile(authFile) {
+  if (isProviderStatePath(authFile)) {
+    const section = await readProviderSection("codex", authFile);
+    if (!section)
+      return;
+    return accountInfoFromAuthData(section.data ?? [], section.activeAccount);
+  }
   try {
     return normalizeAccountInfoFile(JSON.parse(await readTextFile(accountInfoPath(authFile))));
   } catch {
@@ -40258,11 +40434,31 @@ async function readAccountInfoFile(authFile) {
   }
 }
 async function writeAccountInfoFile(authFile, data, activeAccount) {
+  if (isProviderStatePath(authFile)) {
+    await updateProviderSection("codex", authFile, async (section) => ({
+      ...section ?? {},
+      data,
+      activeAccount: activeAccount ?? section?.activeAccount
+    }));
+    return;
+  }
   const previous = await readAccountInfoFile(authFile);
   await writeTextFile(accountInfoPath(authFile), `${JSON.stringify(accountInfoFromAuthData(data, activeAccount ?? previous?.activeAccount), null, 2)}
 `);
 }
 async function refreshActiveAccountInfo(authFile, account) {
+  if (isProviderStatePath(authFile)) {
+    const section = await readProviderSection("codex", authFile);
+    const data = section?.data ?? [];
+    const selected2 = selectAuthEntry(data, account ?? section?.activeAccount, authFile);
+    const key2 = accountInfoKey(selected2.auth, selected2.index);
+    await updateProviderSection("codex", authFile, async (current) => ({
+      ...current ?? {},
+      data,
+      activeAccount: key2
+    }));
+    return accountInfoFromAuth(selected2.auth);
+  }
   const file = await readAuthFileData(authFile);
   const previous = await readAccountInfoFile(authFile);
   const selected = selectAuthEntry(file.data, account ?? previous?.activeAccount, authFile);
@@ -40271,11 +40467,48 @@ async function refreshActiveAccountInfo(authFile, account) {
   return accountInfoFromAuth(selected.auth);
 }
 async function writeActiveAccountInfo(authFile, data, account) {
+  if (isProviderStatePath(authFile)) {
+    const selected2 = selectAuthEntry(data, account, authFile);
+    await updateProviderSection("codex", authFile, async (section) => ({
+      ...section ?? {},
+      data,
+      activeAccount: accountInfoKey(selected2.auth, selected2.index)
+    }));
+    return;
+  }
   const selected = selectAuthEntry(data, account, authFile);
   await writeAccountInfoFile(authFile, data, accountInfoKey(selected.auth, selected.index));
 }
 function accountInfoPath(authFile) {
+  if (isProviderStatePath(authFile))
+    return authFile;
   return bunPath.join(bunPath.dirname(authFile), ".account-info.json");
+}
+async function ensureCodexAuthFile(authFile) {
+  if (await pathExists(authFile)) {
+    const data = await readAuthFileData(authFile).catch(() => {
+      return;
+    });
+    const entries = data ? Array.isArray(data.data) ? data.data : [data.data] : [];
+    if (entries.length)
+      return authFile;
+  }
+  if (isProviderStatePath(authFile)) {
+    const legacyAuthFile = resolveAuthFile();
+    if (legacyAuthFile !== authFile && await pathExists(legacyAuthFile)) {
+      const legacyData = await readAuthFileData(legacyAuthFile);
+      const legacyInfo = await readAccountInfoFile(legacyAuthFile);
+      await writeAccountInfoFile(authFile, legacyData.data, legacyInfo?.activeAccount);
+      await removePath(legacyAuthFile, { force: true }).catch(() => {});
+      await removePath(accountInfoPath(legacyAuthFile), { force: true }).catch(() => {});
+      return authFile;
+    }
+    await writeAccountInfoFile(authFile, [], undefined);
+    return authFile;
+  }
+  await writeTextFile(authFile, `[]
+`, { mode: 384 });
+  return authFile;
 }
 function accountInfoFromAuthData(data, activeAccount) {
   const accounts = Object.fromEntries((Array.isArray(data) ? data : [data]).map((auth, index) => [accountInfoKey(auth, index), accountInfoFromAuth(auth)]));
@@ -40649,6 +40882,17 @@ class CodexStandaloneClient {
   async saveAuthFile() {
     if (!this.authFile)
       return;
+    if (isProviderStatePath(this.authFile)) {
+      const file = await readAuthFileData(this.authFile);
+      const entries = Array.isArray(file.data) ? file.data : [file.data];
+      const index = this.authEntryIndex ?? 0;
+      entries[index] = this.authFileContent(entries[index]);
+      await updateProviderSection("codex", this.authFile, async () => ({
+        data: entries,
+        activeAccount: accountInfoKey(entries[index], index)
+      }));
+      return;
+    }
     if (this.authFileIsArray) {
       const file = await readAuthFileData(this.authFile);
       const entries = Array.isArray(file.data) ? file.data : [file.data];
@@ -40936,6 +41180,558 @@ function toCanonicalPassthrough(response) {
   };
 }
 
+// src/upstream/copilot/constants.ts
+var COPILOT_AUTH_FILE_NAME = "provider-state.json";
+var COPILOT_CACHE_FILE_NAME = "provider-cache.json";
+var COPILOT_MODEL_CACHE_TTL_SECONDS = 3600;
+var COPILOT_TOKEN_REFRESH_MARGIN_SECONDS = 60;
+var COPILOT_GITHUB_API_BASE_URL = "https://api.github.com";
+var COPILOT_GITHUB_BASE_URL = "https://github.com";
+var COPILOT_GITHUB_CLIENT_ID = "Iv1.b507a08c87ecfe98";
+var COPILOT_GITHUB_APP_SCOPES = ["read:user"].join(" ");
+var COPILOT_GITHUB_VERSION = "0.39.2";
+var COPILOT_EDITOR_PLUGIN_VERSION = `copilot-chat/${COPILOT_GITHUB_VERSION}`;
+var COPILOT_USER_AGENT = `GitHubCopilotChat/${COPILOT_GITHUB_VERSION}`;
+var COPILOT_API_VERSION = "2025-04-01";
+
+// src/upstream/copilot/cache.ts
+function copilotCacheFilePath(filePath) {
+  const resolved = filePath ?? bunPath.join(appDataDir(), COPILOT_CACHE_FILE_NAME);
+  return resolved;
+}
+async function readCopilotCacheFile(filePath) {
+  const resolved = copilotCacheFilePath(filePath);
+  try {
+    const parsed = JSON.parse(await readTextFile(resolved));
+    return normalizeCopilotCacheFile(parsed);
+  } catch {
+    return { tokens: {}, models: {} };
+  }
+}
+async function writeCopilotCacheFile(file, filePath) {
+  await atomicJsonWrite(copilotCacheFilePath(filePath), normalizeCopilotCacheFile(file), { mode: 384 });
+}
+async function readCopilotTokenCache(accountKey, filePath) {
+  const file = await readCopilotCacheFile(filePath);
+  return file.tokens[accountKey];
+}
+async function writeCopilotTokenCache(accountKey, entry, filePath) {
+  const file = await readCopilotCacheFile(filePath);
+  file.tokens[accountKey] = entry;
+  await writeCopilotCacheFile(file, filePath);
+}
+async function readCopilotModelCache(accountKey, filePath) {
+  const file = await readCopilotCacheFile(filePath);
+  return file.models[accountKey];
+}
+async function writeCopilotModelCache(accountKey, entry, filePath) {
+  const file = await readCopilotCacheFile(filePath);
+  file.models[accountKey] = entry;
+  await writeCopilotCacheFile(file, filePath);
+}
+function normalizeCopilotCacheFile(value) {
+  return {
+    tokens: value?.tokens && typeof value.tokens === "object" && !Array.isArray(value.tokens) ? value.tokens : {},
+    models: value?.models && typeof value.models === "object" && !Array.isArray(value.models) ? value.models : {}
+  };
+}
+
+// src/upstream/copilot/auth.ts
+class Copilot_Auth_Manager {
+  githubToken;
+  copilotToken;
+  copilotTokenExpiresAt;
+  authFilePath;
+  fetchFn;
+  fingerprint;
+  copilotVersion;
+  selection;
+  accountType;
+  accountId;
+  email;
+  plan;
+  authType;
+  refreshPromise;
+  originalCredentials;
+  constructor(credentials, authFilePath, options = {}) {
+    this.githubToken = credentials.githubToken;
+    this.copilotToken = credentials.githubToken;
+    this.copilotTokenExpiresAt = credentials.copilotTokenExpiresAt ?? new Date(0).toISOString();
+    this.authFilePath = authFilePath;
+    this.fetchFn = options.fetch ?? fetch;
+    this.fingerprint = options.fingerprint ?? crypto.randomUUID().replace(/-/g, "").slice(0, 12);
+    this.copilotVersion = options.copilotVersion ?? COPILOT_GITHUB_VERSION;
+    this.selection = options.selection;
+    this.accountType = credentials.accountType ?? options.accountType ?? "individual";
+    this.accountId = credentials.accountId;
+    this.email = credentials.email;
+    this.plan = credentials.plan;
+    this.authType = credentials.authType ?? "unknown";
+    this.originalCredentials = { ...credentials };
+    if (credentials.copilotToken) {
+      this.copilotToken = credentials.copilotToken;
+      this.copilotTokenExpiresAt = credentials.copilotTokenExpiresAt ?? new Date(0).toISOString();
+    }
+  }
+  static async fromAuthFile(filePath = defaultCopilotAuthFile(), options = {}) {
+    const authFilePath = expandHome(filePath);
+    const selection = await readCopilotAuthFileSelection(authFilePath, options.authAccount);
+    const manager = new Copilot_Auth_Manager(selection.credentials, authFilePath, { ...options, selection });
+    await manager.loadCachedState();
+    return manager;
+  }
+  async getAccessToken() {
+    if (this.isTokenExpiringSoon())
+      await this.refresh();
+    return this.copilotToken;
+  }
+  getAuthType() {
+    return this.authType;
+  }
+  getAccountType() {
+    return this.accountType;
+  }
+  getEmail() {
+    return this.email;
+  }
+  getPlan() {
+    return this.plan;
+  }
+  getAccountId() {
+    return this.accountId;
+  }
+  getGitHubToken() {
+    return this.githubToken;
+  }
+  getCopilotToken() {
+    return this.copilotToken;
+  }
+  isTokenExpiringSoon() {
+    const time = Date.parse(this.copilotTokenExpiresAt);
+    if (Number.isNaN(time))
+      return true;
+    return Date.now() >= time - COPILOT_TOKEN_REFRESH_MARGIN_SECONDS * 1000;
+  }
+  async refresh() {
+    if (this.refreshPromise)
+      return this.refreshPromise;
+    this.refreshPromise = this.refreshWithGitHubToken().finally(() => {
+      this.refreshPromise = undefined;
+    });
+    return this.refreshPromise;
+  }
+  async refreshAndPersist() {
+    await this.refresh();
+    await this.writeBackCredentials();
+  }
+  async loadCachedState() {
+    const accountKey = this.currentAccountKey();
+    const cache = await readCopilotTokenCache(accountKey, cacheFilePath(this.authFilePath));
+    if (cache?.copilotToken && cache?.expiresAt) {
+      this.copilotToken = cache.copilotToken;
+      this.copilotTokenExpiresAt = cache.expiresAt;
+      this.accountType = cache.accountType || this.accountType;
+      return;
+    }
+    await this.refresh();
+    await this.writeBackCredentials();
+  }
+  async refreshWithGitHubToken() {
+    const snapshot = await fetchCopilotAccountSnapshot(this.githubToken, {
+      fetch: this.fetchFn,
+      accountType: this.accountType,
+      authType: this.authType === "unknown" ? undefined : this.authType,
+      fingerprint: this.fingerprint,
+      copilotVersion: this.copilotVersion
+    });
+    this.applySnapshot(snapshot);
+    await this.persistCache(snapshot);
+  }
+  applySnapshot(snapshot) {
+    this.copilotToken = snapshot.copilotToken;
+    this.copilotTokenExpiresAt = snapshot.copilotTokenExpiresAt;
+    this.accountType = snapshot.accountType;
+    this.authType = snapshot.authType;
+    this.accountId = snapshot.accountId ?? this.accountId;
+    this.email = snapshot.email ?? this.email;
+    this.plan = snapshot.plan ?? this.plan;
+  }
+  async persistCache(snapshot) {
+    await writeCopilotTokenCache(this.currentAccountKey(), {
+      copilotToken: snapshot.copilotToken,
+      expiresAt: snapshot.copilotTokenExpiresAt,
+      accountType: snapshot.accountType
+    }, cacheFilePath(this.authFilePath));
+  }
+  async writeBackCredentials() {
+    const next = this.currentCredentials();
+    const payload = this.selection ? updateCopilotAuthSelection(this.selection, next) : next;
+    await writeCopilotAuthFile(this.authFilePath, payload);
+  }
+  currentCredentials() {
+    return {
+      ...this.originalCredentials,
+      githubToken: this.githubToken,
+      accountType: this.accountType,
+      ...this.accountId !== undefined ? { accountId: this.accountId } : {},
+      ...this.email !== undefined ? { email: this.email } : {},
+      ...this.plan !== undefined ? { plan: this.plan } : {},
+      authType: this.authType,
+      copilotToken: this.copilotToken,
+      copilotTokenExpiresAt: this.copilotTokenExpiresAt
+    };
+  }
+  currentAccountKey() {
+    return copilotAccountKey(this.currentCredentials(), this.selection?.index ?? 0);
+  }
+}
+async function fetchCopilotAccountSnapshot(githubToken, options = {}) {
+  const fetchFn = options.fetch ?? fetch;
+  const accountType = cleanAccountType(options.accountType) ?? "individual";
+  const copilotToken = await getValidTempToken(githubToken, { fetch: fetchFn, fingerprint: options.fingerprint, copilotVersion: options.copilotVersion, accountType });
+  const usage = await getCopilotUsage(githubToken, { fetch: fetchFn, copilotVersion: options.copilotVersion });
+  return {
+    copilotToken,
+    copilotTokenExpiresAt: tokenExpiresAt(copilotToken),
+    accountType,
+    authType: options.authType ?? "github_token",
+    email: usage.userInfo?.email,
+    plan: usage.copilot_plan,
+    accountId: usage.userInfo?.userId
+  };
+}
+async function getCopilotUsage(githubToken, options = {}) {
+  const fetchFn = options.fetch ?? fetch;
+  const response = await fetchFn(`${COPILOT_GITHUB_API_BASE_URL}/copilot_internal/user`, {
+    headers: githubHeaders(githubToken, options.copilotVersion)
+  });
+  if (!response.ok)
+    throw new Error(`Failed to get Copilot usage: ${response.status} ${await response.text()}`);
+  return await response.json();
+}
+async function getCopilotDeviceCode(options = {}) {
+  const response = await (options.fetch ?? fetch)(`${COPILOT_GITHUB_BASE_URL}/login/device/code`, {
+    method: "POST",
+    headers: standardHeaders(),
+    body: JSON.stringify({
+      client_id: COPILOT_GITHUB_CLIENT_ID,
+      scope: COPILOT_GITHUB_APP_SCOPES
+    })
+  });
+  if (!response.ok) {
+    const details = await response.text().catch(() => "");
+    throw new Error(`Failed to get device code (status ${response.status})${details ? `: ${details}` : ""}`);
+  }
+  return await response.json();
+}
+async function pollCopilotDeviceToken(deviceCode, options = {}) {
+  const response = await (options.fetch ?? fetch)(`${COPILOT_GITHUB_BASE_URL}/login/oauth/access_token`, {
+    method: "POST",
+    headers: standardHeaders(),
+    body: JSON.stringify({
+      client_id: COPILOT_GITHUB_CLIENT_ID,
+      device_code: deviceCode,
+      grant_type: "urn:ietf:params:oauth:grant-type:device_code"
+    })
+  });
+  if (!response.ok) {
+    const details = await response.text().catch(() => "");
+    throw new Error(`Failed to exchange device code (status ${response.status})${details ? `: ${details}` : ""}`);
+  }
+  return await response.json();
+}
+async function getValidTempToken(githubToken, options) {
+  const response = await (options.fetch ?? fetch)(`${COPILOT_GITHUB_API_BASE_URL}/copilot_internal/v2/token`, {
+    method: "GET",
+    headers: githubHeaders(githubToken, options.copilotVersion, options.fingerprint, options.accountType)
+  });
+  if (!response.ok)
+    throw new Error(`Unable to generate Copilot token: ${response.status} ${await response.text()}`);
+  const json = await response.json();
+  if (!json.token)
+    throw new Error("Unable to generate new short-lived Copilot token");
+  return json.token;
+}
+function githubHeaders(githubToken, copilotVersion = COPILOT_GITHUB_VERSION, fingerprint = crypto.randomUUID().replace(/-/g, "").slice(0, 12), accountType = "individual") {
+  return {
+    ...standardHeaders(),
+    authorization: `token ${githubToken}`,
+    "editor-version": `vscode/1.112.0`,
+    "editor-plugin-version": COPILOT_EDITOR_PLUGIN_VERSION,
+    "user-agent": COPILOT_USER_AGENT,
+    "x-github-api-version": COPILOT_API_VERSION,
+    "x-vscode-user-agent-library-version": "electron-fetch",
+    "x-copilot-account-type": accountType,
+    "x-request-id": crypto.randomUUID(),
+    "x-copilot-version": copilotVersion,
+    "x-copilot-fingerprint": fingerprint
+  };
+}
+function standardHeaders() {
+  return {
+    "content-type": "application/json",
+    accept: "application/json"
+  };
+}
+function cleanAccountType(value) {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : undefined;
+}
+function tokenExpiresAt(token) {
+  const parts = token.split(";");
+  for (const part of parts) {
+    if (part.startsWith("exp=")) {
+      const seconds = Number.parseInt(part.slice(4), 10);
+      if (Number.isFinite(seconds) && seconds > 0)
+        return new Date(seconds * 1000).toISOString();
+    }
+  }
+  return new Date(Date.now() + 15 * 60000).toISOString();
+}
+function cacheFilePath(authFile) {
+  return bunPath.join(bunPath.dirname(expandHome(authFile)), COPILOT_CACHE_FILE_NAME);
+}
+function defaultCopilotAuthFile() {
+  return bunPath.join(homeDir(), ".codex2claudecode", COPILOT_AUTH_FILE_NAME);
+}
+
+// src/upstream/copilot/account-store.ts
+async function readCopilotAuthFileSelection(filePath = bunPath.join(appDataDir(), COPILOT_AUTH_FILE_NAME), account) {
+  const authFilePath = expandHome(filePath);
+  if (isProviderStatePath(authFilePath)) {
+    const section = await readProviderSection("copilot", authFilePath);
+    const parsed2 = section?.data ?? { activeAccount: undefined, accounts: [] };
+    return selectCopilotAuthEntry2(parsed2, account ?? section?.activeAccount, authFilePath);
+  }
+  let raw;
+  try {
+    raw = await readTextFile(authFilePath);
+  } catch (error) {
+    throw new Error(`Copilot auth file not found at ${authFilePath}: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (error) {
+    throw new Error(`Failed to parse Copilot auth file ${authFilePath}: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  return selectCopilotAuthEntry2(parsed, account, authFilePath);
+}
+async function readCopilotAuthFileData(filePath) {
+  return (await readCopilotAuthFileSelection(filePath)).data;
+}
+async function ensureCopilotAuthFile(authFile = bunPath.join(appDataDir(), COPILOT_AUTH_FILE_NAME)) {
+  if (await pathExists(authFile)) {
+    const data = await readCopilotAuthFileData(authFile).catch(() => ({ activeAccount: undefined, accounts: [] }));
+    if (copilotAuthEntries(data).length)
+      return authFile;
+  }
+  const legacyAuthFile = bunPath.join(appDataDir(), "copilot-auth.json");
+  const legacyCacheFile = bunPath.join(appDataDir(), ".copilot-cache.json");
+  if (isProviderStatePath(authFile)) {
+    if (await pathExists(legacyAuthFile)) {
+      const legacyData = await readCopilotAuthFileData(legacyAuthFile);
+      await writeCopilotAuthFile(authFile, legacyData);
+      if (await pathExists(legacyCacheFile)) {
+        const legacyCache = await readCopilotCacheFile(legacyCacheFile);
+        await writeCopilotCacheFile(legacyCache);
+      }
+      await removePath(legacyAuthFile, { force: true }).catch(() => {});
+      await removePath(legacyCacheFile, { force: true }).catch(() => {});
+      return authFile;
+    }
+    await writeCopilotAuthFile(authFile, { activeAccount: undefined, accounts: [] });
+    return authFile;
+  }
+  if (await pathExists(legacyAuthFile))
+    return legacyAuthFile;
+  await atomicJsonWrite(authFile, { activeAccount: undefined, accounts: [] }, { mode: 384 });
+  return authFile;
+}
+async function connectCopilotAccount(authFile, draft, options) {
+  const githubToken = cleanToken2(draft.githubToken);
+  if (!githubToken)
+    throw new Error("githubToken is required");
+  const snapshot = await fetchCopilotAccountSnapshot(githubToken, {
+    fetch: options?.fetch,
+    accountType: draft.accountType,
+    authType: options?.authType
+  });
+  const entry = connectedCopilotAuthEntry(draft, snapshot);
+  return saveConnectedCopilotAuth(authFile, entry, snapshot);
+}
+async function connectCopilotAccountFromGitHubToken(authFile, githubToken, options) {
+  return connectCopilotAccount(authFile, { githubToken }, options);
+}
+async function writeActiveCopilotAccount(authFile, data, account) {
+  const selected = selectCopilotAuthEntry2(data, account, authFile);
+  await writeCopilotAuthFile(authFile, managedCopilotAuthFile(data, selected.key, copilotAuthEntries(data)));
+}
+async function saveCopilotCache(authFile, accountKey, snapshot) {
+  await writeCopilotTokenCache(accountKey, {
+    copilotToken: snapshot.copilotToken,
+    expiresAt: snapshot.copilotTokenExpiresAt,
+    accountType: snapshot.accountType
+  }, cacheFilePath2(authFile));
+  await writeCopilotModelCache(accountKey, {
+    models: [],
+    fetchedAt: new Date().toISOString()
+  }, cacheFilePath2(authFile));
+}
+function selectCopilotAuthEntry2(value, account, filePath = "copilot-auth.json") {
+  const normalized = normalizeCopilotAuthFileData(value, filePath);
+  const activeAccount = normalized.format === "managed" ? normalized.data.activeAccount : undefined;
+  const requested = account ?? activeAccount;
+  const requestedIndex = requested ? normalized.accounts.findIndex((auth, index2) => copilotAuthEntryAliases(auth, index2).includes(requested)) : -1;
+  if (account && requestedIndex < 0)
+    throw new Error(`Copilot auth file ${filePath} does not contain account ${account}`);
+  const index = requestedIndex >= 0 ? requestedIndex : 0;
+  const credentials = normalized.accounts[index];
+  if (!credentials)
+    throw new Error(`Copilot auth file ${filePath} does not contain any accounts`);
+  return {
+    data: normalized.data,
+    credentials,
+    filePath,
+    format: normalized.format,
+    index,
+    key: copilotAccountKey(credentials, index)
+  };
+}
+function updateCopilotAuthSelection(selection, credentials) {
+  if (selection.format === "single")
+    return credentials;
+  if (selection.format === "array") {
+    return selection.data.map((account, index) => index === selection.index ? credentials : account);
+  }
+  const data = selection.data;
+  return {
+    ...data,
+    activeAccount: copilotAccountKey(credentials, selection.index),
+    accounts: data.accounts.map((account, index) => index === selection.index ? credentials : account)
+  };
+}
+function copilotAuthEntries(data) {
+  if (Array.isArray(data))
+    return data;
+  if (isCopilotManagedAuthFile(data))
+    return data.accounts;
+  return [data];
+}
+function copilotAccountKey(auth, index) {
+  return firstString(auth.accountId, auth.email, auth.label, auth.accountType, auth.sourceAuthFile) ?? `copilot-account-${index + 1}`;
+}
+function validateCopilotAuthToken(value, filePath) {
+  if (!value || typeof value !== "object" || Array.isArray(value))
+    throw new Error(`Copilot auth file ${filePath} must contain a JSON object`);
+  const item = value;
+  if (typeof item.githubToken !== "string")
+    throw new Error(`Copilot auth file ${filePath} is missing string field githubToken`);
+  return {
+    type: "copilot",
+    githubToken: item.githubToken,
+    ...typeof item.label === "string" ? { label: item.label } : {},
+    ...typeof item.accountId === "string" ? { accountId: item.accountId } : {},
+    ...typeof item.email === "string" ? { email: item.email } : {},
+    ...typeof item.plan === "string" ? { plan: item.plan } : {},
+    ...typeof item.accountType === "string" ? { accountType: item.accountType } : {},
+    ...typeof item.authType === "string" ? { authType: item.authType } : {},
+    ...typeof item.sourceAuthFile === "string" ? { sourceAuthFile: item.sourceAuthFile } : {},
+    ...typeof item.sourceAccountKey === "string" ? { sourceAccountKey: item.sourceAccountKey } : {}
+  };
+}
+async function saveConnectedCopilotAuth(authFile, auth, snapshot) {
+  const file = await readCopilotAuthFileData(authFile).catch(() => ({ activeAccount: undefined, accounts: [] }));
+  const entries = copilotAuthEntries(file);
+  const index = entries.findIndex((entry, itemIndex) => copilotAuthEntryAliases(entry, itemIndex).some((alias) => copilotAuthEntryAliases(auth, itemIndex).includes(alias)));
+  const nextEntries = index >= 0 ? entries.map((entry, itemIndex) => itemIndex === index ? { ...entry, ...auth } : entry) : [...entries, auth];
+  const accountIndex = index >= 0 ? index : nextEntries.length - 1;
+  const accountKey = copilotAccountKey(nextEntries[accountIndex], accountIndex);
+  const data = managedCopilotAuthFile(file, accountKey, nextEntries);
+  await writeCopilotAuthFile(authFile, data);
+  await saveCopilotCache(authFile, accountKey, snapshot);
+  return { accountKey, data };
+}
+function connectedCopilotAuthEntry(draft, snapshot) {
+  const label = cleanText(draft.label);
+  const accountType = cleanToken2(draft.accountType) || snapshot.accountType;
+  const githubToken = cleanToken2(draft.githubToken);
+  if (!githubToken)
+    throw new Error("githubToken is required");
+  return {
+    type: "copilot",
+    githubToken,
+    ...label ? { label } : {},
+    ...snapshot.accountId ? { accountId: snapshot.accountId } : {},
+    ...snapshot.email ? { email: snapshot.email } : {},
+    ...snapshot.plan ? { plan: snapshot.plan } : {},
+    ...accountType ? { accountType } : {},
+    authType: snapshot.authType
+  };
+}
+async function writeCopilotAuthFile(authFile, data) {
+  if (isProviderStatePath(authFile)) {
+    const activeAccount = Array.isArray(data) ? undefined : data.activeAccount;
+    await updateProviderSection("copilot", authFile, async (section) => ({
+      ...section ?? {},
+      data,
+      activeAccount: activeAccount ?? section?.activeAccount
+    }));
+    return;
+  }
+  await atomicJsonWrite(expandHome(authFile), data, { mode: 384 });
+}
+function managedCopilotAuthFile(data, activeAccount, accounts) {
+  if (isCopilotManagedAuthFile(data)) {
+    return {
+      ...data,
+      activeAccount,
+      accounts
+    };
+  }
+  return {
+    activeAccount,
+    accounts
+  };
+}
+function normalizeCopilotAuthFileData(value, filePath) {
+  if (Array.isArray(value)) {
+    const accounts = value.map((entry, index) => validateCopilotAuthToken(entry, `${filePath}[${index}]`));
+    return { data: accounts, accounts, format: "array" };
+  }
+  if (isCopilotManagedAuthFile(value)) {
+    const accounts = value.accounts.map((entry, index) => validateCopilotAuthToken(entry, `${filePath}.accounts[${index}]`));
+    return { data: { ...value, accounts }, accounts, format: "managed" };
+  }
+  return { data: validateCopilotAuthToken(value, filePath), accounts: [validateCopilotAuthToken(value, filePath)], format: "single" };
+}
+function copilotAuthEntryAliases(auth, index) {
+  return [
+    auth.accountId,
+    auth.email,
+    auth.label,
+    auth.accountType,
+    auth.sourceAccountKey,
+    copilotAccountKey(auth, index)
+  ].filter((value) => typeof value === "string" && value.length > 0);
+}
+function cacheFilePath2(authFile) {
+  return bunPath.join(bunPath.dirname(expandHome(authFile)), COPILOT_CACHE_FILE_NAME);
+}
+function firstString(...values) {
+  return values.find((value) => typeof value === "string" && value.trim().length > 0);
+}
+function cleanToken2(value) {
+  return value?.trim().replace(/^['"]|['"]$/g, "").replace(/\s+/g, "") ?? "";
+}
+function cleanText(value) {
+  const cleaned = value?.trim();
+  return cleaned ? cleaned : undefined;
+}
+function isCopilotManagedAuthFile(value) {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value) && Array.isArray(value.accounts));
+}
+
 // src/upstream/kiro/constants.ts
 var KIRO_AUTH_TOKEN_PATH = "~/.aws/sso/cache/kiro-auth-token.json";
 var KIRO_AUTH_TOKEN_CLI_PATH = "~/.aws/sso/cache/kiro-auth-token-cli.json";
@@ -40992,7 +41788,7 @@ var REASONING_EFFORT_BUDGETS = {
 };
 var USER_AGENT_TEMPLATE = "aws-sdk-js/1.0.27 ua/2.1 os/{platform}#{version} lang/js md/nodejs#{nodeVersion} api/codewhispererstreaming#1.0.27 m/E KiroIDE-{kiroVersion}-{fingerprint}";
 var X_AMZ_USER_AGENT_TEMPLATE = "aws-sdk-js/1.0.27 KiroIDE-{kiroVersion}-{fingerprint}";
-var KIRO_STATE_FILE_NAME = "kiro-state.json";
+var KIRO_STATE_FILE_NAME = "provider-state.json";
 var HIDDEN_KIRO_MODELS = [
   "claude-sonnet-4.5",
   "claude-sonnet-4",
@@ -41016,68 +41812,16 @@ async function resolveKiroSourceAuthFile(env = process.env) {
   return candidates[0];
 }
 
-// src/upstream/kiro/errors.ts
-var REDACTED = "[redacted]";
-var SECRET_KEYS = /authorization|access[_-]?token|refresh[_-]?token|id[_-]?token|profile[_-]?arn|mcp[_-]?authorization|client[_-]?secret/i;
-var TOKEN_LIKE = /\b(?:Bearer\s+)?[A-Za-z0-9._~+/=-]{24,}\b/g;
-function classifyNetworkError(error) {
-  const detail = errorMessage(error);
-  const lower = detail.toLowerCase();
-  const category = error instanceof DOMException && error.name === "AbortError" || /timeout|timed out|abort/.test(lower) ? "network_timeout" : /enotfound|eai_again|getaddrinfo|dns|name resolution|could not resolve/.test(lower) ? "network_dns" : /econnrefused|econnreset|econnaborted|network down|connection|connect|fetch failed/.test(lower) ? "network_connect" : "unknown";
-  return { category, detail: redact(detail), message: networkMessage(category, detail) };
-}
-function classifyHttpError(status, body) {
-  const lower = body.toLowerCase();
-  if (status === 401 || status === 403)
-    return "auth";
-  if (status === 429)
-    return "quota";
-  if (status >= 500)
-    return "upstream_5xx";
-  if (/content length|too large|exceeds|context limit|payload|improperly formed request|malformed request/.test(lower))
-    return "payload_too_large";
-  return "unknown";
-}
-function publicHttpErrorBody(status, body, category = classifyHttpError(status, body)) {
-  const preview2 = bounded(redact(body));
-  if (category === "auth")
-    return `Kiro auth error (${status}). Reconnect or refresh the active Kiro account. Details: ${preview2}`;
-  if (category === "quota")
-    return `Kiro quota/rate limit error (${status}). Wait for quota reset or reduce request frequency. Details: ${preview2}`;
-  if (category === "payload_too_large")
-    return `Kiro payload/context error (${status}). Reduce or compact the request context before retrying. Details: ${preview2}`;
-  if (category === "upstream_5xx")
-    return `Kiro upstream service error (${status}). Retry later. Details: ${preview2}`;
-  return preview2;
-}
-function redact(value) {
-  let redacted = value.replace(TOKEN_LIKE, REDACTED);
-  redacted = redacted.replace(new RegExp(`("(?:${SECRET_KEYS.source})"\\s*:\\s*")([^"]+)(")`, "gi"), `$1${REDACTED}$3`);
-  redacted = redacted.replace(new RegExp(`((?:${SECRET_KEYS.source})\\s*[=:]\\s*)([^\\s,;]+)`, "gi"), `$1${REDACTED}`);
-  return redacted;
-}
-function networkMessage(category, detail) {
-  const safeDetail = bounded(redact(detail));
-  if (category === "network_dns")
-    return `Kiro network error (${category}): could not resolve the Kiro API host. Check DNS, VPN, proxy, or network settings. Details: ${safeDetail}`;
-  if (category === "network_connect")
-    return `Kiro network error (${category}): could not connect to Kiro. Check connectivity, proxy/VPN, and firewall settings. Details: ${safeDetail}`;
-  if (category === "network_timeout")
-    return `Kiro network error (${category}): the Kiro request timed out before a response completed. Retry or check network stability. Details: ${safeDetail}`;
-  return `Kiro network error (${category}): request failed before Kiro returned a response. Details: ${safeDetail}`;
-}
-function errorMessage(error) {
-  return error instanceof Error ? error.message : String(error);
-}
-function bounded(value, limit = 2000) {
-  return value.length > limit ? `${value.slice(0, limit)}...[truncated]` : value;
-}
-
 // src/upstream/kiro/account-store.ts
 var SOURCE_PULL_OPTIONAL_FIELDS = ["profileArn", "clientIdHash", "clientId", "clientSecret", "accountId"];
 var SOURCE_WRITE_OPTIONAL_FIELDS = ["profileArn", "clientIdHash", "clientId", "clientSecret"];
 async function readKiroAuthFileSelection(filePath = KIRO_AUTH_TOKEN_PATH, account) {
   const authFilePath = expandHome(filePath);
+  if (isProviderStatePath(authFilePath)) {
+    const section = await readProviderSection("kiro", authFilePath);
+    const parsed2 = section?.data ?? { activeAccount: undefined, accounts: [] };
+    return selectKiroAuthEntry(parsed2, account ?? section?.activeAccount, authFilePath);
+  }
   let raw;
   try {
     raw = await readTextFile(authFilePath);
@@ -41093,7 +41837,53 @@ async function readKiroAuthFileSelection(filePath = KIRO_AUTH_TOKEN_PATH, accoun
   return selectKiroAuthEntry(parsed, account, authFilePath);
 }
 async function readKiroAuthFileData(filePath) {
+  if (isProviderStatePath(filePath)) {
+    const section = await readProviderSection("kiro", filePath);
+    return section?.data ?? { activeAccount: undefined, accounts: [] };
+  }
   return (await readKiroAuthFileSelection(filePath)).data;
+}
+async function ensureKiroAuthFile(authFile = bunPath.join(appDataDir(), KIRO_STATE_FILE_NAME)) {
+  if (await pathExists(authFile)) {
+    const data = await readKiroAuthFileData(authFile).catch(async (error) => {
+      const message = error instanceof Error ? error.message : String(error);
+      if (!message.includes("does not contain any accounts"))
+        throw error;
+      return { activeAccount: undefined, accounts: [] };
+    });
+    if (kiroAuthEntries(data).length)
+      return authFile;
+  }
+  if (isProviderStatePath(authFile)) {
+    for (const legacyName of ["kiro-state.json", "auth-kiro.json"]) {
+      const legacyPath = bunPath.join(bunPath.dirname(authFile), legacyName);
+      if (!await pathExists(legacyPath))
+        continue;
+      const legacyData = await readKiroAuthFileData(legacyPath).catch(() => {
+        return;
+      });
+      if (!legacyData || !kiroAuthEntries(legacyData).length)
+        continue;
+      const selected = selectKiroAuthEntry(legacyData, undefined, legacyPath);
+      await writeActiveKiroAccount(authFile, legacyData, selected.key);
+      await removePath(legacyPath, { force: true }).catch(() => {});
+      return authFile;
+    }
+  }
+  const sourceAuthFile = await resolveKiroSourceAuthFile();
+  if (isProviderStatePath(authFile)) {
+    if (sourceAuthFile !== authFile && await pathExists(sourceAuthFile)) {
+      await connectKiroAccountFromKiroAuth(authFile, sourceAuthFile);
+      return authFile;
+    }
+    await writeProviderSection("kiro", { data: { activeAccount: undefined, accounts: [] } }, authFile);
+    return authFile;
+  }
+  if (await pathExists(sourceAuthFile)) {
+    return sourceAuthFile;
+  }
+  await atomicJsonWrite(authFile, { activeAccount: undefined, accounts: [] }, { mode: 384 });
+  return authFile;
 }
 async function connectKiroAccount(authFile, draft) {
   return saveConnectedKiroAuth(authFile, connectedKiroAuthEntry(draft));
@@ -41190,7 +41980,7 @@ function kiroAuthEntries(data) {
   return [data];
 }
 function kiroAccountKey(auth, index) {
-  return firstString(auth.accountId, auth.profileArn, auth.email, auth.label, auth.name, auth.clientIdHash) ?? `${auth.region}:account-${index + 1}`;
+  return firstString2(auth.accountId, auth.profileArn, auth.email, auth.label, auth.name, auth.clientIdHash) ?? `${auth.region}:account-${index + 1}`;
 }
 function validateKiroAuthToken(value, filePath) {
   if (!value || typeof value !== "object" || Array.isArray(value))
@@ -41216,11 +42006,11 @@ async function saveConnectedKiroAuth(authFile, auth) {
   return { accountKey, data };
 }
 function connectedKiroAuthEntry(draft) {
-  const accessToken = cleanToken2(draft.accessToken);
-  const refreshToken = cleanToken2(draft.refreshToken);
-  const region = cleanToken2(draft.region);
-  const label = cleanText(draft.label);
-  const profileArn = cleanText(draft.profileArn);
+  const accessToken = cleanToken3(draft.accessToken);
+  const refreshToken = cleanToken3(draft.refreshToken);
+  const region = cleanToken3(draft.region);
+  const label = cleanText2(draft.label);
+  const profileArn = cleanText2(draft.profileArn);
   if (!accessToken)
     throw new Error("accessToken is required");
   if (!refreshToken)
@@ -41242,6 +42032,15 @@ async function writeKiroManagedAuthFile(authFile, data) {
   await writeKiroAuthFile(authFile, data);
 }
 async function writeKiroAuthFile(authFile, data) {
+  if (isProviderStatePath(authFile)) {
+    const activeAccount = !Array.isArray(data) && isKiroManagedAuthFile(data) ? data.activeAccount : undefined;
+    await updateProviderSection("kiro", authFile, async (section) => ({
+      ...section ?? {},
+      data,
+      activeAccount: activeAccount ?? section?.activeAccount
+    }));
+    return;
+  }
   await writeTextFile(authFile, `${JSON.stringify(data, null, 2)}
 `, { mode: 384 });
   await setFileMode(authFile, 384).catch(() => {});
@@ -41346,26 +42145,83 @@ function isKiroManagedAuthFile(value) {
 function kiroAuthEntryAliases(auth, index) {
   return [
     kiroAccountKey(auth, index),
-    firstString(auth.accountId),
-    firstString(auth.profileArn),
-    firstString(auth.email),
-    firstString(auth.label),
-    firstString(auth.name),
-    firstString(auth.clientIdHash),
+    firstString2(auth.accountId),
+    firstString2(auth.profileArn),
+    firstString2(auth.email),
+    firstString2(auth.label),
+    firstString2(auth.name),
+    firstString2(auth.clientIdHash),
     `${auth.region}:account-${index + 1}`
   ].filter((value) => Boolean(value));
 }
-function cleanToken2(value) {
+function cleanToken3(value) {
   return value.trim().replace(/^['"]|['"]$/g, "").replace(/\s+/g, "");
 }
-function cleanText(value) {
+function cleanText2(value) {
   return value.trim().replace(/^['"]|['"]$/g, "");
 }
-function firstString(...values) {
+function firstString2(...values) {
   return values.find((value) => typeof value === "string" && value.trim().length > 0);
 }
 function isAwsRegion(value) {
   return typeof value === "string" && /^[a-z]{2}(?:-[a-z]+)+-\d+$/.test(value);
+}
+
+// src/upstream/kiro/errors.ts
+var REDACTED = "[redacted]";
+var SECRET_KEYS = /authorization|access[_-]?token|refresh[_-]?token|id[_-]?token|profile[_-]?arn|mcp[_-]?authorization|client[_-]?secret/i;
+var TOKEN_LIKE = /\b(?:Bearer\s+)?[A-Za-z0-9._~+/=-]{24,}\b/g;
+function classifyNetworkError(error) {
+  const detail = errorMessage(error);
+  const lower = detail.toLowerCase();
+  const category = error instanceof DOMException && error.name === "AbortError" || /timeout|timed out|abort/.test(lower) ? "network_timeout" : /enotfound|eai_again|getaddrinfo|dns|name resolution|could not resolve/.test(lower) ? "network_dns" : /econnrefused|econnreset|econnaborted|network down|connection|connect|fetch failed/.test(lower) ? "network_connect" : "unknown";
+  return { category, detail: redact(detail), message: networkMessage(category, detail) };
+}
+function classifyHttpError(status, body) {
+  const lower = body.toLowerCase();
+  if (status === 401 || status === 403)
+    return "auth";
+  if (status === 429)
+    return "quota";
+  if (status >= 500)
+    return "upstream_5xx";
+  if (/content length|too large|exceeds|context limit|payload|improperly formed request|malformed request/.test(lower))
+    return "payload_too_large";
+  return "unknown";
+}
+function publicHttpErrorBody(status, body, category = classifyHttpError(status, body)) {
+  const preview2 = bounded(redact(body));
+  if (category === "auth")
+    return `Kiro auth error (${status}). Reconnect or refresh the active Kiro account. Details: ${preview2}`;
+  if (category === "quota")
+    return `Kiro quota/rate limit error (${status}). Wait for quota reset or reduce request frequency. Details: ${preview2}`;
+  if (category === "payload_too_large")
+    return `Kiro payload/context error (${status}). Reduce or compact the request context before retrying. Details: ${preview2}`;
+  if (category === "upstream_5xx")
+    return `Kiro upstream service error (${status}). Retry later. Details: ${preview2}`;
+  return preview2;
+}
+function redact(value) {
+  let redacted = value.replace(TOKEN_LIKE, REDACTED);
+  redacted = redacted.replace(new RegExp(`("(?:${SECRET_KEYS.source})"\\s*:\\s*")([^"]+)(")`, "gi"), `$1${REDACTED}$3`);
+  redacted = redacted.replace(new RegExp(`((?:${SECRET_KEYS.source})\\s*[=:]\\s*)([^\\s,;]+)`, "gi"), `$1${REDACTED}`);
+  return redacted;
+}
+function networkMessage(category, detail) {
+  const safeDetail = bounded(redact(detail));
+  if (category === "network_dns")
+    return `Kiro network error (${category}): could not resolve the Kiro API host. Check DNS, VPN, proxy, or network settings. Details: ${safeDetail}`;
+  if (category === "network_connect")
+    return `Kiro network error (${category}): could not connect to Kiro. Check connectivity, proxy/VPN, and firewall settings. Details: ${safeDetail}`;
+  if (category === "network_timeout")
+    return `Kiro network error (${category}): the Kiro request timed out before a response completed. Retry or check network stability. Details: ${safeDetail}`;
+  return `Kiro network error (${category}): request failed before Kiro returned a response. Details: ${safeDetail}`;
+}
+function errorMessage(error) {
+  return error instanceof Error ? error.message : String(error);
+}
+function bounded(value, limit = 2000) {
+  return value.length > limit ? `${value.slice(0, limit)}...[truncated]` : value;
 }
 
 // src/upstream/kiro/auth.ts
@@ -41552,15 +42408,22 @@ class Kiro_Auth_Manager {
         sourceAccountKey: this.originalCredentials.sourceAccountKey ?? next.sourceAccountKey
       });
     }
+    if (isProviderStatePath(this.authFilePath)) {
+      await updateProviderSection("kiro", this.authFilePath, async () => ({
+        data: payload,
+        activeAccount: this.selection?.key
+      }));
+      return;
+    }
     await writeTextFile(this.authFilePath, `${JSON.stringify(payload, null, 2)}
 `, { mode: 384 });
     await setFileMode(this.authFilePath, 384);
   }
 }
 function refreshedSourceAccountKey(credentials, sourceAccountIndex) {
-  return firstString2(credentials.accountId, credentials.profileArn, credentials.email, credentials.clientIdHash, credentials.sourceAccountKey) ?? kiroAccountKey(credentials, sourceAccountIndex);
+  return firstString3(credentials.accountId, credentials.profileArn, credentials.email, credentials.clientIdHash, credentials.sourceAccountKey) ?? kiroAccountKey(credentials, sourceAccountIndex);
 }
-function firstString2(...values) {
+function firstString3(...values) {
   return values.find((value) => typeof value === "string" && value.trim().length > 0);
 }
 async function readDeviceRegistrationFile(filePath) {
@@ -43962,10 +44825,382 @@ function dedupe(values) {
   return [...new Set(values.filter(Boolean))];
 }
 
+// src/upstream/copilot/parse.ts
+function buildCopilotResponsesBody(request) {
+  return {
+    model: request.model,
+    instructions: request.instructions ?? "You are a helpful assistant.",
+    input: canonicalInputToResponsesInput(request.input),
+    ...request.tools ? { tools: request.tools } : {},
+    ...request.toolChoice ? { tool_choice: request.toolChoice } : {},
+    ...request.include ? { include: request.include } : {},
+    ...request.textFormat ? { text: { format: request.textFormat } } : {},
+    ...request.reasoningEffort ? { reasoning: { effort: request.reasoningEffort } } : {},
+    stream: false,
+    store: false
+  };
+}
+async function collectCopilotResponse(response, fallbackModel = "unknown") {
+  const body = await response.json().catch(() => {
+    return;
+  });
+  return responseBodyToCanonicalResponse(body, fallbackModel, response.status);
+}
+function streamCopilotResponse(response) {
+  return {
+    type: "canonical_stream",
+    status: 200,
+    id: response.id,
+    model: response.model,
+    events: {
+      async* [Symbol.asyncIterator]() {
+        yield { type: "message_start", id: response.id, model: response.model };
+        let index = 0;
+        for (const block of response.content) {
+          if (block.type === "text") {
+            if (block.text)
+              yield { type: "text_delta", delta: block.text };
+          } else if (block.type === "tool_call") {
+            yield { type: "tool_call_done", callId: block.callId, name: block.name, arguments: block.arguments };
+          } else if (block.type === "thinking") {
+            yield { type: "thinking_signature", signature: block.signature };
+            yield { type: "thinking_delta", text: block.thinking };
+          } else if (block.type === "server_tool") {
+            yield { type: "server_tool_block", blocks: block.blocks };
+          }
+          index += 1;
+        }
+        yield { type: "usage", usage: response.usage };
+        yield { type: "completion", usage: response.usage, stopReason: response.stopReason };
+        yield { type: "message_stop", stopReason: response.stopReason };
+      }
+    }
+  };
+}
+function responseBodyToCanonicalResponse(body, fallbackModel, status = 200) {
+  const output = Array.isArray(body?.output) ? body.output : [];
+  const content = output.flatMap((item) => canonicalContentFromOutputItem(item));
+  const usage = canonicalUsageFromWireUsage(body?.usage);
+  return {
+    type: "canonical_response",
+    id: typeof body?.id === "string" ? body.id : `resp_${crypto.randomUUID().replace(/-/g, "")}`,
+    model: typeof body?.model === "string" ? body.model : fallbackModel,
+    stopReason: status >= 400 ? "error" : responseStopReason(body),
+    content,
+    usage: {
+      inputTokens: usage.inputTokens ?? 0,
+      outputTokens: usage.outputTokens ?? 0,
+      ...usage.cacheCreationInputTokens !== undefined ? { cacheCreationInputTokens: usage.cacheCreationInputTokens } : {},
+      ...usage.cacheReadInputTokens !== undefined ? { cacheReadInputTokens: usage.cacheReadInputTokens } : {},
+      ...usage.outputReasoningTokens !== undefined ? { outputReasoningTokens: usage.outputReasoningTokens } : {},
+      ...usage.serverToolUse ? { serverToolUse: usage.serverToolUse } : {}
+    }
+  };
+}
+function canonicalInputToResponsesInput(input) {
+  return input.flatMap((message) => {
+    const content = message.content.flatMap((block) => canonicalBlockToResponsesContent(block));
+    if (!content.length)
+      return [];
+    return [{ role: message.role, content }];
+  });
+}
+function canonicalBlockToResponsesContent(block) {
+  if (block.type === "text" && typeof block.text === "string") {
+    return [{ type: "input_text", text: block.text }];
+  }
+  if (block.type === "tool_call" && typeof block.arguments === "string") {
+    return [{
+      type: "function_call",
+      id: typeof block.id === "string" ? block.id : `fc_${crypto.randomUUID().replace(/-/g, "")}`,
+      call_id: typeof block.callId === "string" ? block.callId : `call_${crypto.randomUUID().replace(/-/g, "")}`,
+      name: typeof block.name === "string" ? block.name : "unknown",
+      arguments: block.arguments
+    }];
+  }
+  return [block];
+}
+function canonicalContentFromOutputItem(item) {
+  if (!item || typeof item !== "object")
+    return [];
+  if (item.type === "message") {
+    const content = Array.isArray(item.content) ? item.content : [];
+    return content.flatMap((part) => {
+      if (!part || typeof part !== "object")
+        return [];
+      if (part.type === "output_text" && typeof part.text === "string")
+        return [{ type: "text", text: part.text }];
+      if (part.type === "text" && typeof part.text === "string")
+        return [{ type: "text", text: part.text }];
+      if (part.type === "refusal" && typeof part.refusal === "string")
+        return [{ type: "text", text: part.refusal }];
+      return [];
+    });
+  }
+  if (item.type === "function_call") {
+    return [{
+      type: "tool_call",
+      id: typeof item.id === "string" ? item.id : `fc_${crypto.randomUUID().replace(/-/g, "")}`,
+      callId: typeof item.call_id === "string" ? item.call_id : typeof item.id === "string" ? item.id : `call_${crypto.randomUUID().replace(/-/g, "")}`,
+      name: typeof item.name === "string" ? item.name : "unknown",
+      arguments: typeof item.arguments === "string" ? item.arguments : JSON.stringify(item.arguments ?? {})
+    }];
+  }
+  if (item.type === "reasoning") {
+    const summary = Array.isArray(item.summary) ? item.summary : [];
+    const thinking = summary.flatMap((part) => typeof part?.text === "string" ? [part.text] : []).join(`
+
+`);
+    return thinking ? [{ type: "thinking", thinking, signature: `sig_${crypto.randomUUID().replace(/-/g, "").slice(0, 16)}` }] : [];
+  }
+  return [];
+}
+function responseStopReason(body) {
+  if (!body)
+    return "end_turn";
+  if (body.status === "incomplete" && body.incomplete_details && typeof body.incomplete_details === "object" && body.incomplete_details.reason === "max_output_tokens")
+    return "max_tokens";
+  const output = Array.isArray(body.output) ? body.output : [];
+  if (output.some((item) => item?.type === "function_call"))
+    return "tool_use";
+  return "end_turn";
+}
+
+// src/upstream/copilot/client.ts
+class Copilot_Client {
+  auth;
+  fetchFn;
+  constructor(options) {
+    this.auth = options.auth;
+    this.fetchFn = options.fetch ?? fetch;
+  }
+  async proxy(request, options) {
+    const accessToken = await this.auth.getAccessToken();
+    const body = buildCopilotResponsesBody(request);
+    options?.onRequestBody?.(JSON.stringify(body));
+    return this.fetchJson("/responses", accessToken, body, options);
+  }
+  async embeddingsRaw(body, options) {
+    options?.onRequestBody?.(JSON.stringify(body));
+    const accessToken = await this.auth.getAccessToken();
+    return this.fetchJson("/embeddings", accessToken, body, options);
+  }
+  async modelsRaw(options) {
+    const accessToken = await this.auth.getAccessToken();
+    return this.fetchJson("/models", accessToken, undefined, options);
+  }
+  async usage(options) {
+    const response = await this.fetchFn(`${COPILOT_GITHUB_API_BASE_URL}/copilot_internal/user`, {
+      headers: githubHeaders2(await this.auth.getGitHubToken(), this.auth.getAccountType()),
+      signal: options?.signal
+    });
+    return response;
+  }
+  async checkHealth(timeoutMs) {
+    const controller = new AbortController;
+    const started = Date.now();
+    const timer = setTimeout(() => controller.abort("health timeout"), timeoutMs);
+    try {
+      const response = await this.modelsRaw({ signal: controller.signal });
+      return {
+        ok: response.ok,
+        status: response.status,
+        latencyMs: Date.now() - started,
+        checkedAt: new Date().toISOString()
+      };
+    } catch (error) {
+      return {
+        ok: false,
+        error: error instanceof Error ? error.message : String(error),
+        latencyMs: Date.now() - started,
+        checkedAt: new Date().toISOString()
+      };
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  async refresh() {
+    return this.auth.refreshAndPersist();
+  }
+  async fetchJson(path, accessToken, body, options) {
+    const response = await this.fetchFn(`${this.baseUrl()}${path}`, {
+      method: body === undefined ? "GET" : "POST",
+      headers: copilotHeaders(accessToken, this.auth.getAccountType(), this.auth.getGitHubToken()),
+      signal: options?.signal,
+      ...body === undefined ? {} : { body: JSON.stringify(body) }
+    });
+    return response;
+  }
+  baseUrl() {
+    const accountType = this.auth.getAccountType();
+    return accountType && accountType !== "individual" ? `https://api.${accountType}.githubcopilot.com` : "https://api.githubcopilot.com";
+  }
+}
+function copilotHeaders(accessToken, accountType, githubToken) {
+  return {
+    "content-type": "application/json",
+    accept: "application/json",
+    authorization: `Bearer ${accessToken}`,
+    "copilot-integration-id": "vscode-chat",
+    "editor-version": "vscode/1.112.0",
+    "editor-plugin-version": COPILOT_EDITOR_PLUGIN_VERSION,
+    "user-agent": COPILOT_USER_AGENT,
+    "openai-intent": "conversation-panel",
+    "x-github-api-version": COPILOT_API_VERSION,
+    "x-vscode-user-agent-library-version": "electron-fetch",
+    "x-copilot-account-type": accountType,
+    "x-copilot-github-token": githubToken,
+    "x-copilot-version": COPILOT_GITHUB_VERSION,
+    "x-request-id": crypto.randomUUID()
+  };
+}
+function githubHeaders2(githubToken, accountType) {
+  return {
+    "content-type": "application/json",
+    accept: "application/json",
+    authorization: `token ${githubToken}`,
+    "editor-version": "vscode/1.112.0",
+    "editor-plugin-version": COPILOT_EDITOR_PLUGIN_VERSION,
+    "user-agent": COPILOT_USER_AGENT,
+    "x-github-api-version": COPILOT_API_VERSION,
+    "x-vscode-user-agent-library-version": "electron-fetch",
+    "x-copilot-account-type": accountType,
+    "x-request-id": crypto.randomUUID()
+  };
+}
+
+// src/upstream/copilot/index.ts
+class Copilot_Upstream_Provider {
+  providerKind = "copilot";
+  auth;
+  client;
+  authFilePath;
+  modelCache;
+  constructor(options) {
+    this.auth = options.auth;
+    this.client = options.client ?? new Copilot_Client({ auth: this.auth });
+    this.authFilePath = options.authFilePath;
+  }
+  static async fromAuthFile(path, options) {
+    const auth = await Copilot_Auth_Manager.fromAuthFile(path, options);
+    return new Copilot_Upstream_Provider({
+      auth,
+      client: new Copilot_Client({ auth, fetch: options?.fetch }),
+      authFilePath: path
+    });
+  }
+  async proxy(request, options) {
+    const response = await this.client.proxy(request, options);
+    if (!response.ok)
+      return await toCanonicalError2(response);
+    const collected = await collectCopilotResponse(response, request.model);
+    return request.stream ? streamCopilotResponse(collected) : collected;
+  }
+  async checkHealth(timeoutMs) {
+    return this.client.checkHealth(timeoutMs);
+  }
+  async usage(options) {
+    return this.client.usage(options);
+  }
+  async modelsRaw(options) {
+    return this.client.modelsRaw(options);
+  }
+  async embeddingsRaw(body, options) {
+    return this.client.embeddingsRaw(body, options);
+  }
+  async listModels() {
+    if (this.modelCache && Date.now() - this.modelCache.cachedAt < COPILOT_MODEL_CACHE_TTL_SECONDS * 1000)
+      return this.modelCache.models;
+    const accountKey = this.accountKey();
+    if (this.authFilePath) {
+      const cached = await readCopilotModelCache(accountKey, cacheFilePath3(this.authFilePath));
+      if (cached && Date.now() - Date.parse(cached.fetchedAt) < COPILOT_MODEL_CACHE_TTL_SECONDS * 1000) {
+        this.modelCache = { models: cached.models, cachedAt: Date.parse(cached.fetchedAt) || Date.now() };
+        return cached.models;
+      }
+    }
+    try {
+      const response = await this.client.modelsRaw();
+      if (!response.ok)
+        return this.modelCache?.models ?? [];
+      const body = await response.json().catch(() => {
+        return;
+      });
+      const models = Array.isArray(body?.data) ? body.data.flatMap((item) => typeof item?.id === "string" && item.model_picker_enabled !== false ? [item.id] : []) : [];
+      this.modelCache = { models, cachedAt: Date.now() };
+      if (this.authFilePath) {
+        await writeCopilotModelCache(accountKey, { models, fetchedAt: new Date().toISOString() }, cacheFilePath3(this.authFilePath));
+      }
+      return models;
+    } catch {
+      return this.modelCache?.models ?? [];
+    }
+  }
+  async refresh() {
+    await this.auth.refreshAndPersist();
+    return { copilotToken: this.auth.getCopilotToken() };
+  }
+  get tokens() {
+    return { copilotToken: this.auth.getCopilotToken() };
+  }
+  getAuthType() {
+    return this.auth.getAuthType();
+  }
+  getAccountType() {
+    return this.auth.getAccountType();
+  }
+  getEmail() {
+    return this.auth.getEmail();
+  }
+  getPlan() {
+    return this.auth.getPlan();
+  }
+  getAccountId() {
+    return this.auth.getAccountId();
+  }
+  accountKey() {
+    return this.getAccountId() ?? this.getEmail() ?? this.getPlan() ?? this.getAccountType() ?? "copilot-account";
+  }
+}
+async function toCanonicalError2(response) {
+  return {
+    type: "canonical_error",
+    status: response.status,
+    headers: responseHeaders(response.headers),
+    body: await response.text().catch(() => "")
+  };
+}
+function cacheFilePath3(authFile) {
+  return bunPath.join(bunPath.dirname(expandHome(authFile)), COPILOT_CACHE_FILE_NAME);
+}
+
 // src/app/provider-config.ts
-var PROVIDER_CONFIG_PATH = bunPath.join(appDataDir(), "provider-config.json");
+var PROVIDER_CONFIG_PATH = providerStatePath();
+function defaultProviderConfigPath() {
+  return providerStatePath();
+}
 async function readProviderConfig(configPath) {
-  const resolvedPath = configPath ?? PROVIDER_CONFIG_PATH;
+  const resolvedPath = configPath ?? defaultProviderConfigPath();
+  if (isProviderStatePath(resolvedPath)) {
+    try {
+      const state = await readProviderStateFile(resolvedPath);
+      if (state.provider === "codex" || state.provider === "kiro" || state.provider === "copilot")
+        return state.provider;
+      const legacyProvider = await readLegacyProviderConfig(bunPath.dirname(resolvedPath));
+      if (legacyProvider) {
+        await updateProviderStateFile(resolvedPath, async (current) => {
+          current.provider = legacyProvider;
+          return current;
+        });
+        await cleanupLegacyProviderConfig(bunPath.dirname(resolvedPath));
+        return legacyProvider;
+      }
+    } catch (error) {
+      console.warn(`Warning: failed to read provider config at ${resolvedPath}: ${errorMessage2(error)}`);
+      return "codex";
+    }
+    return "codex";
+  }
   let content;
   try {
     content = await readTextFile(resolvedPath);
@@ -43983,13 +45218,21 @@ async function readProviderConfig(configPath) {
     return "codex";
   }
   const provider = typeof parsed === "object" && parsed !== null && !Array.isArray(parsed) ? parsed.provider : undefined;
-  if (provider === "codex" || provider === "kiro")
+  if (provider === "codex" || provider === "kiro" || provider === "copilot")
     return provider;
   console.warn(`Warning: unrecognized provider "${String(provider)}" in ${resolvedPath}, defaulting to codex`);
   return "codex";
 }
 async function writeProviderConfig(mode, configPath) {
-  const resolvedPath = configPath ?? PROVIDER_CONFIG_PATH;
+  const resolvedPath = configPath ?? defaultProviderConfigPath();
+  if (isProviderStatePath(resolvedPath)) {
+    await updateProviderStateFile(resolvedPath, async (state) => {
+      state.provider = mode;
+      return state;
+    });
+    await cleanupLegacyProviderConfig(bunPath.dirname(resolvedPath));
+    return;
+  }
   let existing = {};
   try {
     const content = await readTextFile(resolvedPath);
@@ -44008,9 +45251,30 @@ async function writeProviderConfig(mode, configPath) {
     console.warn(`Warning: failed to write provider config to ${resolvedPath}: ${errorMessage2(error)}`);
   }
 }
+async function readLegacyProviderConfig(dir) {
+  for (const name of ["provider-config.json", ".provider.json"]) {
+    const file = bunPath.join(dir, name);
+    if (!await pathExists(file))
+      continue;
+    try {
+      const parsed = JSON.parse(await readTextFile(file));
+      const provider = typeof parsed === "object" && parsed !== null && !Array.isArray(parsed) ? parsed.provider : undefined;
+      if (provider === "codex" || provider === "kiro" || provider === "copilot")
+        return provider;
+    } catch {
+      continue;
+    }
+  }
+  return;
+}
+async function cleanupLegacyProviderConfig(dir) {
+  for (const name of ["provider-config.json", ".provider.json"]) {
+    await removePath(bunPath.join(dir, name), { force: true }).catch(() => {});
+  }
+}
 function resolveProviderMode(envVar, configMode) {
   if (envVar)
-    return envVar === "kiro" ? "kiro" : "codex";
+    return envVar === "kiro" || envVar === "copilot" ? envVar : "codex";
   return configMode ?? "codex";
 }
 function errorMessage2(error) {
@@ -44021,26 +45285,42 @@ function errorMessage2(error) {
 async function bootstrapRuntime(options) {
   const configMode = options?.providerMode ? undefined : await readProviderConfig(options?.providerConfigPath);
   const providerMode = options?.providerMode ?? resolveProviderMode(process.env.UPSTREAM_PROVIDER, configMode);
+  const isCopilot = providerMode === "copilot";
   const isKiro = providerMode === "kiro";
-  if (isKiro) {
-    const authAccount2 = options?.authAccount ?? process.env.KIRO_AUTH_ACCOUNT;
-    const requestedAuthFile = expandHome(options?.authFile ?? process.env.KIRO_AUTH_FILE ?? KIRO_AUTH_TOKEN_PATH);
-    const fallbackAuthFile = await resolveKiroSourceAuthFile();
-    const upstreamAuthFile = await fileExists(requestedAuthFile) ? requestedAuthFile : fallbackAuthFile;
-    const upstream2 = await Kiro_Upstream_Provider.fromAuthFile(upstreamAuthFile, { authAccount: authAccount2 });
-    const runtimeAuthFile = options?.authFile ? requestedAuthFile : bunPath.join(appDataDir(), KIRO_STATE_FILE_NAME);
+  if (isCopilot) {
+    const authFile2 = options?.authFile ?? process.env.COPILOT_AUTH_FILE ?? bunPath.join(appDataDir(), COPILOT_AUTH_FILE_NAME);
+    const authAccount2 = options?.authAccount ?? process.env.COPILOT_AUTH_ACCOUNT;
+    const ensuredAuthFile = await ensureCopilotAuthFile(authFile2);
+    const upstream2 = await Copilot_Upstream_Provider.fromAuthFile(ensuredAuthFile, { authAccount: authAccount2 });
     const registry2 = new Provider_Registry;
-    registry2.register(new Claude_Kiro_Inbound_Adapter(() => upstream2.listModels()));
-    registry2.register(new OpenAI_Kiro_Inbound_Adapter);
+    registry2.register(new Claude_Copilot_Inbound_Adapter(() => upstream2.listModels()));
+    registry2.register(new OpenAI_Copilot_Inbound_Adapter);
     return {
-      authFile: runtimeAuthFile,
+      authFile: ensuredAuthFile,
       authAccount: authAccount2,
       registry: registry2,
       upstream: upstream2
     };
   }
-  const authFile = resolveAuthFile(options?.authFile ?? process.env.CODEX_AUTH_FILE);
+  if (isKiro) {
+    const authAccount2 = options?.authAccount ?? process.env.KIRO_AUTH_ACCOUNT;
+    const requestedAuthFile = expandHome(options?.authFile ?? process.env.KIRO_AUTH_FILE ?? KIRO_AUTH_TOKEN_PATH);
+    const runtimeAuthFile = options?.authFile ? requestedAuthFile : bunPath.join(appDataDir(), KIRO_STATE_FILE_NAME);
+    const ensuredAuthFile = await ensureKiroAuthFile(runtimeAuthFile);
+    const upstream2 = await Kiro_Upstream_Provider.fromAuthFile(ensuredAuthFile, { authAccount: authAccount2 });
+    const registry2 = new Provider_Registry;
+    registry2.register(new Claude_Kiro_Inbound_Adapter(() => upstream2.listModels()));
+    registry2.register(new OpenAI_Kiro_Inbound_Adapter);
+    return {
+      authFile: ensuredAuthFile,
+      authAccount: authAccount2,
+      registry: registry2,
+      upstream: upstream2
+    };
+  }
+  const authFile = options?.authFile ?? (process.env.CODEX_AUTH_FILE ? resolveAuthFile(process.env.CODEX_AUTH_FILE) : providerStatePath());
   const authAccount = options?.authAccount ?? process.env.CODEX_AUTH_ACCOUNT;
+  await ensureCodexAuthFile(authFile);
   const upstream = await Codex_Upstream_Provider.fromAuthFile(authFile, { authAccount });
   const registry = new Provider_Registry;
   registry.register(new Claude_Codex_Inbound_Adapter(() => upstream.listModels()));
@@ -44051,9 +45331,6 @@ async function bootstrapRuntime(options) {
     registry,
     upstream
   };
-}
-async function fileExists(file) {
-  return pathExists(file);
 }
 
 // src/core/auth-guard.ts
@@ -44144,15 +45421,15 @@ async function ensureRequestLogFile(authFile) {
   if (!await pathExists(file))
     await writeTextFile(file, "");
 }
-var writeQueues = new Map;
+var writeQueues2 = new Map;
 function enqueueWrite(authFile, task) {
-  const current = writeQueues.get(authFile) ?? Promise.resolve();
+  const current = writeQueues2.get(authFile) ?? Promise.resolve();
   const taskPromise = current.then(() => task());
   const chainPromise = taskPromise.then(() => {}, () => {});
-  writeQueues.set(authFile, chainPromise);
+  writeQueues2.set(authFile, chainPromise);
   chainPromise.then(() => {
-    if (writeQueues.get(authFile) === chainPromise)
-      writeQueues.delete(authFile);
+    if (writeQueues2.get(authFile) === chainPromise)
+      writeQueues2.delete(authFile);
   });
   return taskPromise;
 }
@@ -44584,6 +45861,8 @@ async function startRuntimeWithBootstrap(options, bootstrap) {
       console.log(`Responses:        ${localUrl}/v1/responses`);
     if (hasRoute(routes, "POST", "/v1/chat/completions"))
       console.log(`Chat completions: ${localUrl}/v1/chat/completions`);
+    if (hasRoute(routes, "POST", "/v1/embeddings"))
+      console.log(`Embeddings:       ${localUrl}/v1/embeddings`);
     if (upstream.usage)
       console.log(`Usage:            ${localUrl}/usage`);
     if (upstream.environments)
@@ -44632,6 +45911,7 @@ function runtimeEndpoints(routes, upstream) {
     ...hasRoute(routes, "GET", "/v1/models") ? { models: "/v1/models" } : {},
     ...hasRoute(routes, "POST", "/v1/responses") ? { responses: "/v1/responses" } : {},
     ...hasRoute(routes, "POST", "/v1/chat/completions") ? { chat_completions: "/v1/chat/completions" } : {},
+    ...hasRoute(routes, "POST", "/v1/embeddings") ? { embeddings: "/v1/embeddings" } : {},
     ...upstream.usage ? { usage: "/usage" } : {},
     ...upstream.environments ? { environments: "/environments" } : {},
     health: "/health",
@@ -45340,7 +46620,7 @@ var patchConsole = (callback) => {
 var dist_default = patchConsole;
 
 // node_modules/ink/build/ink.js
-var import_constants28 = __toESM(require_constants(), 1);
+var import_constants34 = __toESM(require_constants(), 1);
 
 // node_modules/yoga-layout/dist/binaries/yoga-wasm-base64-esm.js
 var loadYoga = (() => {
@@ -47786,7 +49066,7 @@ var getWindowSize = (stdout) => {
 
 // node_modules/ink/build/reconciler.js
 var import_react_reconciler = __toESM(require_react_reconciler(), 1);
-var import_constants27 = __toESM(require_constants(), 1);
+var import_constants33 = __toESM(require_constants(), 1);
 var Scheduler = __toESM(require_scheduler(), 1);
 import process4 from "process";
 var import_react = __toESM(require_react(), 1);
@@ -49632,7 +50912,7 @@ var cleanupYogaNode = (node) => {
   node?.unsetMeasureFunc();
   node?.freeRecursive();
 };
-var currentUpdatePriority = import_constants27.NoEventPriority;
+var currentUpdatePriority = import_constants33.NoEventPriority;
 var currentRootNode;
 async function loadPackageJson() {
   const fs2 = await import("fs");
@@ -49821,10 +51101,10 @@ var reconciler_default = import_react_reconciler.default({
   },
   getCurrentUpdatePriority: () => currentUpdatePriority,
   resolveUpdatePriority() {
-    if (currentUpdatePriority !== import_constants27.NoEventPriority) {
+    if (currentUpdatePriority !== import_constants33.NoEventPriority) {
       return currentUpdatePriority;
     }
-    return import_constants27.DefaultEventPriority;
+    return import_constants33.DefaultEventPriority;
   },
   maySuspendCommit() {
     return true;
@@ -52639,7 +53919,7 @@ class Ink {
     this.lastOutputHeight = 0;
     this.lastTerminalWidth = getWindowSize(this.options.stdout).columns;
     this.fullStaticOutput = "";
-    const rootTag = options.concurrent ? import_constants28.ConcurrentRoot : import_constants28.LegacyRoot;
+    const rootTag = options.concurrent ? import_constants34.ConcurrentRoot : import_constants34.LegacyRoot;
     this.container = reconciler_default.createContainer(this.rootNode, rootTag, null, false, null, "id", () => {}, () => {}, () => {}, () => {});
     this.unsubscribeExit = import_signal_exit2.default(this.unmount, { alwaysLast: false });
     this.setAlternateScreen(Boolean(options.alternateScreen));
@@ -53176,7 +54456,7 @@ var getInstance = (stdout, createInstance) => {
   return instance;
 };
 // node_modules/ink/build/render-to-string.js
-var import_constants29 = __toESM(require_constants(), 1);
+var import_constants35 = __toESM(require_constants(), 1);
 // node_modules/ink/build/components/Static.js
 var import_react17 = __toESM(require_react(), 1);
 // node_modules/ink/build/components/Transform.js
@@ -53771,6 +55051,22 @@ var config = {
       ANTHROPIC_API_KEY: "codex2claudecode",
       ANTHROPIC_BASE_URL: "http://127.0.0.1:8787"
     }
+  },
+  copilot: {
+    canEdit: {
+      ANTHROPIC_MODEL: "gpt-5.5",
+      ANTHROPIC_DEFAULT_OPUS_MODEL: "gpt-5.5",
+      ANTHROPIC_DEFAULT_SONNET_MODEL: "gpt-5.4",
+      ANTHROPIC_DEFAULT_HAIKU_MODEL: "gpt-5.4-mini",
+      CLAUDE_CODE_DISABLE_1M_CONTEXT: "1",
+      CLAUDE_AUTOCOMPACT_PCT_OVERRIDE: "64"
+    },
+    static: {
+      NODE_TLS_REJECT_UNAUTHORIZED: "0",
+      ANTHROPIC_AUTH_TOKEN: "codex2claudecode",
+      ANTHROPIC_API_KEY: "codex2claudecode",
+      ANTHROPIC_BASE_URL: "http://127.0.0.1:8787"
+    }
   }
 };
 
@@ -54049,12 +55345,13 @@ var PROVIDER_COMMANDS = {
     { name: "/codex-fast-mode", description: "Toggle service_tier priority for /v1/responses" },
     ...ACCOUNT_COMMANDS
   ],
-  kiro: ACCOUNT_COMMANDS
+  kiro: ACCOUNT_COMMANDS,
+  copilot: ACCOUNT_COMMANDS
 };
 function getCommands(providerMode) {
   const switchCommand = {
     name: "/switch-provider",
-    description: providerMode === "codex" ? "Switch to Kiro upstream provider" : "Switch to Codex upstream provider"
+    description: "Switch upstream provider: Codex / Kiro / Copilot"
   };
   const quitCommand = { name: "/quit", description: "Quit Codex2ClaudeCode" };
   return [...SHARED_COMMANDS_BEFORE, ...PROVIDER_COMMANDS[providerMode], ...SHARED_COMMANDS_AFTER, switchCommand, quitCommand];
@@ -54900,7 +56197,8 @@ function ConnectSourceSelector(props) {
     ...props.connect.sources.map((source) => ({ label: source.label, description: source.description })),
     { label: "Manual", description: props.connect.manualDescription }
   ];
-  const activeSavingMessage = props.saving ? props.connect.sources[props.selected]?.savingMessage ?? undefined : undefined;
+  const activeMessage = props.status ?? (props.saving ? props.connect.sources[props.selected]?.savingMessage ?? undefined : undefined);
+  const messageColor = activeMessage?.startsWith("Connect failed:") ? "#fca5a5" : "gray";
   return /* @__PURE__ */ jsx_dev_runtime10.jsxDEV(Box_default, {
     flexDirection: "column",
     marginTop: 1,
@@ -54953,11 +56251,59 @@ function ConnectSourceSelector(props) {
           ]
         }, entry.label, true, undefined, this))
       }, undefined, false, undefined, this),
-      activeSavingMessage && /* @__PURE__ */ jsx_dev_runtime10.jsxDEV(Box_default, {
+      props.progress?.verificationUri && props.progress?.userCode && /* @__PURE__ */ jsx_dev_runtime10.jsxDEV(Box_default, {
+        marginTop: 1,
+        flexDirection: "column",
+        borderStyle: "round",
+        borderColor: "#3b82f6",
+        paddingX: 1,
+        paddingY: 1,
+        children: [
+          /* @__PURE__ */ jsx_dev_runtime10.jsxDEV(Text, {
+            bold: true,
+            color: "#93c5fd",
+            children: "Device code login"
+          }, undefined, false, undefined, this),
+          props.progress.message && /* @__PURE__ */ jsx_dev_runtime10.jsxDEV(Text, {
+            color: "gray",
+            children: props.progress.message
+          }, undefined, false, undefined, this),
+          /* @__PURE__ */ jsx_dev_runtime10.jsxDEV(Box_default, {
+            marginTop: 1,
+            flexDirection: "column",
+            children: [
+              /* @__PURE__ */ jsx_dev_runtime10.jsxDEV(Text, {
+                color: "gray",
+                children: "Open this URL in your browser:"
+              }, undefined, false, undefined, this),
+              /* @__PURE__ */ jsx_dev_runtime10.jsxDEV(Text, {
+                color: "#67e8f9",
+                children: props.progress.verificationUri
+              }, undefined, false, undefined, this)
+            ]
+          }, undefined, true, undefined, this),
+          /* @__PURE__ */ jsx_dev_runtime10.jsxDEV(Box_default, {
+            marginTop: 1,
+            flexDirection: "column",
+            children: [
+              /* @__PURE__ */ jsx_dev_runtime10.jsxDEV(Text, {
+                color: "gray",
+                children: "Enter this code:"
+              }, undefined, false, undefined, this),
+              /* @__PURE__ */ jsx_dev_runtime10.jsxDEV(Text, {
+                bold: true,
+                color: "white",
+                children: props.progress.userCode
+              }, undefined, false, undefined, this)
+            ]
+          }, undefined, true, undefined, this)
+        ]
+      }, undefined, true, undefined, this),
+      activeMessage && /* @__PURE__ */ jsx_dev_runtime10.jsxDEV(Box_default, {
         marginTop: 1,
         children: /* @__PURE__ */ jsx_dev_runtime10.jsxDEV(Text, {
-          color: "gray",
-          children: activeSavingMessage
+          color: props.saving ? "gray" : messageColor,
+          children: activeMessage
         }, undefined, false, undefined, this)
       }, undefined, false, undefined, this)
     ]
@@ -55011,6 +56357,48 @@ function AccountInfoPanel(props) {
       ]
     }, undefined, true, undefined, this);
   }
+  if (mode === "copilot") {
+    const info = props.copilotInfo;
+    return /* @__PURE__ */ jsx_dev_runtime11.jsxDEV(Box_default, {
+      flexDirection: "column",
+      children: [
+        /* @__PURE__ */ jsx_dev_runtime11.jsxDEV(Text, {
+          bold: true,
+          color: "#a58a86",
+          children: "Account info"
+        }, undefined, false, undefined, this),
+        /* @__PURE__ */ jsx_dev_runtime11.jsxDEV(Text, {
+          color: "#aab3cf",
+          wrap: "truncate-end",
+          children: info?.email ?? props.account?.name ?? "unknown"
+        }, undefined, false, undefined, this),
+        /* @__PURE__ */ jsx_dev_runtime11.jsxDEV(Text, {
+          color: "#aab3cf",
+          wrap: "truncate-end",
+          children: [
+            info?.authType ?? "Unknown",
+            info?.plan ? ` \xB7 ${formatPlan(info.plan)}` : ""
+          ]
+        }, undefined, true, undefined, this),
+        /* @__PURE__ */ jsx_dev_runtime11.jsxDEV(Text, {
+          color: "#aab3cf",
+          wrap: "truncate-end",
+          children: [
+            "Account type: ",
+            info?.accountType ?? "individual"
+          ]
+        }, undefined, true, undefined, this),
+        info?.authFilePath && /* @__PURE__ */ jsx_dev_runtime11.jsxDEV(Text, {
+          color: "#aab3cf",
+          wrap: "truncate-end",
+          children: [
+            "Auth: ",
+            info.authFilePath
+          ]
+        }, undefined, true, undefined, this)
+      ]
+    }, undefined, true, undefined, this);
+  }
   return /* @__PURE__ */ jsx_dev_runtime11.jsxDEV(Box_default, {
     flexDirection: "column",
     children: [
@@ -55037,6 +56425,9 @@ function accountInfo(account, info) {
 function formatTier(raw) {
   const cleaned = raw.replace(/^KIRO\s+/i, "");
   return cleaned.charAt(0).toUpperCase() + cleaned.slice(1).toLowerCase();
+}
+function formatPlan(raw) {
+  return raw.replace(/_/g, " ").replace(/\b\w/g, (match) => match.toUpperCase());
 }
 
 // src/ui/components/limits-panel.tsx
@@ -55244,7 +56635,7 @@ var jsx_dev_runtime13 = __toESM(require_jsx_dev_runtime(), 1);
 function WelcomePanel(props) {
   const width = props.width ?? 42;
   const mode = props.providerMode ?? "codex";
-  const title = `Codex2ClaudeCode - ${mode === "kiro" ? "Kiro" : "Codex"} Mode`;
+  const title = `Codex2ClaudeCode - ${mode === "kiro" ? "Kiro" : mode === "copilot" ? "Copilot" : "Codex"} Mode`;
   const endpoints = welcomeEndpointLines(mode);
   const displayHostname = props.hostname === "0.0.0.0" || props.hostname === "::" ? "127.0.0.1" : props.hostname;
   const localUrl = `http://${displayHostname}:${props.port}`;
@@ -55314,6 +56705,17 @@ function welcomeEndpointLines(mode) {
       { label: "Runtime", value: "/health" }
     ];
   }
+  if (mode === "copilot") {
+    return [
+      ...claude,
+      { label: "OpenAI", value: "/v1/responses" },
+      { label: "", value: "/v1/chat/completions" },
+      { label: "", value: "/v1/embeddings" },
+      { label: "Runtime", value: "/usage" },
+      { label: "", value: "/health" },
+      { label: "Models", value: "/v1/models" }
+    ];
+  }
   return [
     ...claude,
     { label: "OpenAI", value: "/v1/responses" },
@@ -55381,7 +56783,8 @@ function ProviderDashboard(props) {
             account: props.account,
             info: props.activeAccountInfo,
             providerMode: props.providerMode,
-            kiroInfo: props.providerInfo.mode === "kiro" ? props.providerInfo : undefined
+            kiroInfo: props.providerInfo.mode === "kiro" ? props.providerInfo : undefined,
+            copilotInfo: props.providerInfo.mode === "copilot" ? props.providerInfo : undefined
           }, undefined, false, undefined, this),
           props.providerMode === "codex" && /* @__PURE__ */ jsx_dev_runtime14.jsxDEV(CodexFastModeStatus, {
             enabled: props.codexFastMode
@@ -56111,33 +57514,45 @@ function SwitchProviderConfirm(props) {
       }, undefined, false, undefined, this),
       /* @__PURE__ */ jsx_dev_runtime17.jsxDEV(Box_default, {
         marginTop: 1,
-        flexDirection: "column",
-        children: [
-          /* @__PURE__ */ jsx_dev_runtime17.jsxDEV(Text, {
-            color: "#aab3cf",
-            children: [
-              "Current: ",
-              /* @__PURE__ */ jsx_dev_runtime17.jsxDEV(Text, {
-                bold: true,
-                children: props.currentLabel
-              }, undefined, false, undefined, this)
-            ]
-          }, undefined, true, undefined, this),
-          /* @__PURE__ */ jsx_dev_runtime17.jsxDEV(Text, {
-            color: "#aab3cf",
-            children: [
-              "Target:  ",
-              /* @__PURE__ */ jsx_dev_runtime17.jsxDEV(Text, {
-                bold: true,
-                children: props.targetLabel
-              }, undefined, false, undefined, this)
-            ]
-          }, undefined, true, undefined, this)
-        ]
-      }, undefined, true, undefined, this),
+        children: /* @__PURE__ */ jsx_dev_runtime17.jsxDEV(Text, {
+          color: "#aab3cf",
+          children: [
+            "Current: ",
+            /* @__PURE__ */ jsx_dev_runtime17.jsxDEV(Text, {
+              bold: true,
+              children: props.currentLabel
+            }, undefined, false, undefined, this)
+          ]
+        }, undefined, true, undefined, this)
+      }, undefined, false, undefined, this),
       /* @__PURE__ */ jsx_dev_runtime17.jsxDEV(Box_default, {
         marginTop: 1,
         flexDirection: "column",
+        children: props.options.map((option, index) => /* @__PURE__ */ jsx_dev_runtime17.jsxDEV(Box_default, {
+          children: [
+            /* @__PURE__ */ jsx_dev_runtime17.jsxDEV(Box_default, {
+              width: 4,
+              children: /* @__PURE__ */ jsx_dev_runtime17.jsxDEV(Text, {
+                color: props.selected === index ? "#d97757" : "gray",
+                children: props.selected === index ? "\u203A" : " "
+              }, undefined, false, undefined, this)
+            }, undefined, false, undefined, this),
+            /* @__PURE__ */ jsx_dev_runtime17.jsxDEV(Box_default, {
+              width: 14,
+              children: /* @__PURE__ */ jsx_dev_runtime17.jsxDEV(Text, {
+                bold: props.selected === index,
+                children: option.label
+              }, undefined, false, undefined, this)
+            }, undefined, false, undefined, this),
+            /* @__PURE__ */ jsx_dev_runtime17.jsxDEV(Text, {
+              color: option.current ? "#aab3cf" : "gray",
+              children: option.current ? "current" : "switch target"
+            }, undefined, false, undefined, this)
+          ]
+        }, option.label, true, undefined, this))
+      }, undefined, false, undefined, this),
+      /* @__PURE__ */ jsx_dev_runtime17.jsxDEV(Box_default, {
+        marginTop: 1,
         children: /* @__PURE__ */ jsx_dev_runtime17.jsxDEV(Text, {
           color: "yellow",
           children: "\u26A0 The runtime will restart and active connections will be interrupted."
@@ -56148,7 +57563,7 @@ function SwitchProviderConfirm(props) {
         children: [
           /* @__PURE__ */ jsx_dev_runtime17.jsxDEV(Text, {
             color: "gray",
-            children: "Press "
+            children: "\u2191/\u2193 choose \xB7 "
           }, undefined, false, undefined, this),
           /* @__PURE__ */ jsx_dev_runtime17.jsxDEV(Text, {
             bold: true,
@@ -56156,7 +57571,7 @@ function SwitchProviderConfirm(props) {
           }, undefined, false, undefined, this),
           /* @__PURE__ */ jsx_dev_runtime17.jsxDEV(Text, {
             color: "gray",
-            children: " to confirm or "
+            children: " switch \xB7 "
           }, undefined, false, undefined, this),
           /* @__PURE__ */ jsx_dev_runtime17.jsxDEV(Text, {
             bold: true,
@@ -56164,7 +57579,7 @@ function SwitchProviderConfirm(props) {
           }, undefined, false, undefined, this),
           /* @__PURE__ */ jsx_dev_runtime17.jsxDEV(Text, {
             color: "gray",
-            children: " to cancel"
+            children: " cancel"
           }, undefined, false, undefined, this)
         ]
       }, undefined, true, undefined, this)
@@ -56176,6 +57591,22 @@ function SwitchProviderConfirm(props) {
 function buildProviderInfo(mode, upstream, authFilePath) {
   if (mode === "codex")
     return { mode: "codex", label: "Codex" };
+  if (mode === "copilot") {
+    const copilot = upstream;
+    const rawAuthType2 = copilot.getAuthType?.();
+    const rawAccountType = copilot.getAccountType?.();
+    const rawEmail = copilot.getEmail?.();
+    const rawPlan = copilot.getPlan?.();
+    return {
+      mode: "copilot",
+      label: "Copilot",
+      authType: rawAuthType2 === "device_code" ? "Device Code" : rawAuthType2 === "github_token" ? "GitHub Token" : "Unknown",
+      ...typeof rawAccountType === "string" ? { accountType: rawAccountType } : {},
+      ...typeof rawEmail === "string" ? { email: rawEmail } : {},
+      ...typeof rawPlan === "string" ? { plan: rawPlan } : {},
+      authFilePath: authFilePath ?? ""
+    };
+  }
   const kiro = upstream;
   const rawAuthType = kiro.getAuthType?.();
   const authType = rawAuthType === "aws_sso_oidc" ? "SSO OIDC" : "Desktop Auth";
@@ -56191,128 +57622,63 @@ function buildProviderInfo(mode, upstream, authFilePath) {
   };
 }
 
-// src/upstream/codex/connect-account.ts
-async function connectAccount(authFile, draft, options) {
-  return saveConnectedAuth(authFile, await connectedAuthEntry(draft, options), options);
-}
-async function connectAccountFromCodexAuth(authFile, source = DEFAULT_CODEX_CLI_AUTH_FILE, options) {
-  const auth2 = await readCodexCliAuthFile(source);
-  if (auth2.auth_mode && auth2.auth_mode !== "chatgpt")
-    throw new Error(`Unsupported auth_mode: ${auth2.auth_mode}`);
-  const sourceAuthFile = expandHome(source);
-  const entry = connectedAuthEntryFromTokens(auth2.tokens?.account_id ?? "", auth2.tokens?.access_token ?? "", auth2.tokens?.refresh_token ?? "");
-  return saveConnectedAuth(authFile, {
-    ...entry,
-    sourceAuthFile,
-    sourceAccountKey: entry.accountId
-  }, {
-    ...options,
-    codexAuthFile: sourceAuthFile
+// src/upstream/copilot/device-code.ts
+var DEFAULT_DEVICE_CODE_INTERVAL_SECONDS = 5;
+var MAX_DEVICE_CODE_INTERVAL_SECONDS = 60;
+async function connectCopilotAccountFromDeviceCode(authFile, options = {}) {
+  options.report?.("Requesting GitHub device code...");
+  const deviceCode = await getCopilotDeviceCode({ fetch: options.fetch });
+  options.onDeviceCode?.(deviceCode);
+  options.report?.(`Open ${deviceCode.verification_uri} and enter code ${deviceCode.user_code}`);
+  const githubToken = await waitForCopilotDeviceToken(deviceCode, options);
+  options.report?.("Device code approved. Loading Copilot account...");
+  return connectCopilotAccountFromGitHubToken(authFile, githubToken, {
+    fetch: options.fetch,
+    authType: "device_code"
   });
 }
-async function connectedAuthEntry(draft, options) {
-  const refreshToken = cleanToken3(draft.refreshToken);
-  const accessToken = cleanToken3(draft.accessToken);
-  if (!refreshToken)
-    throw new Error("refreshToken is required");
-  const tokens = await refreshAccessToken(refreshToken, options);
-  const accountId = cleanToken3(draft.accountId) || extractAccountId(tokens) || extractAccountId({ access_token: accessToken, refresh_token: refreshToken });
-  if (!accountId)
-    throw new Error("accountId is required");
-  return {
-    type: "oauth",
-    access: cleanToken3(tokens.access_token),
-    refresh: tokens.refresh_token ? cleanToken3(tokens.refresh_token) : refreshToken,
-    expires: Date.now() + (tokens.expires_in ?? 3600) * 1000,
-    accountId
-  };
-}
-async function saveConnectedAuth(authFile, auth2, options) {
-  const file = await readAuthFileData(authFile).catch(() => ({ path: authFile, data: [] }));
-  const entries = Array.isArray(file.data) ? file.data : [file.data];
-  const index = entries.findIndex((entry) => entry.accountId === auth2.accountId);
-  const nextEntries = index >= 0 ? entries.map((entry, itemIndex) => itemIndex === index ? { ...entry, ...auth2 } : entry) : [...entries, auth2];
-  await writeTextFile(authFile, `${JSON.stringify(nextEntries, null, 2)}
-`);
-  await writeAccountInfoFile(authFile, nextEntries, auth2.accountId);
-  await syncCodexCliAuthTokens({
-    accountId: auth2.accountId,
-    accessToken: auth2.access,
-    refreshToken: auth2.refresh,
-    path: auth2.sourceAuthFile ?? options?.codexAuthFile,
-    sourceAccountKey: auth2.sourceAccountKey
-  }).catch(() => false);
-  return {
-    accountId: auth2.accountId,
-    data: nextEntries
-  };
-}
-function connectedAuthEntryFromTokens(accountIdInput, accessTokenInput, refreshTokenInput) {
-  const access = cleanToken3(accessTokenInput);
-  const refresh = cleanToken3(refreshTokenInput);
-  const accountId = cleanToken3(accountIdInput) || extractAccountId({ access_token: access, refresh_token: refresh });
-  if (!accountId)
-    throw new Error("accountId is required");
-  if (!access)
-    throw new Error("accessToken is required");
-  if (!refresh)
-    throw new Error("refreshToken is required");
-  return {
-    type: "oauth",
-    access,
-    refresh,
-    expires: accessTokenExpiresAt(access),
-    accountId
-  };
-}
-async function refreshAccessToken(refreshToken, options) {
-  const response = await (options?.fetch ?? fetch)(`${options?.issuer ?? DEFAULT_ISSUER}/oauth/token`, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      grant_type: "refresh_token",
-      refresh_token: refreshToken,
-      client_id: options?.clientId ?? DEFAULT_CLIENT_ID
-    }).toString()
-  });
-  if (response.ok)
-    return await response.json();
-  throw new Error(`Token refresh failed: ${response.status} ${await response.text()}`);
-}
-function cleanToken3(value) {
-  return value.trim().replace(/^['"]|['"]$/g, "").replace(/\s+/g, "");
-}
-
-// src/ui/accounts.ts
-function authDataToAccounts(data) {
-  return (Array.isArray(data) ? data : [data]).map((auth2, index) => authToAccount(auth2, index));
-}
-function selectedAccountIndex(data, account) {
-  if (!account)
-    return 0;
-  try {
-    return selectAuthEntry(data, account).index;
-  } catch {
-    return 0;
+async function waitForCopilotDeviceToken(deviceCode, options) {
+  let intervalSeconds = normalizeInterval(deviceCode.interval, DEFAULT_DEVICE_CODE_INTERVAL_SECONDS);
+  const expiresAt = Date.now() + normalizeInterval(deviceCode.expires_in, 15 * 60) * 1000;
+  while (true) {
+    if (Date.now() >= expiresAt)
+      throw new Error("Copilot device code expired");
+    const tokenJson = await pollCopilotDeviceToken(deviceCode.device_code, { fetch: options.fetch });
+    if (isDeviceTokenSuccess(tokenJson)) {
+      if (!tokenJson.access_token)
+        throw new Error("Copilot device code returned an empty access token");
+      return tokenJson.access_token;
+    }
+    if (tokenJson.error === "authorization_pending") {
+      options.report?.("Waiting for GitHub approval...");
+      await sleep(intervalSeconds, options.sleep);
+      continue;
+    }
+    if (tokenJson.error === "slow_down") {
+      const serverInterval = normalizeInterval(tokenJson.interval, intervalSeconds + 5);
+      intervalSeconds = Math.min(MAX_DEVICE_CODE_INTERVAL_SECONDS, Math.max(intervalSeconds + 1, serverInterval));
+      options.report?.("GitHub asked to slow down. Retrying...");
+      await sleep(intervalSeconds, options.sleep);
+      continue;
+    }
+    if (tokenJson.error === "access_denied")
+      throw new Error("Copilot device code was denied");
+    if (tokenJson.error === "expired_token")
+      throw new Error("Copilot device code expired");
+    throw new Error(tokenJson.error_description ?? tokenJson.error_uri ?? `Copilot device flow failed: ${tokenJson.error}`);
   }
 }
-function authToAccount(auth2, index) {
-  const profile = tokenProfile(auth2.access);
-  const name = auth2.name ?? auth2.label ?? auth2.email ?? profile.email ?? auth2.accountId ?? `account-${index + 1}`;
-  return {
-    key: accountInfoKey(auth2, index),
-    name,
-    email: auth2.email ?? profile.email,
-    accountId: auth2.accountId,
-    plan: profile.plan
-  };
+async function sleep(seconds, sleepFn) {
+  const delay2 = Math.max(1, Math.floor(seconds)) * 1000;
+  if (sleepFn)
+    return sleepFn(delay2);
+  return new Promise((resolve) => setTimeout(resolve, delay2));
 }
-function tokenProfile(access) {
-  const claims = parseJwtClaims(access);
-  return {
-    email: claims?.["https://api.openai.com/profile"]?.email,
-    plan: claims?.["https://api.openai.com/auth"]?.chatgpt_plan_type
-  };
+function normalizeInterval(value, fallback) {
+  return Number.isFinite(value) && value && value > 0 ? Math.floor(value) : fallback;
+}
+function isDeviceTokenSuccess(value) {
+  return "access_token" in value;
 }
 
 // src/ui/limits.ts
@@ -56401,6 +57767,57 @@ function kiroUsageLimitsToView(data) {
   }
   return { tier, email, limitGroups: rows.length ? [{ rows }] : [] };
 }
+function copilotUsageToView(data) {
+  if (!data || typeof data !== "object")
+    return { limitGroups: [] };
+  const item = data;
+  const userInfo = item.userInfo && typeof item.userInfo === "object" && !Array.isArray(item.userInfo) ? item.userInfo : undefined;
+  const quotaSnapshots = item.quota_snapshots && typeof item.quota_snapshots === "object" && !Array.isArray(item.quota_snapshots) ? item.quota_snapshots : undefined;
+  const limitedQuotas = item.limited_user_quotas && typeof item.limited_user_quotas === "object" && !Array.isArray(item.limited_user_quotas) ? item.limited_user_quotas : undefined;
+  const monthlyQuotas = item.monthly_quotas && typeof item.monthly_quotas === "object" && !Array.isArray(item.monthly_quotas) ? item.monthly_quotas : undefined;
+  const rows = [];
+  const addQuotaRow = (label, value, resetLabel) => {
+    if (typeof value !== "number")
+      return;
+    const used = Math.max(0, Math.min(100, Math.round(100 - value)));
+    rows.push({
+      label,
+      used,
+      left: `${formatNumber(value)} left`,
+      reset: resetLabel
+    });
+  };
+  if (quotaSnapshots) {
+    for (const [key, value] of Object.entries(quotaSnapshots)) {
+      if (!value || typeof value !== "object")
+        continue;
+      const quota = value;
+      const label = `${formatCopilotQuotaLabel(key)} limit:`;
+      const remaining = typeof quota.quota_remaining === "number" ? quota.quota_remaining : typeof quota.remaining === "number" ? quota.remaining : typeof quota.percent_remaining === "number" ? quota.percent_remaining : 0;
+      const leftLabel = typeof quota.quota_remaining === "number" || typeof quota.remaining === "number" ? `${formatNumber(remaining)} left` : `${formatNumber(remaining)}% left`;
+      rows.push({
+        label,
+        used: typeof quota.percent_remaining === "number" ? Math.max(0, 100 - Math.round(quota.percent_remaining)) : 0,
+        left: leftLabel,
+        reset: typeof item.quota_reset_date_utc === "string" ? `resets ${item.quota_reset_date_utc}` : typeof item.quota_reset_date === "string" ? `resets ${item.quota_reset_date}` : "reset unknown"
+      });
+    }
+  } else if (limitedQuotas || monthlyQuotas) {
+    const reset = typeof item.limited_user_reset_date === "string" ? item.limited_user_reset_date : "reset unknown";
+    const quotaSource = limitedQuotas ?? monthlyQuotas ?? {};
+    for (const [key, value] of Object.entries(quotaSource)) {
+      addQuotaRow(`${formatCopilotQuotaLabel(key)} limit:`, value, `resets ${reset}`);
+    }
+  }
+  return {
+    accountInfo: {
+      ...typeof userInfo?.email === "string" ? { email: userInfo.email } : {},
+      ...typeof item.copilot_plan === "string" ? { plan: item.copilot_plan } : {},
+      updatedAt: new Date().toISOString()
+    },
+    limitGroups: rows.length ? [{ rows }] : []
+  };
+}
 function unwrapKiroUsageLimits(data) {
   if (!data || typeof data !== "object")
     return;
@@ -56442,12 +57859,255 @@ function formatResetEpoch(epochSeconds) {
     return "unknown";
   return `${date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false })} on ${date.getDate()} ${date.toLocaleString([], { month: "short" })}`;
 }
+function formatCopilotQuotaLabel(key) {
+  return key.replace(/_/g, " ").replace(/\b\w/g, (match) => match.toUpperCase());
+}
+
+// src/ui/providers/copilot.ts
+var copilotProviderDefinition = {
+  mode: "copilot",
+  label: "Copilot",
+  authFile: () => bunPath.join(appDataDir(), COPILOT_AUTH_FILE_NAME),
+  bootstrapOptions: (context) => ({
+    providerMode: "copilot",
+    authFile: context.authFile,
+    authAccount: context.accountKey
+  }),
+  runtimeSignature: (context) => `copilot:${context.authFile}:${context.accountKey ?? ""}:${context.authRevision}`,
+  validate: async () => {
+    await ensureCopilotAuthFile();
+  },
+  validationError: (error) => `Copilot auth file not found or invalid at ${bunPath.join(appDataDir(), COPILOT_AUTH_FILE_NAME)}. (${errorMessage4(error)})`,
+  accounts: {
+    selectorTitle: "Select Copilot account",
+    selectorDescription: "Switch between managed Copilot accounts. Applies to this session and future requests.",
+    loadState: loadCopilotAccountState,
+    toAccounts: (data) => copilotAuthDataToAccounts(data),
+    persistActive: (authFile, data, accountKey) => writeActiveCopilotAccount(authFile, data, accountKey),
+    connect: {
+      title: "Connect Copilot account",
+      sources: [
+        {
+          label: "Login with device code",
+          description: "Open GitHub, approve the device code, and save the connected account locally",
+          savingMessage: "Requesting GitHub device code...",
+          import: async (authFile, context) => {
+            const result2 = await connectCopilotAccountFromDeviceCode(authFile, {
+              report: context?.report,
+              onDeviceCode: (deviceCode) => context?.reportProgress?.({
+                verificationUri: deviceCode.verification_uri,
+                userCode: deviceCode.user_code
+              })
+            });
+            return { accountKey: result2.accountKey, data: result2.data };
+          }
+        }
+      ],
+      manualDescription: "Paste a GitHub token with Copilot access. Use device code login above if you do not want to paste a token.",
+      fields: [
+        { key: "label", label: "label", optional: true },
+        { key: "githubToken", label: "githubToken", secret: true },
+        { key: "accountType", label: "accountType", optional: true }
+      ],
+      defaultDraft: () => ({ label: "", githubToken: "", accountType: "individual" }),
+      connectManual: async (authFile, draft) => {
+        const result2 = await connectCopilotAccount(authFile, draft);
+        return { accountKey: result2.accountKey, data: result2.data };
+      }
+    }
+  }
+};
+async function refreshCopilotLimits(upstream) {
+  if (!upstream.usage)
+    return;
+  const response = await upstream.usage();
+  if (!response.ok)
+    throw new Error(`Copilot API ${response.status}`);
+  const view = copilotUsageToView(await response.json());
+  return {
+    accountInfo: view.accountInfo ? { ...view.accountInfo, updatedAt: new Date().toISOString() } : undefined,
+    limitGroups: view.limitGroups
+  };
+}
+async function loadCopilotAccountState(authFile) {
+  const resolvedAuthFile = await ensureCopilotAuthFile(authFile);
+  const file = await readCopilotAuthFileData(resolvedAuthFile).catch(async (error) => {
+    const message = error instanceof Error ? error.message : String(error);
+    if (!message.includes("does not contain any accounts"))
+      throw error;
+    return { activeAccount: undefined, accounts: [] };
+  });
+  const activeAccount = process.env.COPILOT_AUTH_ACCOUNT;
+  return {
+    data: file,
+    selected: selectedCopilotAccountIndex(file, activeAccount)
+  };
+}
+function selectedCopilotAccountIndex(data, account) {
+  try {
+    return selectCopilotAuthEntry2(data, account).index;
+  } catch {
+    return 0;
+  }
+}
+function copilotAuthDataToAccounts(data) {
+  return copilotAuthEntries(data).map((auth3, index) => copilotAuthToAccount(auth3, index));
+}
+function copilotAuthToAccount(auth3, index) {
+  const name = firstString4(auth3.label, auth3.email, auth3.accountId, auth3.plan, auth3.accountType) ?? `Copilot ${index + 1}`;
+  return {
+    key: auth3.accountId ?? auth3.email ?? auth3.label ?? auth3.accountType ?? `copilot-account-${index + 1}`,
+    name,
+    email: auth3.email,
+    accountId: auth3.accountId,
+    plan: auth3.plan,
+    detail: [auth3.accountType, auth3.plan].filter(Boolean).join(" \xB7 ")
+  };
+}
+function firstString4(...values2) {
+  return values2.find((value) => typeof value === "string" && value.trim().length > 0);
+}
+function errorMessage4(error) {
+  return error instanceof Error ? error.message : String(error);
+}
+
+// src/upstream/codex/connect-account.ts
+async function connectAccount(authFile, draft, options) {
+  return saveConnectedAuth(authFile, await connectedAuthEntry(draft, options), options);
+}
+async function connectAccountFromCodexAuth(authFile, source = DEFAULT_CODEX_CLI_AUTH_FILE, options) {
+  const auth3 = await readCodexCliAuthFile(source);
+  if (auth3.auth_mode && auth3.auth_mode !== "chatgpt")
+    throw new Error(`Unsupported auth_mode: ${auth3.auth_mode}`);
+  const sourceAuthFile = expandHome(source);
+  const entry = connectedAuthEntryFromTokens(auth3.tokens?.account_id ?? "", auth3.tokens?.access_token ?? "", auth3.tokens?.refresh_token ?? "");
+  return saveConnectedAuth(authFile, {
+    ...entry,
+    sourceAuthFile,
+    sourceAccountKey: entry.accountId
+  }, {
+    ...options,
+    codexAuthFile: sourceAuthFile
+  });
+}
+async function connectedAuthEntry(draft, options) {
+  const refreshToken = cleanToken4(draft.refreshToken);
+  const accessToken = cleanToken4(draft.accessToken);
+  if (!refreshToken)
+    throw new Error("refreshToken is required");
+  const tokens = await refreshAccessToken(refreshToken, options);
+  const accountId = cleanToken4(draft.accountId) || extractAccountId(tokens) || extractAccountId({ access_token: accessToken, refresh_token: refreshToken });
+  if (!accountId)
+    throw new Error("accountId is required");
+  return {
+    type: "oauth",
+    access: cleanToken4(tokens.access_token),
+    refresh: tokens.refresh_token ? cleanToken4(tokens.refresh_token) : refreshToken,
+    expires: Date.now() + (tokens.expires_in ?? 3600) * 1000,
+    accountId
+  };
+}
+async function saveConnectedAuth(authFile, auth3, options) {
+  const file = await readAuthFileData(authFile).catch(() => ({ path: authFile, data: [] }));
+  const entries = Array.isArray(file.data) ? file.data : [file.data];
+  const index = entries.findIndex((entry) => entry.accountId === auth3.accountId);
+  const nextEntries = index >= 0 ? entries.map((entry, itemIndex) => itemIndex === index ? { ...entry, ...auth3 } : entry) : [...entries, auth3];
+  if (isProviderStatePath(authFile)) {
+    await updateProviderSection("codex", authFile, async (section) => ({
+      ...section ?? {},
+      data: nextEntries,
+      activeAccount: auth3.accountId
+    }));
+  } else {
+    await writeTextFile(authFile, `${JSON.stringify(nextEntries, null, 2)}
+`);
+    await writeAccountInfoFile(authFile, nextEntries, auth3.accountId);
+  }
+  await syncCodexCliAuthTokens({
+    accountId: auth3.accountId,
+    accessToken: auth3.access,
+    refreshToken: auth3.refresh,
+    path: auth3.sourceAuthFile ?? options?.codexAuthFile,
+    sourceAccountKey: auth3.sourceAccountKey
+  }).catch(() => false);
+  return {
+    accountId: auth3.accountId,
+    data: nextEntries
+  };
+}
+function connectedAuthEntryFromTokens(accountIdInput, accessTokenInput, refreshTokenInput) {
+  const access = cleanToken4(accessTokenInput);
+  const refresh = cleanToken4(refreshTokenInput);
+  const accountId = cleanToken4(accountIdInput) || extractAccountId({ access_token: access, refresh_token: refresh });
+  if (!accountId)
+    throw new Error("accountId is required");
+  if (!access)
+    throw new Error("accessToken is required");
+  if (!refresh)
+    throw new Error("refreshToken is required");
+  return {
+    type: "oauth",
+    access,
+    refresh,
+    expires: accessTokenExpiresAt(access),
+    accountId
+  };
+}
+async function refreshAccessToken(refreshToken, options) {
+  const response = await (options?.fetch ?? fetch)(`${options?.issuer ?? DEFAULT_ISSUER}/oauth/token`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      grant_type: "refresh_token",
+      refresh_token: refreshToken,
+      client_id: options?.clientId ?? DEFAULT_CLIENT_ID
+    }).toString()
+  });
+  if (response.ok)
+    return await response.json();
+  throw new Error(`Token refresh failed: ${response.status} ${await response.text()}`);
+}
+function cleanToken4(value) {
+  return value.trim().replace(/^['"]|['"]$/g, "").replace(/\s+/g, "");
+}
+
+// src/ui/accounts.ts
+function authDataToAccounts(data) {
+  return (Array.isArray(data) ? data : [data]).map((auth3, index) => authToAccount(auth3, index));
+}
+function selectedAccountIndex(data, account) {
+  if (!account)
+    return 0;
+  try {
+    return selectAuthEntry(data, account).index;
+  } catch {
+    return 0;
+  }
+}
+function authToAccount(auth3, index) {
+  const profile = tokenProfile(auth3.access);
+  const name = auth3.name ?? auth3.label ?? auth3.email ?? profile.email ?? auth3.accountId ?? `account-${index + 1}`;
+  return {
+    key: accountInfoKey(auth3, index),
+    name,
+    email: auth3.email ?? profile.email,
+    accountId: auth3.accountId,
+    plan: profile.plan
+  };
+}
+function tokenProfile(access) {
+  const claims = parseJwtClaims(access);
+  return {
+    email: claims?.["https://api.openai.com/profile"]?.email,
+    plan: claims?.["https://api.openai.com/auth"]?.chatgpt_plan_type
+  };
+}
 
 // src/ui/providers/codex.ts
 var codexProviderDefinition = {
   mode: "codex",
   label: "Codex",
-  authFile: () => resolveAuthFile(process.env.CODEX_AUTH_FILE),
+  authFile: () => process.env.CODEX_AUTH_FILE ? resolveAuthFile(process.env.CODEX_AUTH_FILE) : providerStatePath(),
   bootstrapOptions: (context) => ({
     providerMode: "codex",
     authFile: context.authFile,
@@ -56455,11 +58115,10 @@ var codexProviderDefinition = {
   }),
   runtimeSignature: (context) => `codex:${context.authFile}:${context.accountKey ?? ""}:${context.authRevision}`,
   validate: async () => {
-    const authFile = resolveAuthFile(process.env.CODEX_AUTH_FILE);
-    if (!await pathExists(authFile))
-      throw new Error(`File not found: ${authFile}`);
+    const authFile = process.env.CODEX_AUTH_FILE ? resolveAuthFile(process.env.CODEX_AUTH_FILE) : providerStatePath();
+    await ensureCodexAuthFile(authFile);
   },
-  validationError: (error) => `Codex auth file not found at ${resolveAuthFile(process.env.CODEX_AUTH_FILE)}. (${errorMessage4(error)})`,
+  validationError: (error) => `Codex auth file not found at ${process.env.CODEX_AUTH_FILE ? resolveAuthFile(process.env.CODEX_AUTH_FILE) : providerStatePath()}. (${errorMessage5(error)})`,
   accounts: {
     selectorTitle: "Select account",
     selectorDescription: "Switch between Codex accounts. Applies to this session and future requests.",
@@ -56506,6 +58165,7 @@ async function refreshCodexLimits(authFile, accountKey) {
   };
 }
 async function loadCodexAccountState(authFile) {
+  await ensureCodexAuthFile(authFile);
   const [file, info] = await Promise.all([readAuthFileData(authFile), readAccountInfoFile(authFile)]);
   const activeAccount = process.env.CODEX_AUTH_ACCOUNT ?? info?.activeAccount;
   writeAccountInfoFile(authFile, file.data, activeAccount).catch(() => {});
@@ -56517,7 +58177,7 @@ async function loadCodexAccountState(authFile) {
 function persistCodexActiveAccount(authFile, data, accountKey) {
   return writeActiveAccountInfo(authFile, data, accountKey);
 }
-function errorMessage4(error) {
+function errorMessage5(error) {
   return error instanceof Error ? error.message : String(error);
 }
 function requireAccountKey(accountKey) {
@@ -56538,9 +58198,9 @@ var kiroProviderDefinition = {
   }),
   runtimeSignature: (context) => `kiro:${context.authFile}:${context.accountKey ?? ""}:${context.authRevision}`,
   validate: async () => {
-    await Kiro_Upstream_Provider.fromAuthFile(await resolveKiroRuntimeAuthFile());
+    await ensureKiroAuthFile();
   },
-  validationError: (error) => `Kiro auth token file not found or invalid. Please log in to Kiro IDE first. (${errorMessage5(error)})`,
+  validationError: (error) => `Kiro auth token file not found or invalid. Please log in to Kiro IDE first. (${errorMessage6(error)})`,
   accounts: {
     selectorTitle: "Select Kiro account",
     selectorDescription: "Switch between managed Kiro accounts. Applies to this session and future requests.",
@@ -56601,17 +58261,17 @@ async function refreshKiroLimits(upstream) {
   };
 }
 async function loadKiroAccountState(authFile) {
-  const data = await readKiroAuthFileData(authFile).catch(async () => readKiroAuthFileData(await resolveKiroSourceAuthFile()));
+  const resolvedAuthFile = await ensureKiroAuthFile(authFile);
+  const data = await readKiroAuthFileData(resolvedAuthFile).catch(async (error) => {
+    const message = error instanceof Error ? error.message : String(error);
+    if (!message.includes("does not contain any accounts"))
+      throw error;
+    return { activeAccount: undefined, accounts: [] };
+  });
   return {
     data,
     selected: selectedKiroAccountIndex(data, process.env.KIRO_AUTH_ACCOUNT)
   };
-}
-async function resolveKiroRuntimeAuthFile(authFile = bunPath.join(appDataDir(), KIRO_STATE_FILE_NAME)) {
-  if (await pathExists(authFile)) {
-    return authFile;
-  }
-  return resolveKiroSourceAuthFile();
 }
 function selectedKiroAccountIndex(data, account) {
   try {
@@ -56621,39 +58281,43 @@ function selectedKiroAccountIndex(data, account) {
   }
 }
 function kiroAuthDataToAccounts(data) {
-  return kiroAuthEntries(data).map((auth2, index) => kiroAuthToAccount(auth2, index));
+  return kiroAuthEntries(data).map((auth3, index) => kiroAuthToAccount(auth3, index));
 }
-function kiroAuthToAccount(auth2, index) {
-  const name = firstString3(auth2.label, auth2.name, auth2.email, auth2.profileArn, auth2.accountId) ?? `Kiro ${index + 1}`;
+function kiroAuthToAccount(auth3, index) {
+  const name = firstString5(auth3.label, auth3.name, auth3.email, auth3.profileArn, auth3.accountId) ?? `Kiro ${index + 1}`;
   return {
-    key: kiroAccountKey(auth2, index),
+    key: kiroAccountKey(auth3, index),
     name,
-    email: auth2.email,
-    accountId: auth2.accountId,
+    email: auth3.email,
+    accountId: auth3.accountId,
     detail: [
-      auth2.region,
-      auth2.profileArn ? shortenArn(auth2.profileArn) : undefined
+      auth3.region,
+      auth3.profileArn ? shortenArn(auth3.profileArn) : undefined
     ].filter(Boolean).join(" \xB7 ")
   };
 }
-function firstString3(...values2) {
+function firstString5(...values2) {
   return values2.find((value) => typeof value === "string" && value.trim().length > 0);
 }
 function shortenArn(value) {
   return value.length > 36 ? `${value.slice(0, 18)}...${value.slice(-12)}` : value;
 }
-function errorMessage5(error) {
+function errorMessage6(error) {
   return error instanceof Error ? error.message : String(error);
 }
 
 // src/ui/providers/registry.ts
-var PROVIDERS = [codexProviderDefinition, kiroProviderDefinition];
+var PROVIDERS = [codexProviderDefinition, kiroProviderDefinition, copilotProviderDefinition];
+var PROVIDER_MODE_SEQUENCE = ["codex", "kiro", "copilot"];
 function providerDefinition(mode) {
   return PROVIDERS.find((provider) => provider.mode === mode) ?? codexProviderDefinition;
 }
 function nextProviderDefinition(mode) {
-  const index = PROVIDERS.findIndex((provider) => provider.mode === mode);
-  return PROVIDERS[(index + 1) % PROVIDERS.length] ?? codexProviderDefinition;
+  const index = PROVIDER_MODE_SEQUENCE.indexOf(mode);
+  return providerDefinition(PROVIDER_MODE_SEQUENCE[(index + 1) % PROVIDER_MODE_SEQUENCE.length] ?? "codex");
+}
+function providerDefinitions() {
+  return PROVIDER_MODE_SEQUENCE.map((mode) => providerDefinition(mode));
 }
 async function resolveInitialProviderMode() {
   const configMode = await readProviderConfig();
@@ -56775,6 +58439,37 @@ function useProviderLimits(options) {
         clearInterval(timer2);
       };
     }
+    if (providerMode === "copilot") {
+      if (runtimeStatus !== "running" || !upstream) {
+        resetLimits();
+        return;
+      }
+      const copilotUpstream = upstream;
+      let active2 = true;
+      async function refreshCopilot() {
+        try {
+          setLimitsState((state) => ({ ...state, limitsLoading: true, limitsError: undefined }));
+          const snapshot = await refreshCopilotLimits(copilotUpstream);
+          if (!active2)
+            return;
+          if (!snapshot) {
+            resetLimits();
+            return;
+          }
+          setLimitsState({ activeAccountInfo: snapshot.accountInfo ? { ...snapshot.accountInfo, updatedAt: snapshot.accountInfo.updatedAt } : undefined, limitGroups: snapshot.limitGroups, limitsLoading: false });
+        } catch (error) {
+          if (!active2)
+            return;
+          setLimitsState({ limitGroups: [], limitsLoading: false, limitsError: error instanceof Error ? error.message : "Network error" });
+        }
+      }
+      refreshCopilot();
+      const timer2 = setInterval(() => void refreshCopilot(), LIMITS_REFRESH_INTERVAL_MS);
+      return () => {
+        active2 = false;
+        clearInterval(timer2);
+      };
+    }
     if (providerMode !== "codex") {
       resetLimits();
       return;
@@ -56874,8 +58569,18 @@ function useProviderRuntime(options) {
       return;
     if (loadError)
       return;
-    if (providerMode === "codex" && !accountKey)
+    if (!accountKey) {
+      setUpstream(undefined);
+      const pendingSwitch = pendingProviderSwitch.current;
+      if (pendingSwitch?.targetMode === providerMode) {
+        writeProviderConfig(providerMode);
+        pendingProviderSwitch.current = undefined;
+        setSwitchingProvider(false);
+        onMessage(`Switched to ${pendingSwitch.targetLabel}. No account connected yet.`);
+      }
+      setRuntime({ status: "error", error: `No ${providerDefinition(providerMode).label} account connected. Use /connect to add one.` });
       return;
+    }
     const provider = providerDefinition(providerMode);
     const context = { authFile, accountKey, authRevision };
     const runtimeSignature = provider.runtimeSignature(context);
@@ -56962,8 +58667,12 @@ function useProviderRuntime(options) {
     providerReady
   ]);
   const runningServer = runtime2.status === "running" ? runtime2.server : undefined;
-  const switchProvider = import_react39.useCallback(async (switchOptions = {}) => {
-    const target = nextProviderDefinition(providerMode);
+  const switchProvider = import_react39.useCallback(async (targetMode, switchOptions = {}) => {
+    const target = targetMode ? providerDefinition(targetMode) : nextProviderDefinition(providerMode);
+    if (target.mode === providerMode) {
+      onMessage(`Already using ${target.label}`);
+      return;
+    }
     setSwitchingProvider(true);
     onMessage(`Validating ${target.label} credentials...`);
     try {
@@ -57018,6 +58727,7 @@ function CodexCodeApp(props) {
   const [commandIndex, setCommandIndex] = import_react40.useState(0);
   const [mode, setMode] = import_react40.useState("home");
   const [selectorIndex, setSelectorIndex] = import_react40.useState(0);
+  const [switchProviderIndex, setSwitchProviderIndex] = import_react40.useState(0);
   const [requestLogs, setRequestLogs] = import_react40.useState([]);
   const [requestLogDetails, setRequestLogDetails] = import_react40.useState({});
   const [logsSelected, setLogsSelected] = import_react40.useState(0);
@@ -57041,8 +58751,11 @@ function CodexCodeApp(props) {
   const [connectSourceIndex, setConnectSourceIndex] = import_react40.useState(0);
   const [connectStep, setConnectStep] = import_react40.useState(0);
   const [connectSaving, setConnectSaving] = import_react40.useState(false);
+  const [connectStatus, setConnectStatus] = import_react40.useState();
+  const [connectProgress, setConnectProgress] = import_react40.useState();
   const [authRevision, setAuthRevision] = import_react40.useState(0);
   const [accountKey, setAccountKey] = import_react40.useState();
+  const connectOperationId = import_react40.useRef(0);
   const resetRuntimeLogs = import_react40.useCallback(() => {
     setRequestLogs([]);
     setRequestLogDetails({});
@@ -57127,6 +58840,10 @@ function CodexCodeApp(props) {
     setAccountData(undefined);
     setAccountKey(undefined);
     setSelected(0);
+    connectOperationId.current += 1;
+    setConnectSaving(false);
+    setConnectStatus(undefined);
+    setConnectProgress(undefined);
     setAuthRevision((value) => value + 1);
   }, [clearCommandOutput, resetLimits, resetRuntimeLogs]);
   const pkg = import_react40.useMemo(() => packageInfo(), []);
@@ -57136,7 +58853,12 @@ function CodexCodeApp(props) {
   const dashboardCompact = contentWidth < 106;
   const dashboardInnerWidth = Math.max(32, contentWidth - 4);
   const commands = import_react40.useMemo(() => getCommands(providerMode), [providerMode]);
-  const switchTarget = import_react40.useMemo(() => nextProviderDefinition(providerMode), [providerMode]);
+  const switchProviderOptions = import_react40.useMemo(() => providerDefinitions(), []);
+  const switchTargetIndex = import_react40.useMemo(() => {
+    const nextMode = nextProviderDefinition(providerMode).mode;
+    const index = switchProviderOptions.findIndex((provider2) => provider2.mode === nextMode);
+    return index >= 0 ? index : 0;
+  }, [providerMode, switchProviderOptions]);
   const headerText = `v${pkg.version} \xB7 ${shortAuthor(pkg.author)}`;
   const dashboardWidth = dashboardCompact ? contentWidth : 2 + 42 + 1 + Math.min(58, Math.max(42, contentWidth - 48));
   const headerResourceWidth = contentWidth >= 104 ? 44 : contentWidth >= 88 ? 34 : 0;
@@ -57364,6 +59086,10 @@ function CodexCodeApp(props) {
         return;
       }
       if (mode === "connect-source" || mode === "connect-account") {
+        connectOperationId.current += 1;
+        setConnectSaving(false);
+        setConnectStatus(undefined);
+        setConnectProgress(undefined);
         setMode("home");
         setConnectDraft(connectCapability?.defaultDraft() ?? {});
         setConnectSourceIndex(0);
@@ -57420,10 +59146,23 @@ function CodexCodeApp(props) {
       setInputMessage("\u2191\u2193 select \xB7 enter confirm");
       return;
     }
+    if ((mode === "connect-source" || mode === "connect-account") && connectSaving) {
+      return;
+    }
     if (key.return) {
       if (mode === "switch-provider") {
+        const target = switchProviderOptions[switchProviderIndex] ?? switchProviderOptions[switchTargetIndex];
         setMode("home");
-        switchProvider({ onBeforeApply: resetForProviderSwitch });
+        setCommandIndex(0);
+        if (!target) {
+          setInputMessage("No provider targets available");
+          return;
+        }
+        if (target.mode === providerMode) {
+          setInputMessage(`Already using ${target.label}`);
+          return;
+        }
+        switchProvider(target.mode, { onBeforeApply: resetForProviderSwitch });
         return;
       }
       if (mode === "connect-source") {
@@ -57434,14 +59173,46 @@ function CodexCodeApp(props) {
         }
         const selectedSource = connectCapability.sources[connectSourceIndex];
         if (selectedSource) {
+          const operationId = ++connectOperationId.current;
           setConnectSaving(true);
-          selectedSource.import(authFile).then((result2) => {
+          setConnectStatus(selectedSource.savingMessage);
+          setConnectProgress(undefined);
+          selectedSource.import(authFile, {
+            report: (message) => {
+              if (connectOperationId.current === operationId)
+                setConnectStatus(message);
+            },
+            reportProgress: (progress) => {
+              if (connectOperationId.current !== operationId)
+                return;
+              setConnectProgress(progress);
+              if (!progress)
+                return;
+              if (progress.message)
+                setConnectStatus(progress.message);
+            }
+          }).then((result2) => {
+            if (connectOperationId.current !== operationId)
+              return;
             applyConnectedAccount(result2.data, result2.accountKey);
+            setConnectStatus(undefined);
+            setConnectProgress(undefined);
             setMode("home");
             setInputMessage(`Connected account ${result2.accountKey}`);
-          }).catch((error) => setInputMessage(`Connect failed: ${error instanceof Error ? error.message : String(error)}`)).finally(() => setConnectSaving(false));
+          }).catch((error) => {
+            if (connectOperationId.current !== operationId)
+              return;
+            setConnectProgress(undefined);
+            setConnectStatus(`Connect failed: ${error instanceof Error ? error.message : String(error)}`);
+            setInputMessage(`Connect failed: ${error instanceof Error ? error.message : String(error)}`);
+          }).finally(() => {
+            if (connectOperationId.current === operationId)
+              setConnectSaving(false);
+          });
           return;
         }
+        setConnectStatus(undefined);
+        setConnectProgress(undefined);
         setConnectDraft(connectCapability.defaultDraft());
         setConnectStep(0);
         setMode("connect-account");
@@ -57457,14 +59228,27 @@ function CodexCodeApp(props) {
           setConnectStep((step) => step + 1);
           return;
         }
+        const operationId = ++connectOperationId.current;
         setConnectSaving(true);
+        setConnectProgress(undefined);
         connectCapability.connectManual(authFile, connectDraft).then((result2) => {
+          if (connectOperationId.current !== operationId)
+            return;
           applyConnectedAccount(result2.data, result2.accountKey);
           setMode("home");
           setConnectDraft(connectCapability.defaultDraft());
           setConnectStep(0);
+          setConnectProgress(undefined);
           setInputMessage(`Connected account ${result2.accountKey}`);
-        }).catch((error) => setInputMessage(`Connect failed: ${error instanceof Error ? error.message : String(error)}`)).finally(() => setConnectSaving(false));
+        }).catch((error) => {
+          if (connectOperationId.current !== operationId)
+            return;
+          setConnectProgress(undefined);
+          setInputMessage(`Connect failed: ${error instanceof Error ? error.message : String(error)}`);
+        }).finally(() => {
+          if (connectOperationId.current === operationId)
+            setConnectSaving(false);
+        });
         return;
       }
       if (mode === "claude-env-scope") {
@@ -57576,6 +59360,7 @@ function CodexCodeApp(props) {
             setInputMessage("Provider switch already in progress");
             return;
           }
+          setSwitchProviderIndex(switchTargetIndex);
           setMode("switch-provider");
           setCommandIndex(0);
           return;
@@ -57614,6 +59399,9 @@ function CodexCodeApp(props) {
             setInputMessage("Connect is not available for this provider");
             return;
           }
+          connectOperationId.current += 1;
+          setConnectStatus(undefined);
+          setConnectProgress(undefined);
           setConnectDraft(connectCapability.defaultDraft());
           setConnectSourceIndex(0);
           setConnectStep(0);
@@ -57659,6 +59447,13 @@ function CodexCodeApp(props) {
         setSelectorIndex((value) => (value - 1 + accounts.length) % accounts.length);
       if (key.downArrow && accounts.length)
         setSelectorIndex((value) => (value + 1) % accounts.length);
+      return;
+    }
+    if (mode === "switch-provider") {
+      if (key.upArrow && switchProviderOptions.length)
+        setSwitchProviderIndex((value) => (value - 1 + switchProviderOptions.length) % switchProviderOptions.length);
+      if (key.downArrow && switchProviderOptions.length)
+        setSwitchProviderIndex((value) => (value + 1) % switchProviderOptions.length);
       return;
     }
     if (mode === "codex-fast-mode") {
@@ -57832,7 +59627,9 @@ function CodexCodeApp(props) {
       mode === "connect-source" && connectCapability && /* @__PURE__ */ jsx_dev_runtime18.jsxDEV(ConnectSourceSelector, {
         connect: connectCapability,
         selected: connectSourceIndex,
-        saving: connectSaving
+        saving: connectSaving,
+        status: connectStatus,
+        progress: connectProgress
       }, undefined, false, undefined, this),
       mode === "connect-account" && connectCapability && /* @__PURE__ */ jsx_dev_runtime18.jsxDEV(ConnectAccountWizard, {
         title: connectCapability.title,
@@ -57844,7 +59641,11 @@ function CodexCodeApp(props) {
       }, undefined, false, undefined, this),
       mode === "switch-provider" && /* @__PURE__ */ jsx_dev_runtime18.jsxDEV(SwitchProviderConfirm, {
         currentLabel: providerInfo.label,
-        targetLabel: switchTarget.label
+        selected: switchProviderIndex,
+        options: switchProviderOptions.map((provider2) => ({
+          label: provider2.label,
+          current: provider2.mode === providerMode
+        }))
       }, undefined, false, undefined, this),
       mode === "logs" && /* @__PURE__ */ jsx_dev_runtime18.jsxDEV(RequestLogsPanel, {
         logs: visibleRequestLogs,
@@ -57969,27 +59770,48 @@ if (import.meta.main) {
   });
 }
 export {
+  writeCopilotAuthFile,
+  writeActiveCopilotAccount,
   writeActiveAccountInfo,
   writeAccountInfoFile,
+  validateCopilotAuthToken,
+  updateCopilotAuthSelection,
   startRuntimeWithBootstrap,
   startRuntime,
+  selectCopilotAuthEntry2 as selectCopilotAuthEntry,
   selectAuthEntry,
+  saveCopilotCache,
   runExample,
   refreshActiveAccountInfo,
+  readCopilotAuthFileSelection,
+  readCopilotAuthFileData,
   readAuthFileData,
   readAuthFile,
   readAccountInfoFile,
+  pollCopilotDeviceToken,
   parseJwtClaims,
   parseCliOptions,
   packageInfo,
   normalizeRequestBody,
   normalizeReasoningBody,
+  managedCopilotAuthFile,
+  getCopilotUsage,
+  getCopilotDeviceCode,
+  fetchCopilotAccountSnapshot,
   extractAccountIdFromClaims,
   extractAccountId,
+  ensureCopilotAuthFile,
+  ensureCodexAuthFile,
+  copilotAuthEntries,
+  copilotAccountKey,
+  connectCopilotAccountFromGitHubToken,
+  connectCopilotAccount,
   accountInfoPath,
   accountInfoKey,
   accountInfoFromAuthData,
   accountInfoFromAuth,
   accessTokenExpiresAt,
+  Copilot_Upstream_Provider,
+  Copilot_Auth_Manager,
   CodexStandaloneClient
 };

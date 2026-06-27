@@ -1,6 +1,6 @@
 {
   "name": "codex2claudecode",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Bun-powered Claude-compatible local API for Codex, Kiro, and Copilot credentials.",
   "author": "alvin0 <chaulamdinhai@gmail.com>",
   "license": "MIT",

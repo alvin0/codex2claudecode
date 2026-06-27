@@ -8,6 +8,8 @@ export interface ProviderConfigFile {
   [key: string]: unknown
 }
 
+export type { ProviderMode } from "../core/provider-state"
+
 export const PROVIDER_CONFIG_PATH = providerStatePath()
 
 function defaultProviderConfigPath() {

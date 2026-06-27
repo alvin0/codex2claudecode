@@ -56,10 +56,16 @@ jobs:
         if: steps.version.outputs.version && steps.check.outputs.exists == 'false'
         env:
           TAG_BODY: ${{ steps.version.outputs.body }}
+          PUSH_TAG_TOKEN: ${{ secrets.GH_PAT || secrets.PUSH_TAG_TOKEN }}
         run: |
+          if [ -z "$PUSH_TAG_TOKEN" ]; then
+            echo "Missing GH_PAT or PUSH_TAG_TOKEN secret. A personal access token is required so tag pushes can trigger release workflows."
+            exit 1
+          fi
           TAG="${{ steps.version.outputs.version }}"
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+          git remote set-url origin "https://x-access-token:${PUSH_TAG_TOKEN}@github.com/${{ github.repository }}.git"
           printf '%s' "$TAG_BODY" > /tmp/tag-message.txt
           git tag -a "$TAG" -F /tmp/tag-message.txt
           git push origin "$TAG"

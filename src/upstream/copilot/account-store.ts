@@ -5,7 +5,7 @@ import { appDataDir } from "../../core/paths"
 import { isProviderStatePath, readProviderSection, updateProviderSection } from "../../core/provider-state"
 import { COPILOT_AUTH_FILE_NAME, COPILOT_CACHE_FILE_NAME } from "./constants"
 import { fetchCopilotAccountSnapshot } from "./auth"
-import { readCopilotCacheFile, writeCopilotModelCache, writeCopilotTokenCache } from "./cache"
+import { readCopilotCacheFile, writeCopilotCacheFile, writeCopilotModelCache, writeCopilotTokenCache } from "./cache"
 import type { CopilotAccountSnapshot, CopilotAuthFileData, CopilotAuthTokenFile, CopilotAuthType, CopilotManagedAuthFile } from "./types"
 
 export interface ConnectCopilotAccountDraft {
@@ -125,7 +125,7 @@ export async function saveCopilotCache(authFile: string, accountKey: string, sna
 
 export function selectCopilotAuthEntry(value: unknown, account?: string, filePath = "copilot-auth.json"): CopilotAuthFileSelection {
   const normalized = normalizeCopilotAuthFileData(value, filePath)
-  const activeAccount = normalized.format === "managed" ? normalized.data.activeAccount : undefined
+  const activeAccount = normalized.format === "managed" ? (normalized.data as CopilotManagedAuthFile).activeAccount : undefined
   const requested = account ?? activeAccount
   const requestedIndex = requested ? normalized.accounts.findIndex((auth, index) => copilotAuthEntryAliases(auth, index).includes(requested)) : -1
   if (account && requestedIndex < 0) throw new Error(`Copilot auth file ${filePath} does not contain account ${account}`)

@@ -84,11 +84,12 @@ export class Copilot_Upstream_Provider implements Upstream_Provider, TokenCreden
   }
 
   async refresh() {
-    return this.auth.refreshAndPersist()
+    await this.auth.refreshAndPersist()
+    return { copilotToken: this.auth.getCopilotToken() }
   }
 
   get tokens() {
-    return { copilotToken: "" } as { copilotToken: string }
+    return { copilotToken: this.auth.getCopilotToken() }
   }
 
   getAuthType() {
