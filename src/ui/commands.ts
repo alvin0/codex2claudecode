@@ -10,6 +10,7 @@ const SHARED_COMMANDS_BEFORE: UiCommand[] = [
 ]
 
 const SHARED_COMMANDS_AFTER: UiCommand[] = [
+  { name: "/endpoint-share", description: "Share an endpoint to another provider" },
   { name: "/set-claude-env", description: "Edit and apply Claude Code environment exports" },
   { name: "/unset-claude-env", description: "Unset Claude Code environment variables" },
 ]
@@ -43,6 +44,6 @@ export const UI_COMMANDS = getCommands("codex")
 export function filterCommands(input: string, providerMode: ProviderMode = "codex") {
   const query = input.replace(/^\//, "").trim().toLowerCase()
   const commands = getCommands(providerMode)
-  if (!query) return commands.slice(0, 8)
-  return commands.filter((command) => command.name.slice(1).includes(query)).slice(0, 8)
+  if (!query) return commands.slice(0, 9)
+  return commands.filter((command) => command.name.slice(1).includes(query)).slice(0, 9)
 }

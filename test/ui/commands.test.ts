@@ -9,6 +9,7 @@ describe("UI commands", () => {
       "/codex-fast-mode",
       "/connect",
       "/account",
+      "/endpoint-share",
       "/set-claude-env",
       "/unset-claude-env",
       "/switch-provider",
@@ -21,6 +22,7 @@ describe("UI commands", () => {
       "/logs",
       "/connect",
       "/account",
+      "/endpoint-share",
       "/set-claude-env",
       "/unset-claude-env",
       "/switch-provider",
@@ -33,6 +35,7 @@ describe("UI commands", () => {
       "/logs",
       "/connect",
       "/account",
+      "/endpoint-share",
       "/set-claude-env",
       "/unset-claude-env",
       "/switch-provider",
@@ -65,6 +68,6 @@ describe("UI commands", () => {
     expect(filterCommands("switch", "kiro").map((command) => command.name)).toContain("/switch-provider")
     expect(filterCommands("switch", "copilot").map((command) => command.name)).toContain("/switch-provider")
     expect(filterCommands("codex", "kiro")).toEqual([])
-    expect(filterCommands("", "codex")).toHaveLength(8)
+    expect(filterCommands("", "codex")).toHaveLength(9)
   })
 })

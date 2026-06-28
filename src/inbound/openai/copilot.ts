@@ -1,4 +1,5 @@
 import { OpenAI_Inbound_Provider } from "./index"
+import { OPENAI_PROXY_ROUTES, openAIProxyRouteDescriptor } from "./routes"
 
 export class OpenAI_Copilot_Inbound_Adapter extends OpenAI_Inbound_Provider {
   constructor() {
@@ -8,11 +9,7 @@ export class OpenAI_Copilot_Inbound_Adapter extends OpenAI_Inbound_Provider {
       upstreamLogLabel: "Copilot OpenAI",
       upstreamTarget: "upstream",
       expectedUpstreamKind: "copilot",
-      routes: [
-        { path: "/v1/responses", method: "POST" },
-        { path: "/v1/chat/completions", method: "POST" },
-        { path: "/v1/embeddings", method: "POST" },
-      ],
+      routes: OPENAI_PROXY_ROUTES.map(openAIProxyRouteDescriptor),
     })
   }
 }

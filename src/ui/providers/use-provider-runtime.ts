@@ -15,6 +15,7 @@ interface UseProviderRuntimeOptions {
   apiPassword?: string
   accountKey?: string
   authRevision: number
+  routingRevision: number
   loadError?: string
   onMessage: (message: string) => void
   requestLogMode?: () => RequestLogMode
@@ -34,6 +35,7 @@ export function useProviderRuntime(options: UseProviderRuntimeOptions) {
     apiPassword,
     accountKey,
     authRevision,
+    routingRevision,
     loadError,
     onMessage,
     requestLogMode,
@@ -84,7 +86,7 @@ export function useProviderRuntime(options: UseProviderRuntimeOptions) {
     }
 
     const provider = providerDefinition(providerMode)
-    const context = { authFile, accountKey, authRevision }
+    const context = { authFile, accountKey, authRevision, routingRevision }
     const runtimeSignature = provider.runtimeSignature(context)
     if (!pendingProviderSwitch.current && runtime.status === "running" && lastRuntimeSignature.current === runtimeSignature) return
 
@@ -163,6 +165,7 @@ export function useProviderRuntime(options: UseProviderRuntimeOptions) {
     authFile,
     accountKey,
     authRevision,
+    routingRevision,
     hostname,
     loadError,
     onMessage,

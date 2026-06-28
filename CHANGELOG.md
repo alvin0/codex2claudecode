@@ -4,6 +4,22 @@ All notable changes to this package are documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [0.3.2] - 2026-06-29
+
+### Added
+
+- Added `/endpoint-share` in the terminal UI so Codex, Kiro, and Copilot can proxy selected endpoints to one another from a guided wizard.
+- Added per-endpoint proxy persistence in provider state, covering `messages`, `count_tokens`, `responses`, `chat_completions`, and `embeddings`.
+- Added shared Claude and OpenAI route registries so bootstrap, runtime, and UI can discover and advertise endpoint coverage from the same source of truth.
+- Added bootstrap and runtime helpers for endpoint-share wiring, including connected-account checks and proxy-target normalization.
+- Added tests for endpoint-share normalization, source selection, and bootstrap/runtime proxy registration.
+
+### Changed
+
+- Refactored provider bootstrap into shared runtime helpers so auth-file resolution and upstream construction are handled consistently across Codex, Kiro, and Copilot.
+- Updated runtime route listing and root metadata so proxied OpenAI endpoints are reported with the correct provider labels.
+- Rebuilt the bundled `dist/index.js` artifact for this release.
+
 ## [0.3.1] - 2026-06-27
 
 ### Changed

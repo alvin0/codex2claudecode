@@ -17,7 +17,7 @@ export const copilotProviderDefinition: UiProviderDefinition = {
     authFile: context.authFile,
     authAccount: context.accountKey,
   }),
-  runtimeSignature: (context) => `copilot:${context.authFile}:${context.accountKey ?? ""}:${context.authRevision}`,
+  runtimeSignature: (context) => `copilot:${context.authFile}:${context.accountKey ?? ""}:${context.authRevision}:${context.routingRevision}`,
   validate: async () => {
     await ensureCopilotAuthFile()
   },

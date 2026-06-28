@@ -18,7 +18,7 @@ export const codexProviderDefinition: UiProviderDefinition = {
     authFile: context.authFile,
     authAccount: context.accountKey,
   }),
-  runtimeSignature: (context) => `codex:${context.authFile}:${context.accountKey ?? ""}:${context.authRevision}`,
+  runtimeSignature: (context) => `codex:${context.authFile}:${context.accountKey ?? ""}:${context.authRevision}:${context.routingRevision}`,
   validate: async () => {
     const authFile = process.env.CODEX_AUTH_FILE ? resolveAuthFile(process.env.CODEX_AUTH_FILE) : providerStatePath()
     await ensureCodexAuthFile(authFile)

@@ -20,10 +20,12 @@ export interface ClaudeInboundProviderOptions {
   expectedUpstreamKind?: UpstreamProviderKind
   localCountTokens?: boolean
   countTokens?: (body: ClaudeMessagesRequest) => number
+  routes?: Route_Descriptor[]
 }
 
 export class Claude_Inbound_Provider implements Inbound_Provider {
   readonly name: string
+  private readonly routeDescriptors: Route_Descriptor[]
   private readonly modelCatalog: Model_Catalog
   private readonly modelResolver: () => Promise<string[]>
   private readonly upstreamLogLabel: string
@@ -35,6 +37,13 @@ export class Claude_Inbound_Provider implements Inbound_Provider {
   constructor(optionsOrModelResolver: ClaudeInboundProviderOptions | (() => Promise<string[]>) = {}) {
     const options = typeof optionsOrModelResolver === "function" ? { modelResolver: optionsOrModelResolver } : optionsOrModelResolver
     this.name = options.name ?? "claude"
+    this.routeDescriptors = options.routes ?? [
+      { path: "/v1/messages", method: "POST" },
+      { path: "/v1/message", method: "POST" },
+      { path: "/v1/messages/count_tokens", method: "POST" },
+      { path: "/v1/models", method: "GET" },
+      { path: "/v1/models/:model_id", method: "GET" },
+    ]
     this.modelResolver = options.modelResolver ?? claudeSettingsModelResolver
     this.upstreamLogLabel = options.upstreamLogLabel ?? "Upstream responses"
     this.inputTokensLogLabel = options.inputTokensLogLabel ?? "OpenAI input tokens"
@@ -45,13 +54,7 @@ export class Claude_Inbound_Provider implements Inbound_Provider {
   }
 
   routes(): Route_Descriptor[] {
-    return [
-      { path: "/v1/messages", method: "POST" },
-      { path: "/v1/message", method: "POST" },
-      { path: "/v1/messages/count_tokens", method: "POST" },
-      { path: "/v1/models", method: "GET" },
-      { path: "/v1/models/:model_id", method: "GET" },
-    ]
+    return this.routeDescriptors
   }
 
   async handle(request: Request, route: Route_Descriptor, upstream: Upstream_Provider, context: RequestHandlerContext): Promise<Response> {

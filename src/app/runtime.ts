@@ -8,6 +8,7 @@ import { getLocalNetworkIp } from "../core/network"
 import { appendRequestLog, ensureRequestLogFile, requestLogFilePath, requestLogModel } from "../core/request-logs"
 import type { Provider_Registry } from "../core/registry"
 import type { HealthStatus, JsonObject, RequestLogEntry, RequestLogMode, RequestProxyLog, RuntimeOptions } from "../core/types"
+import { OPENAI_PROXY_ROUTES } from "../inbound/openai/routes"
 
 type RuntimeBootstrap = (options?: RuntimeOptions) => Promise<{
   authFile: string
@@ -363,9 +364,9 @@ export async function startRuntimeWithBootstrap(
     if (hasRoute(routes, "POST", "/v1/messages")) console.log(`Claude messages:  ${localUrl}/v1/messages`)
     if (hasRoute(routes, "POST", "/v1/messages/count_tokens")) console.log(`Claude tokens:    ${localUrl}/v1/messages/count_tokens`)
     if (hasRoute(routes, "GET", "/v1/models")) console.log(`Models:           ${localUrl}/v1/models`)
-    if (hasRoute(routes, "POST", "/v1/responses")) console.log(`Responses:        ${localUrl}/v1/responses`)
-    if (hasRoute(routes, "POST", "/v1/chat/completions")) console.log(`Chat completions: ${localUrl}/v1/chat/completions`)
-    if (hasRoute(routes, "POST", "/v1/embeddings")) console.log(`Embeddings:       ${localUrl}/v1/embeddings`)
+    for (const route of OPENAI_PROXY_ROUTES) {
+      if (hasRoute(routes, route.method, route.path)) console.log(`${route.label}: ${localUrl}${route.path}`)
+    }
     if (upstream.usage) console.log(`Usage:            ${localUrl}/usage`)
     if (upstream.environments) console.log(`Environments:     ${localUrl}/environments`)
     console.log(`Health:           ${localUrl}/health`)
@@ -411,13 +412,17 @@ function isPortInUseError(error: unknown) {
 }
 
 function runtimeEndpoints(routes: Array<{ method: string; path: string }>, upstream: Upstream_Provider) {
+  const openAIEndpoints = Object.fromEntries(
+    OPENAI_PROXY_ROUTES
+      .filter((route) => hasRoute(routes, route.method, route.path))
+      .map((route) => [route.endpoint, route.path]),
+  )
+
   return {
     ...(hasRoute(routes, "POST", "/v1/messages") ? { messages: "/v1/messages" } : {}),
     ...(hasRoute(routes, "POST", "/v1/messages/count_tokens") ? { count_tokens: "/v1/messages/count_tokens" } : {}),
     ...(hasRoute(routes, "GET", "/v1/models") ? { models: "/v1/models" } : {}),
-    ...(hasRoute(routes, "POST", "/v1/responses") ? { responses: "/v1/responses" } : {}),
-    ...(hasRoute(routes, "POST", "/v1/chat/completions") ? { chat_completions: "/v1/chat/completions" } : {}),
-    ...(hasRoute(routes, "POST", "/v1/embeddings") ? { embeddings: "/v1/embeddings" } : {}),
+    ...openAIEndpoints,
     ...(upstream.usage ? { usage: "/usage" } : {}),
     ...(upstream.environments ? { environments: "/environments" } : {}),
     health: "/health",

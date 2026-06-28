@@ -29223,7 +29223,7 @@ function parsePort(value) {
 // package.json
 var package_default = {
   name: "codex2claudecode",
-  version: "0.3.0",
+  version: "0.3.2",
   description: "Bun-powered Claude-compatible local API for Codex, Kiro, and Copilot credentials.",
   author: "alvin0 <chaulamdinhai@gmail.com>",
   license: "MIT",
@@ -29306,143 +29306,6 @@ function packageInfo() {
     ...package_default
   };
 }
-// src/core/paths.ts
-var APP_DATA_DIR_NAME = ".codex2claudecode";
-var AUTH_FILE_NAME = "auth-codex.json";
-var WINDOWS_DRIVE_ROOT = /^([A-Za-z]:)(?:[\\/]|$)/;
-var WINDOWS_DRIVE_ABSOLUTE = /^[A-Za-z]:[\\/]/;
-var bunPath = {
-  dirname: dirnamePath,
-  join: joinPath,
-  normalize: normalizePath,
-  resolve: resolvePath
-};
-function homeDir(env = Bun.env) {
-  const home = env.HOME || env.USERPROFILE || (env.HOMEDRIVE && env.HOMEPATH ? `${env.HOMEDRIVE}${env.HOMEPATH}` : undefined);
-  if (!home)
-    throw new Error("Unable to resolve the home directory from Bun.env");
-  return home;
-}
-function appDataDir() {
-  return joinPath(homeDir(), APP_DATA_DIR_NAME);
-}
-function defaultAuthFile() {
-  return joinPath(appDataDir(), AUTH_FILE_NAME);
-}
-async function ensureParentDir(file) {
-  await makeDir(dirnamePath(file));
-}
-function expandHome(value) {
-  if (value === "~")
-    return homeDir();
-  if (value.startsWith("~/") || value.startsWith("~\\"))
-    return joinPath(homeDir(), value.slice(2));
-  return value;
-}
-function resolveAuthFile(input) {
-  return input ? expandHome(input) : defaultAuthFile();
-}
-async function makeDir(dir) {
-  if (!dir || dir === ".")
-    return;
-  if (await isDirectory(dir))
-    return;
-  const fs = await import("fs/promises");
-  await fs.mkdir(dir, { recursive: true });
-}
-function joinPath(...parts) {
-  const nonEmpty = parts.filter((part) => part.length > 0);
-  if (!nonEmpty.length)
-    return ".";
-  let joined = nonEmpty[0];
-  for (const part of nonEmpty.slice(1)) {
-    joined = isAbsolutePath(part) ? part : `${trimTrailingSlashes(joined)}/${trimLeadingSlashes(part)}`;
-  }
-  return normalizePath(joined);
-}
-function dirnamePath(file) {
-  const normalized = normalizePath(file);
-  const canonical = toCanonicalSlashes(normalized);
-  const drive = canonical.match(WINDOWS_DRIVE_ROOT)?.[1];
-  const root = drive ? `${drive}/` : canonical.startsWith("/") ? "/" : "";
-  const trimmed = trimTrailingSlashes(canonical);
-  if (trimmed === root.replace(/\/$/, ""))
-    return root ? fromCanonicalSlashes(root) : ".";
-  const index = trimmed.lastIndexOf("/");
-  if (index < 0)
-    return ".";
-  if (index === 0)
-    return fromCanonicalSlashes("/");
-  return fromCanonicalSlashes(trimmed.slice(0, index));
-}
-function resolvePath(...parts) {
-  let resolved = process.cwd();
-  for (const part of parts.length ? parts : ["."]) {
-    if (!part)
-      continue;
-    resolved = isAbsolutePath(part) ? part : joinPath(resolved, part);
-  }
-  return normalizePath(resolved);
-}
-function normalizePath(value) {
-  if (!value)
-    return ".";
-  const canonical = toCanonicalSlashes(value);
-  const driveMatch = canonical.match(WINDOWS_DRIVE_ROOT);
-  let root = "";
-  let rest = canonical;
-  if (driveMatch) {
-    root = canonical.startsWith(`${driveMatch[1]}/`) ? `${driveMatch[1]}/` : driveMatch[1];
-    rest = canonical.slice(root.length);
-  } else if (canonical.startsWith("/")) {
-    root = "/";
-    rest = canonical.slice(1);
-  }
-  const stack = [];
-  for (const part of rest.split("/")) {
-    if (!part || part === ".")
-      continue;
-    if (part === "..") {
-      if (stack.length && stack[stack.length - 1] !== "..") {
-        stack.pop();
-      } else if (!root) {
-        stack.push(part);
-      }
-      continue;
-    }
-    stack.push(part);
-  }
-  const normalized = `${root}${stack.join("/")}`;
-  return fromCanonicalSlashes(normalized || root || ".");
-}
-function isAbsolutePath(value) {
-  return value.startsWith("/") || value.startsWith("\\") || WINDOWS_DRIVE_ABSOLUTE.test(value);
-}
-async function isDirectory(value) {
-  try {
-    return (await Bun.file(value).stat()).isDirectory();
-  } catch (error) {
-    if (errorCode(error) === "ENOENT")
-      return false;
-    throw error;
-  }
-}
-function errorCode(error) {
-  return typeof error === "object" && error !== null && "code" in error ? String(error.code) : undefined;
-}
-function toCanonicalSlashes(value) {
-  return value.replace(/[\\/]+/g, "/");
-}
-function fromCanonicalSlashes(value) {
-  return process.platform === "win32" ? value.replace(/\//g, "\\") : value;
-}
-function trimLeadingSlashes(value) {
-  return value.replace(/^[\\/]+/, "");
-}
-function trimTrailingSlashes(value) {
-  return value.replace(/[\\/]+$/, "");
-}
-
 // src/core/registry.ts
 class Provider_Registry {
   routes = [];
@@ -29547,229 +29410,6 @@ function equivalentDiscriminator(left, right) {
   if (left.mode === "exact")
     return left.value === right.value;
   return true;
-}
-
-// src/core/bun-command.ts
-async function runBunCommand(candidates, context) {
-  const missingCommands = [];
-  for (const cmd of candidates) {
-    let proc;
-    try {
-      proc = Bun.spawn({
-        cmd,
-        stderr: "pipe",
-        stdout: "pipe"
-      });
-    } catch (error) {
-      if (isCommandNotFoundError(error)) {
-        missingCommands.push(cmd[0] ?? "<unknown>");
-        continue;
-      }
-      throw error;
-    }
-    const [exitCode, stderr, stdout] = await Promise.all([
-      proc.exited,
-      streamText(proc.stderr),
-      streamText(proc.stdout)
-    ]);
-    if (exitCode === 0)
-      return;
-    throw commandFailure(context, cmd, exitCode, stderr || stdout);
-  }
-  const commands = [...new Set(missingCommands)].join(", ");
-  throw new Error(`Failed to ${context.action} ${context.target}: command not found${commands ? ` (${commands})` : ""}`);
-}
-async function streamText(stream) {
-  if (!(stream instanceof ReadableStream))
-    return "";
-  const reader = stream.getReader();
-  const decoder = new TextDecoder;
-  let text = "";
-  while (true) {
-    const chunk = await reader.read();
-    if (chunk.done)
-      break;
-    text += decoder.decode(chunk.value, { stream: true });
-  }
-  text += decoder.decode();
-  return text.trim();
-}
-function commandFailure(context, cmd, exitCode, output) {
-  const command = cmd.map(formatCommandPart).join(" ");
-  return new Error(`Failed to ${context.action} ${context.target}: command exited with ${exitCode} (${command})${output ? `: ${output}` : ""}`);
-}
-function formatCommandPart(value) {
-  return /\s/.test(value) ? JSON.stringify(value) : value;
-}
-function isCommandNotFoundError(error) {
-  const code = typeof error === "object" && error !== null && "code" in error ? String(error.code) : undefined;
-  if (code === "ENOENT")
-    return true;
-  const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
-  return message.includes("no such file") || message.includes("not found");
-}
-
-// src/core/bun-fs.ts
-async function readTextFile(file) {
-  return Bun.file(file).text();
-}
-async function writeTextFile(file, content, options = {}) {
-  await ensureParentDir(file);
-  await Bun.write(file, content, options.mode === undefined ? undefined : { mode: options.mode });
-}
-async function pathExists(file) {
-  try {
-    await Bun.file(file).stat();
-    return true;
-  } catch (error) {
-    if (isNotFoundError(error))
-      return false;
-    throw error;
-  }
-}
-async function readDirectory(dir) {
-  const entries = [];
-  for await (const entry of new Bun.Glob("*").scan({ cwd: dir, onlyFiles: false })) {
-    entries.push(entry);
-  }
-  return entries;
-}
-async function removePath(target, options = {}) {
-  if (options.recursive)
-    return removeWithCommand(target, options.force);
-  try {
-    const stat = await Bun.file(target).stat();
-    if (stat.isDirectory())
-      return removeWithCommand(target, options.force);
-    await Bun.file(target).delete();
-  } catch (error) {
-    if (options.force && isNotFoundError(error))
-      return;
-    if (process.platform === "win32" && options.force && isBusyError(error)) {
-      return removeWithCommand(target, true, false);
-    }
-    throw error;
-  }
-}
-async function setFileMode(file, mode) {
-  const fs = await import("fs/promises");
-  try {
-    await fs.chmod(file, mode);
-  } catch (error) {
-    if (process.platform === "win32")
-      throw error;
-    await runBunCommand([["chmod", mode.toString(8), file]], { action: `set mode ${mode.toString(8)} on`, target: file });
-  }
-}
-function isNotFoundError(error) {
-  return errorCode2(error) === "ENOENT";
-}
-function isBusyError(error) {
-  const code = errorCode2(error);
-  return code === "EBUSY" || code === "EPERM";
-}
-function errorCode2(error) {
-  return typeof error === "object" && error !== null && "code" in error ? String(error.code) : undefined;
-}
-async function atomicJsonWrite(file, content, options = {}) {
-  const mode = options.mode ?? 384;
-  const indent = options.indent ?? 2;
-  const json = `${JSON.stringify(content, null, indent)}
-`;
-  await ensureParentDir(file);
-  const dir = bunPath.dirname(file);
-  const tmpFile = bunPath.join(dir, `.tmp-${crypto.randomUUID().slice(0, 8)}.json`);
-  try {
-    await writeTextFile(tmpFile, json, { mode });
-    const fs = await import("fs");
-    fs.renameSync(tmpFile, file);
-    await setFileMode(file, mode).catch(() => {});
-  } catch (error) {
-    await removePath(tmpFile, { force: true }).catch(() => {});
-    throw error;
-  }
-}
-async function removeWithCommand(target, force = false, recursive = true) {
-  if (force && !await pathExists(target))
-    return;
-  const fs = await import("fs/promises");
-  await fs.rm(target, { recursive, force });
-}
-
-// src/core/provider-state.ts
-var PROVIDER_STATE_FILE_NAME = "provider-state.json";
-var PROVIDER_CACHE_FILE_NAME = "provider-cache.json";
-var PROVIDER_STATE_PATH = bunPath.join(appDataDir(), PROVIDER_STATE_FILE_NAME);
-var PROVIDER_CACHE_PATH = bunPath.join(appDataDir(), PROVIDER_CACHE_FILE_NAME);
-var writeQueues = new Map;
-function providerStatePath(filePath) {
-  return filePath ? expandHome(filePath) : bunPath.join(appDataDir(), PROVIDER_STATE_FILE_NAME);
-}
-function isProviderStatePath(filePath) {
-  return fileName(expandHome(filePath)) === PROVIDER_STATE_FILE_NAME;
-}
-async function readProviderStateFile(filePath) {
-  const resolved = providerStatePath(filePath);
-  if (!await pathExists(resolved))
-    return {};
-  const parsed = JSON.parse(await readTextFile(resolved));
-  return normalizeProviderStateFile(parsed, resolved);
-}
-async function updateProviderStateFile(filePath, updater) {
-  const resolved = providerStatePath(filePath);
-  await queueWrite(resolved, async () => {
-    const next = await updater(await readProviderStateFile(resolved));
-    await atomicJsonWrite(resolved, normalizeProviderStateFile(next, resolved), { mode: 384 });
-  });
-}
-async function readProviderSection(mode, filePath) {
-  const state = await readProviderStateFile(filePath);
-  const section = state[mode];
-  return normalizeProviderSection(section, mode, providerStatePath(filePath));
-}
-async function writeProviderSection(mode, section, filePath) {
-  await updateProviderStateFile(filePath, async (state) => {
-    state[mode] = normalizeProviderSection(section, mode, providerStatePath(filePath)) ?? { data: section.data };
-    return state;
-  });
-}
-async function updateProviderSection(mode, filePath, updater) {
-  await updateProviderStateFile(filePath, async (state) => {
-    const nextSection = await updater(normalizeProviderSection(state[mode], mode, providerStatePath(filePath)));
-    if (nextSection === undefined) {
-      delete state[mode];
-      return state;
-    }
-    state[mode] = normalizeProviderSection(nextSection, mode, providerStatePath(filePath)) ?? nextSection;
-    return state;
-  });
-}
-async function queueWrite(file, task) {
-  const current = writeQueues.get(file) ?? Promise.resolve();
-  const chain = current.then(task);
-  const next = chain.finally(() => {
-    if (writeQueues.get(file) === next)
-      writeQueues.delete(file);
-  });
-  writeQueues.set(file, next);
-  return next;
-}
-function normalizeProviderStateFile(value, filePath) {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new Error(`Provider state file ${filePath} must contain a JSON object`);
-  }
-  return value;
-}
-function normalizeProviderSection(value, mode, filePath) {
-  if (value === undefined)
-    return;
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new Error(`Provider state file ${filePath} has invalid ${mode} section`);
-  }
-  return value;
-}
-function fileName(filePath) {
-  return filePath.split(/[\\/]/).filter(Boolean).at(-1);
 }
 
 // src/core/constants.ts
@@ -37010,6 +36650,290 @@ function initialStreamInputTokens(request) {
   const hasCountableInput = request.messages.length > 0 || Boolean(request.system) || Boolean(request.tools?.length) || Boolean(request.mcp_servers?.length) || Boolean(request.tool_choice) || Boolean(request.thinking) || Boolean(request.output_config);
   return hasCountableInput ? countClaudeInputTokens(request) : 0;
 }
+
+// src/core/paths.ts
+var APP_DATA_DIR_NAME = ".codex2claudecode";
+var AUTH_FILE_NAME = "auth-codex.json";
+var WINDOWS_DRIVE_ROOT = /^([A-Za-z]:)(?:[\\/]|$)/;
+var WINDOWS_DRIVE_ABSOLUTE = /^[A-Za-z]:[\\/]/;
+var bunPath = {
+  dirname: dirnamePath,
+  join: joinPath,
+  normalize: normalizePath,
+  resolve: resolvePath
+};
+function homeDir(env = Bun.env) {
+  const home = env.HOME || env.USERPROFILE || (env.HOMEDRIVE && env.HOMEPATH ? `${env.HOMEDRIVE}${env.HOMEPATH}` : undefined);
+  if (!home)
+    throw new Error("Unable to resolve the home directory from Bun.env");
+  return home;
+}
+function appDataDir() {
+  return joinPath(homeDir(), APP_DATA_DIR_NAME);
+}
+function defaultAuthFile() {
+  return joinPath(appDataDir(), AUTH_FILE_NAME);
+}
+async function ensureParentDir(file) {
+  await makeDir(dirnamePath(file));
+}
+function expandHome(value) {
+  if (value === "~")
+    return homeDir();
+  if (value.startsWith("~/") || value.startsWith("~\\"))
+    return joinPath(homeDir(), value.slice(2));
+  return value;
+}
+function resolveAuthFile(input) {
+  return input ? expandHome(input) : defaultAuthFile();
+}
+async function makeDir(dir) {
+  if (!dir || dir === ".")
+    return;
+  if (await isDirectory(dir))
+    return;
+  const fs = await import("fs/promises");
+  await fs.mkdir(dir, { recursive: true });
+}
+function joinPath(...parts) {
+  const nonEmpty = parts.filter((part) => part.length > 0);
+  if (!nonEmpty.length)
+    return ".";
+  let joined = nonEmpty[0];
+  for (const part of nonEmpty.slice(1)) {
+    joined = isAbsolutePath(part) ? part : `${trimTrailingSlashes(joined)}/${trimLeadingSlashes(part)}`;
+  }
+  return normalizePath(joined);
+}
+function dirnamePath(file) {
+  const normalized = normalizePath(file);
+  const canonical = toCanonicalSlashes(normalized);
+  const drive = canonical.match(WINDOWS_DRIVE_ROOT)?.[1];
+  const root = drive ? `${drive}/` : canonical.startsWith("/") ? "/" : "";
+  const trimmed = trimTrailingSlashes(canonical);
+  if (trimmed === root.replace(/\/$/, ""))
+    return root ? fromCanonicalSlashes(root) : ".";
+  const index = trimmed.lastIndexOf("/");
+  if (index < 0)
+    return ".";
+  if (index === 0)
+    return fromCanonicalSlashes("/");
+  return fromCanonicalSlashes(trimmed.slice(0, index));
+}
+function resolvePath(...parts) {
+  let resolved = process.cwd();
+  for (const part of parts.length ? parts : ["."]) {
+    if (!part)
+      continue;
+    resolved = isAbsolutePath(part) ? part : joinPath(resolved, part);
+  }
+  return normalizePath(resolved);
+}
+function normalizePath(value) {
+  if (!value)
+    return ".";
+  const canonical = toCanonicalSlashes(value);
+  const driveMatch = canonical.match(WINDOWS_DRIVE_ROOT);
+  let root = "";
+  let rest = canonical;
+  if (driveMatch) {
+    root = canonical.startsWith(`${driveMatch[1]}/`) ? `${driveMatch[1]}/` : driveMatch[1];
+    rest = canonical.slice(root.length);
+  } else if (canonical.startsWith("/")) {
+    root = "/";
+    rest = canonical.slice(1);
+  }
+  const stack = [];
+  for (const part of rest.split("/")) {
+    if (!part || part === ".")
+      continue;
+    if (part === "..") {
+      if (stack.length && stack[stack.length - 1] !== "..") {
+        stack.pop();
+      } else if (!root) {
+        stack.push(part);
+      }
+      continue;
+    }
+    stack.push(part);
+  }
+  const normalized = `${root}${stack.join("/")}`;
+  return fromCanonicalSlashes(normalized || root || ".");
+}
+function isAbsolutePath(value) {
+  return value.startsWith("/") || value.startsWith("\\") || WINDOWS_DRIVE_ABSOLUTE.test(value);
+}
+async function isDirectory(value) {
+  try {
+    return (await Bun.file(value).stat()).isDirectory();
+  } catch (error) {
+    if (errorCode(error) === "ENOENT")
+      return false;
+    throw error;
+  }
+}
+function errorCode(error) {
+  return typeof error === "object" && error !== null && "code" in error ? String(error.code) : undefined;
+}
+function toCanonicalSlashes(value) {
+  return value.replace(/[\\/]+/g, "/");
+}
+function fromCanonicalSlashes(value) {
+  return process.platform === "win32" ? value.replace(/\//g, "\\") : value;
+}
+function trimLeadingSlashes(value) {
+  return value.replace(/^[\\/]+/, "");
+}
+function trimTrailingSlashes(value) {
+  return value.replace(/[\\/]+$/, "");
+}
+
+// src/core/bun-command.ts
+async function runBunCommand(candidates, context) {
+  const missingCommands = [];
+  for (const cmd of candidates) {
+    let proc;
+    try {
+      proc = Bun.spawn({
+        cmd,
+        stderr: "pipe",
+        stdout: "pipe"
+      });
+    } catch (error) {
+      if (isCommandNotFoundError(error)) {
+        missingCommands.push(cmd[0] ?? "<unknown>");
+        continue;
+      }
+      throw error;
+    }
+    const [exitCode, stderr, stdout] = await Promise.all([
+      proc.exited,
+      streamText(proc.stderr),
+      streamText(proc.stdout)
+    ]);
+    if (exitCode === 0)
+      return;
+    throw commandFailure(context, cmd, exitCode, stderr || stdout);
+  }
+  const commands = [...new Set(missingCommands)].join(", ");
+  throw new Error(`Failed to ${context.action} ${context.target}: command not found${commands ? ` (${commands})` : ""}`);
+}
+async function streamText(stream) {
+  if (!(stream instanceof ReadableStream))
+    return "";
+  const reader = stream.getReader();
+  const decoder2 = new TextDecoder;
+  let text = "";
+  while (true) {
+    const chunk = await reader.read();
+    if (chunk.done)
+      break;
+    text += decoder2.decode(chunk.value, { stream: true });
+  }
+  text += decoder2.decode();
+  return text.trim();
+}
+function commandFailure(context, cmd, exitCode, output) {
+  const command = cmd.map(formatCommandPart).join(" ");
+  return new Error(`Failed to ${context.action} ${context.target}: command exited with ${exitCode} (${command})${output ? `: ${output}` : ""}`);
+}
+function formatCommandPart(value) {
+  return /\s/.test(value) ? JSON.stringify(value) : value;
+}
+function isCommandNotFoundError(error) {
+  const code = typeof error === "object" && error !== null && "code" in error ? String(error.code) : undefined;
+  if (code === "ENOENT")
+    return true;
+  const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
+  return message.includes("no such file") || message.includes("not found");
+}
+
+// src/core/bun-fs.ts
+async function readTextFile(file) {
+  return Bun.file(file).text();
+}
+async function writeTextFile(file, content, options = {}) {
+  await ensureParentDir(file);
+  await Bun.write(file, content, options.mode === undefined ? undefined : { mode: options.mode });
+}
+async function pathExists(file) {
+  try {
+    await Bun.file(file).stat();
+    return true;
+  } catch (error) {
+    if (isNotFoundError(error))
+      return false;
+    throw error;
+  }
+}
+async function readDirectory(dir) {
+  const entries = [];
+  for await (const entry of new Bun.Glob("*").scan({ cwd: dir, onlyFiles: false })) {
+    entries.push(entry);
+  }
+  return entries;
+}
+async function removePath(target, options = {}) {
+  if (options.recursive)
+    return removeWithCommand(target, options.force);
+  try {
+    const stat = await Bun.file(target).stat();
+    if (stat.isDirectory())
+      return removeWithCommand(target, options.force);
+    await Bun.file(target).delete();
+  } catch (error) {
+    if (options.force && isNotFoundError(error))
+      return;
+    if (process.platform === "win32" && options.force && isBusyError(error)) {
+      return removeWithCommand(target, true, false);
+    }
+    throw error;
+  }
+}
+async function setFileMode(file, mode) {
+  const fs = await import("fs/promises");
+  try {
+    await fs.chmod(file, mode);
+  } catch (error) {
+    if (process.platform === "win32")
+      throw error;
+    await runBunCommand([["chmod", mode.toString(8), file]], { action: `set mode ${mode.toString(8)} on`, target: file });
+  }
+}
+function isNotFoundError(error) {
+  return errorCode2(error) === "ENOENT";
+}
+function isBusyError(error) {
+  const code = errorCode2(error);
+  return code === "EBUSY" || code === "EPERM";
+}
+function errorCode2(error) {
+  return typeof error === "object" && error !== null && "code" in error ? String(error.code) : undefined;
+}
+async function atomicJsonWrite(file, content, options = {}) {
+  const mode = options.mode ?? 384;
+  const indent = options.indent ?? 2;
+  const json = `${JSON.stringify(content, null, indent)}
+`;
+  await ensureParentDir(file);
+  const dir = bunPath.dirname(file);
+  const tmpFile = bunPath.join(dir, `.tmp-${crypto.randomUUID().slice(0, 8)}.json`);
+  try {
+    await writeTextFile(tmpFile, json, { mode });
+    const fs = await import("fs");
+    fs.renameSync(tmpFile, file);
+    await setFileMode(file, mode).catch(() => {});
+  } catch (error) {
+    await removePath(tmpFile, { force: true }).catch(() => {});
+    throw error;
+  }
+}
+async function removeWithCommand(target, force = false, recursive = true) {
+  if (force && !await pathExists(target))
+    return;
+  const fs = await import("fs/promises");
+  await fs.rm(target, { recursive, force });
+}
 // kiro-models.json
 var kiro_models_default = {
   source: "https://openrouter.ai/api/v1/models",
@@ -37785,6 +37709,7 @@ function displayNameFromModelId(id) {
 // src/inbound/claude/index.ts
 class Claude_Inbound_Provider {
   name;
+  routeDescriptors;
   modelCatalog;
   modelResolver;
   upstreamLogLabel;
@@ -37795,6 +37720,13 @@ class Claude_Inbound_Provider {
   constructor(optionsOrModelResolver = {}) {
     const options = typeof optionsOrModelResolver === "function" ? { modelResolver: optionsOrModelResolver } : optionsOrModelResolver;
     this.name = options.name ?? "claude";
+    this.routeDescriptors = options.routes ?? [
+      { path: "/v1/messages", method: "POST" },
+      { path: "/v1/message", method: "POST" },
+      { path: "/v1/messages/count_tokens", method: "POST" },
+      { path: "/v1/models", method: "GET" },
+      { path: "/v1/models/:model_id", method: "GET" }
+    ];
     this.modelResolver = options.modelResolver ?? claudeSettingsModelResolver;
     this.upstreamLogLabel = options.upstreamLogLabel ?? "Upstream responses";
     this.inputTokensLogLabel = options.inputTokensLogLabel ?? "OpenAI input tokens";
@@ -37804,13 +37736,7 @@ class Claude_Inbound_Provider {
     this.modelCatalog = new Model_Catalog;
   }
   routes() {
-    return [
-      { path: "/v1/messages", method: "POST" },
-      { path: "/v1/message", method: "POST" },
-      { path: "/v1/messages/count_tokens", method: "POST" },
-      { path: "/v1/models", method: "GET" },
-      { path: "/v1/models/:model_id", method: "GET" }
-    ];
+    return this.routeDescriptors;
   }
   async handle(request, route, upstream, context) {
     const upstreamMismatch = this.upstreamMismatch(upstream);
@@ -38216,26 +38142,28 @@ function withChunkCallback(response, onChunk) {
 }
 // src/inbound/claude/codex.ts
 class Claude_Codex_Inbound_Adapter extends Claude_Inbound_Provider {
-  constructor(modelResolver) {
+  constructor(modelResolver, routes) {
     super({
       name: "claude-codex",
       modelResolver: modelResolver ?? claudeSettingsModelResolver,
       upstreamLogLabel: "Codex responses",
       inputTokensLogLabel: "Codex input tokens",
-      expectedUpstreamKind: "codex"
+      expectedUpstreamKind: "codex",
+      routes
     });
   }
 }
 
 // src/inbound/claude/copilot.ts
 class Claude_Copilot_Inbound_Adapter extends Claude_Inbound_Provider {
-  constructor(modelResolver) {
+  constructor(modelResolver, routes) {
     super({
       name: "claude-copilot",
       modelResolver: modelResolver ?? claudeSettingsModelResolver,
       upstreamLogLabel: "Copilot messages",
       inputTokensLogLabel: "Copilot input tokens",
-      expectedUpstreamKind: "copilot"
+      expectedUpstreamKind: "copilot",
+      routes
     });
   }
 }
@@ -38394,7 +38322,7 @@ function stringifyUnknown2(value) {
 
 // src/inbound/claude/kiro.ts
 class Claude_Kiro_Inbound_Adapter extends Claude_Inbound_Provider {
-  constructor(modelResolver) {
+  constructor(modelResolver, routes) {
     super({
       name: "claude-kiro",
       modelResolver,
@@ -38402,9 +38330,113 @@ class Claude_Kiro_Inbound_Adapter extends Claude_Inbound_Provider {
       inputTokensLogLabel: "Kiro input tokens",
       expectedUpstreamKind: "kiro",
       localCountTokens: true,
-      countTokens: countKiroClaudeInputTokens
+      countTokens: countKiroClaudeInputTokens,
+      routes
     });
   }
+}
+
+// src/inbound/claude/routes.ts
+var CLAUDE_PROXY_ROUTES = [
+  {
+    family: "claude",
+    endpoint: "messages",
+    label: "Messages",
+    path: "/v1/messages",
+    method: "POST",
+    routes: [
+      { path: "/v1/messages", method: "POST" },
+      { path: "/v1/message", method: "POST" }
+    ]
+  },
+  {
+    family: "claude",
+    endpoint: "count_tokens",
+    label: "Count tokens",
+    path: "/v1/messages/count_tokens",
+    method: "POST",
+    routes: [{ path: "/v1/messages/count_tokens", method: "POST" }]
+  }
+];
+var CLAUDE_MODEL_ROUTES = [
+  { path: "/v1/models", method: "GET" },
+  { path: "/v1/models/:model_id", method: "GET" }
+];
+
+// src/core/provider-state.ts
+var PROVIDER_STATE_FILE_NAME = "provider-state.json";
+var PROVIDER_CACHE_FILE_NAME = "provider-cache.json";
+var PROVIDER_STATE_PATH = bunPath.join(appDataDir(), PROVIDER_STATE_FILE_NAME);
+var PROVIDER_CACHE_PATH = bunPath.join(appDataDir(), PROVIDER_CACHE_FILE_NAME);
+var writeQueues = new Map;
+function providerStatePath(filePath) {
+  return filePath ? expandHome(filePath) : bunPath.join(appDataDir(), PROVIDER_STATE_FILE_NAME);
+}
+function isProviderStatePath(filePath) {
+  return fileName(expandHome(filePath)) === PROVIDER_STATE_FILE_NAME;
+}
+async function readProviderStateFile(filePath) {
+  const resolved = providerStatePath(filePath);
+  if (!await pathExists(resolved))
+    return {};
+  const parsed = JSON.parse(await readTextFile(resolved));
+  return normalizeProviderStateFile(parsed, resolved);
+}
+async function updateProviderStateFile(filePath, updater) {
+  const resolved = providerStatePath(filePath);
+  await queueWrite(resolved, async () => {
+    const next = await updater(await readProviderStateFile(resolved));
+    await atomicJsonWrite(resolved, normalizeProviderStateFile(next, resolved), { mode: 384 });
+  });
+}
+async function readProviderSection(mode, filePath) {
+  const state = await readProviderStateFile(filePath);
+  const section = state[mode];
+  return normalizeProviderSection(section, mode, providerStatePath(filePath));
+}
+async function writeProviderSection(mode, section, filePath) {
+  await updateProviderStateFile(filePath, async (state) => {
+    state[mode] = normalizeProviderSection(section, mode, providerStatePath(filePath)) ?? { data: section.data };
+    return state;
+  });
+}
+async function updateProviderSection(mode, filePath, updater) {
+  await updateProviderStateFile(filePath, async (state) => {
+    const nextSection = await updater(normalizeProviderSection(state[mode], mode, providerStatePath(filePath)));
+    if (nextSection === undefined) {
+      delete state[mode];
+      return state;
+    }
+    state[mode] = normalizeProviderSection(nextSection, mode, providerStatePath(filePath)) ?? nextSection;
+    return state;
+  });
+}
+async function queueWrite(file, task) {
+  const current = writeQueues.get(file) ?? Promise.resolve();
+  const chain = current.then(task);
+  const next = chain.finally(() => {
+    if (writeQueues.get(file) === next)
+      writeQueues.delete(file);
+  });
+  writeQueues.set(file, next);
+  return next;
+}
+function normalizeProviderStateFile(value, filePath) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`Provider state file ${filePath} must contain a JSON object`);
+  }
+  return value;
+}
+function normalizeProviderSection(value, mode, filePath) {
+  if (value === undefined)
+    return;
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`Provider state file ${filePath} has invalid ${mode} section`);
+  }
+  return value;
+}
+function fileName(filePath) {
+  return filePath.split(/[\\/]/).filter(Boolean).at(-1);
 }
 
 // src/core/http.ts
@@ -38426,1878 +38458,905 @@ function cors(response) {
   return response;
 }
 
-// src/inbound/openai/normalize.ts
-function normalizeCanonicalRequest(pathname, body, options = {}) {
-  const normalizedBody = normalizeReasoningBody(body);
-  const passthrough = false;
-  const defaultStream = false;
-  if (isChatPath(pathname)) {
-    const messages = Array.isArray(normalizedBody.messages) ? normalizedBody.messages : [];
-    const instructions = messages.map((message) => instructionFromMessage(message)).filter((instruction) => Boolean(instruction)).join(`
+// src/upstream/copilot/constants.ts
+var COPILOT_AUTH_FILE_NAME = "provider-state.json";
+var COPILOT_CACHE_FILE_NAME = "provider-cache.json";
+var COPILOT_MODEL_CACHE_TTL_SECONDS = 3600;
+var COPILOT_TOKEN_REFRESH_MARGIN_SECONDS = 60;
+var COPILOT_GITHUB_API_BASE_URL = "https://api.github.com";
+var COPILOT_GITHUB_BASE_URL = "https://github.com";
+var COPILOT_GITHUB_CLIENT_ID = "Iv1.b507a08c87ecfe98";
+var COPILOT_GITHUB_APP_SCOPES = ["read:user"].join(" ");
+var COPILOT_GITHUB_VERSION = "0.39.2";
+var COPILOT_EDITOR_PLUGIN_VERSION = `copilot-chat/${COPILOT_GITHUB_VERSION}`;
+var COPILOT_USER_AGENT = `GitHubCopilotChat/${COPILOT_GITHUB_VERSION}`;
+var COPILOT_API_VERSION = "2025-04-01";
 
-`);
-    return {
-      model: typeof normalizedBody.model === "string" ? normalizedBody.model : "",
-      instructions: typeof normalizedBody.instructions === "string" ? normalizedBody.instructions : instructions || "You are a helpful assistant.",
-      input: messages.flatMap((message) => normalizeChatMessage(message)),
-      tools: normalizeTools(normalizedBody.tools, { passthrough }),
-      toolChoice: normalizeToolChoice(normalizedBody.tool_choice),
-      include: Array.isArray(normalizedBody.include) ? normalizedBody.include.filter((item) => typeof item === "string") : undefined,
-      textFormat: extractTextFormat(normalizedBody.text) ?? extractChatResponseFormat(normalizedBody.response_format),
-      reasoningEffort: extractReasoningEffort(normalizedBody),
-      stream: normalizedBody.stream !== undefined ? Boolean(normalizedBody.stream) : defaultStream,
-      passthrough,
-      metadata: { source: "openai", path: pathname }
-    };
-  }
-  if (pathname === "/v1/responses") {
-    const instructions = instructionsFromResponsesInput(normalizedBody.input);
-    return {
-      model: typeof normalizedBody.model === "string" ? normalizedBody.model : "",
-      instructions: typeof normalizedBody.instructions === "string" ? normalizedBody.instructions : instructions || "You are a helpful assistant.",
-      input: normalizeResponsesInput(normalizedBody.input),
-      tools: normalizeTools(normalizedBody.tools, { passthrough }),
-      toolChoice: normalizeToolChoice(normalizedBody.tool_choice),
-      include: Array.isArray(normalizedBody.include) ? normalizedBody.include.filter((item) => typeof item === "string") : undefined,
-      textFormat: extractTextFormat(normalizedBody.text),
-      reasoningEffort: extractReasoningEffort(normalizedBody),
-      stream: normalizedBody.stream !== undefined ? Boolean(normalizedBody.stream) : defaultStream,
-      passthrough,
-      metadata: { source: "openai", path: pathname }
-    };
-  }
+// src/upstream/copilot/parse.ts
+function buildCopilotResponsesBody(request) {
   return {
-    model: typeof normalizedBody.model === "string" ? normalizedBody.model : "",
-    instructions: typeof normalizedBody.instructions === "string" ? normalizedBody.instructions : undefined,
-    input: Array.isArray(normalizedBody.input) ? normalizedBody.input.filter(isCanonicalInputMessage) : [],
-    stream: normalizedBody.stream !== undefined ? Boolean(normalizedBody.stream) : defaultStream,
-    passthrough,
-    metadata: { source: "openai", path: pathname }
+    model: request.model,
+    instructions: request.instructions ?? "You are a helpful assistant.",
+    input: canonicalInputToResponsesInput(request.input),
+    ...request.tools ? { tools: request.tools } : {},
+    ...request.toolChoice ? { tool_choice: request.toolChoice } : {},
+    ...request.include ? { include: request.include } : {},
+    ...request.textFormat ? { text: { format: request.textFormat } } : {},
+    ...request.reasoningEffort ? { reasoning: { effort: request.reasoningEffort } } : {},
+    stream: false,
+    store: false
   };
 }
-function normalizeRequestBody(pathname, body) {
-  const normalizedBody = normalizeReasoningBody(body);
-  if (pathname === "/v1/embeddings") {
-    const model = typeof normalizedBody.model === "string" ? normalizedBody.model.trim() : "";
-    const normalizedModel = model.startsWith("github_copilot/") ? model.replace(/^github_copilot\//, "") : model;
-    const normalizedInput = typeof normalizedBody.input === "string" ? [normalizedBody.input] : normalizedBody.input;
-    const embeddingsBody = {
-      ...normalizedBody,
-      model: normalizedModel,
-      input: normalizedInput
-    };
-    delete embeddingsBody.stream;
-    return embeddingsBody;
+async function collectCopilotResponse(response, fallbackModel = "unknown") {
+  const body = await response.json().catch(() => {
+    return;
+  });
+  return responseBodyToCanonicalResponse(body, fallbackModel, response.status);
+}
+function streamCopilotResponse(response) {
+  return {
+    type: "canonical_stream",
+    status: 200,
+    id: response.id,
+    model: response.model,
+    events: {
+      async* [Symbol.asyncIterator]() {
+        yield { type: "message_start", id: response.id, model: response.model };
+        let index = 0;
+        for (const block of response.content) {
+          if (block.type === "text") {
+            if (block.text)
+              yield { type: "text_delta", delta: block.text };
+          } else if (block.type === "tool_call") {
+            yield { type: "tool_call_done", callId: block.callId, name: block.name, arguments: block.arguments };
+          } else if (block.type === "thinking") {
+            yield { type: "thinking_signature", signature: block.signature };
+            yield { type: "thinking_delta", text: block.thinking };
+          } else if (block.type === "server_tool") {
+            yield { type: "server_tool_block", blocks: block.blocks };
+          }
+          index += 1;
+        }
+        yield { type: "usage", usage: response.usage };
+        yield { type: "completion", usage: response.usage, stopReason: response.stopReason };
+        yield { type: "message_stop", stopReason: response.stopReason };
+      }
+    }
+  };
+}
+function responseBodyToCanonicalResponse(body, fallbackModel, status = 200) {
+  const output = Array.isArray(body?.output) ? body.output : [];
+  const content = output.flatMap((item) => canonicalContentFromOutputItem(item));
+  const usage = canonicalUsageFromWireUsage(body?.usage);
+  return {
+    type: "canonical_response",
+    id: typeof body?.id === "string" ? body.id : `resp_${crypto.randomUUID().replace(/-/g, "")}`,
+    model: typeof body?.model === "string" ? body.model : fallbackModel,
+    stopReason: status >= 400 ? "error" : responseStopReason(body),
+    content,
+    usage: {
+      inputTokens: usage.inputTokens ?? 0,
+      outputTokens: usage.outputTokens ?? 0,
+      ...usage.cacheCreationInputTokens !== undefined ? { cacheCreationInputTokens: usage.cacheCreationInputTokens } : {},
+      ...usage.cacheReadInputTokens !== undefined ? { cacheReadInputTokens: usage.cacheReadInputTokens } : {},
+      ...usage.outputReasoningTokens !== undefined ? { outputReasoningTokens: usage.outputReasoningTokens } : {},
+      ...usage.serverToolUse ? { serverToolUse: usage.serverToolUse } : {}
+    }
+  };
+}
+function canonicalInputToResponsesInput(input) {
+  return input.flatMap((message) => {
+    const content = message.content.flatMap((block) => canonicalBlockToResponsesContent(block));
+    if (!content.length)
+      return [];
+    return [{ role: message.role, content }];
+  });
+}
+function canonicalBlockToResponsesContent(block) {
+  if (block.type === "text" && typeof block.text === "string") {
+    return [{ type: "input_text", text: block.text }];
   }
-  if (isChatPath(pathname)) {
-    const messages = Array.isArray(normalizedBody.messages) ? normalizedBody.messages : [];
-    const instructions = messages.map((message) => instructionFromMessage(message)).filter((instruction) => Boolean(instruction)).join(`
+  if (block.type === "tool_call" && typeof block.arguments === "string") {
+    return [{
+      type: "function_call",
+      id: typeof block.id === "string" ? block.id : `fc_${crypto.randomUUID().replace(/-/g, "")}`,
+      call_id: typeof block.callId === "string" ? block.callId : `call_${crypto.randomUUID().replace(/-/g, "")}`,
+      name: typeof block.name === "string" ? block.name : "unknown",
+      arguments: block.arguments
+    }];
+  }
+  return [block];
+}
+function canonicalContentFromOutputItem(item) {
+  if (!item || typeof item !== "object")
+    return [];
+  if (item.type === "message") {
+    const content = Array.isArray(item.content) ? item.content : [];
+    return content.flatMap((part) => {
+      if (!part || typeof part !== "object")
+        return [];
+      if (part.type === "output_text" && typeof part.text === "string")
+        return [{ type: "text", text: part.text }];
+      if (part.type === "text" && typeof part.text === "string")
+        return [{ type: "text", text: part.text }];
+      if (part.type === "refusal" && typeof part.refusal === "string")
+        return [{ type: "text", text: part.refusal }];
+      return [];
+    });
+  }
+  if (item.type === "function_call") {
+    return [{
+      type: "tool_call",
+      id: typeof item.id === "string" ? item.id : `fc_${crypto.randomUUID().replace(/-/g, "")}`,
+      callId: typeof item.call_id === "string" ? item.call_id : typeof item.id === "string" ? item.id : `call_${crypto.randomUUID().replace(/-/g, "")}`,
+      name: typeof item.name === "string" ? item.name : "unknown",
+      arguments: typeof item.arguments === "string" ? item.arguments : JSON.stringify(item.arguments ?? {})
+    }];
+  }
+  if (item.type === "reasoning") {
+    const summary = Array.isArray(item.summary) ? item.summary : [];
+    const thinking = summary.flatMap((part) => typeof part?.text === "string" ? [part.text] : []).join(`
 
 `);
-    return {
-      ...normalizedBody,
-      instructions: normalizedBody.instructions ?? (instructions || "You are a helpful assistant."),
-      store: false,
-      stream: true,
-      messages: undefined,
-      input: messages.flatMap((message) => normalizeChatMessage(message)),
-      ...normalizedBody.response_format ? { text: { format: extractChatResponseFormat(normalizedBody.response_format) } } : {}
-    };
-  }
-  if (pathname === "/v1/responses" && typeof normalizedBody.input === "string") {
-    return {
-      ...normalizedBody,
-      instructions: normalizedBody.instructions ?? "You are a helpful assistant.",
-      store: false,
-      stream: true,
-      input: [
-        {
-          role: "user",
-          content: [{ type: "input_text", text: normalizedBody.input }]
-        }
-      ]
-    };
-  }
-  return { ...normalizedBody, store: normalizedBody.store ?? false, stream: normalizedBody.stream ?? true };
-}
-function extractTextFormat(value) {
-  if (!value || typeof value !== "object" || Array.isArray(value))
-    return;
-  const item = value;
-  return item.format && typeof item.format === "object" && !Array.isArray(item.format) ? item.format : undefined;
-}
-function extractChatResponseFormat(value) {
-  if (!value || typeof value !== "object" || Array.isArray(value))
-    return;
-  const item = value;
-  if (item.type === "json_schema") {
-    const jsonSchema = item.json_schema;
-    if (jsonSchema && typeof jsonSchema === "object" && !Array.isArray(jsonSchema)) {
-      return { type: "json_schema", ...jsonSchema };
-    }
-  }
-  if (item.type === "json_object")
-    return { type: "json_object" };
-}
-function extractReasoningEffort(body) {
-  const reasoning = body.reasoning;
-  if (reasoning && typeof reasoning === "object" && !Array.isArray(reasoning) && typeof reasoning.effort === "string") {
-    return reasoning.effort;
-  }
-  return typeof body.reasoning_effort === "string" ? body.reasoning_effort : undefined;
-}
-function isCanonicalInputMessage(message) {
-  if (!message || typeof message !== "object" || Array.isArray(message))
-    return false;
-  const item = message;
-  return (item.role === "user" || item.role === "assistant" || item.role === "tool") && Array.isArray(item.content);
-}
-function normalizeResponsesInput(value) {
-  if (typeof value === "string")
-    return [{ role: "user", content: [{ type: "input_text", text: value }] }];
-  if (!Array.isArray(value))
-    return [];
-  return value.flatMap((item) => normalizeResponsesInputItem(item));
-}
-function normalizeResponsesInputItem(value) {
-  if (!isJsonObject(value))
-    return [];
-  if (value.type === "message") {
-    const role2 = canonicalRole(value.role);
-    if (!role2)
-      return [];
-    const content = normalizeResponsesMessageContent(value.content, role2);
-    return content.length ? [{ role: role2, content }] : [];
-  }
-  if (isCanonicalInputMessage(value)) {
-    const content = normalizeResponsesMessageContent(value.content, value.role);
-    return content.length ? [{ role: value.role, content }] : [];
-  }
-  if (value.type === "function_call")
-    return [{ role: "assistant", content: [normalizeFunctionCallItem(value)] }];
-  if (value.type === "function_call_output")
-    return [{ role: "tool", content: [normalizeFunctionCallOutputItem(value)] }];
-  if (value.type === "reasoning")
-    return [{ role: "assistant", content: [value] }];
-  const role = canonicalRole(value.role);
-  if (role) {
-    const content = normalizeResponsesMessageContent(value.content, role);
-    return content.length ? [{ role, content }] : [];
+    return thinking ? [{ type: "thinking", thinking, signature: `sig_${crypto.randomUUID().replace(/-/g, "").slice(0, 16)}` }] : [];
   }
   return [];
 }
-function canonicalRole(value) {
-  return value === "user" || value === "assistant" || value === "tool" ? value : undefined;
-}
-function instructionsFromResponsesInput(value) {
-  if (!Array.isArray(value))
-    return "";
-  return value.flatMap((item) => {
-    if (!isJsonObject(item))
-      return [];
-    if (item.role !== "system" && item.role !== "developer")
-      return [];
-    return [contentToText(item.content)];
-  }).filter(Boolean).join(`
-
-`);
-}
-function normalizeFunctionCallItem(item) {
-  const callId = typeof item.call_id === "string" ? item.call_id : typeof item.id === "string" ? item.id : `call_${crypto.randomUUID().replace(/-/g, "")}`;
-  return {
-    type: "function_call",
-    id: typeof item.id === "string" ? item.id : `fc_${crypto.randomUUID().replace(/-/g, "")}`,
-    call_id: callId,
-    name: typeof item.name === "string" ? item.name : "unknown",
-    arguments: typeof item.arguments === "string" ? item.arguments : JSON.stringify(item.arguments ?? {})
-  };
-}
-function normalizeFunctionCallOutputItem(item) {
-  return {
-    type: "function_call_output",
-    ...typeof item.id === "string" ? { id: item.id } : {},
-    call_id: typeof item.call_id === "string" ? item.call_id : "call_unknown",
-    output: contentToText(item.output)
-  };
-}
-function normalizeResponsesMessageContent(value, role) {
-  if (role === "tool") {
-    if (typeof value === "string")
-      return [{ type: "input_text", text: value }];
-    if (isJsonObject(value))
-      return [normalizeResponsesToolContentItem(value)];
-    if (Array.isArray(value)) {
-      return value.flatMap((item) => {
-        if (typeof item === "string")
-          return [{ type: "input_text", text: item }];
-        return isJsonObject(item) ? [normalizeResponsesToolContentItem(item)] : [];
-      });
-    }
-    return [];
-  }
-  return normalizeMessageContent(value, role);
-}
-function normalizeResponsesToolContentItem(item) {
-  if (item.type === "function_call_output")
-    return normalizeFunctionCallOutputItem(item);
-  return item;
-}
-function instructionFromMessage(message) {
-  if (!message || typeof message !== "object")
-    return;
-  const item = message;
-  if (item.role !== "system" && item.role !== "developer")
-    return;
-  if (typeof item.content === "string")
-    return item.content;
-  return contentToText(item.content);
-}
-function normalizeChatMessage(message) {
-  if (!message || typeof message !== "object")
-    return [];
-  const item = message;
-  const role = item.role;
-  if (role === "system" || role === "developer")
-    return [];
-  if (role !== "user" && role !== "assistant" && role !== "tool")
-    return [];
-  if (role === "tool") {
-    const output = contentToText(item.content);
-    return [{
-      role,
-      content: typeof item.tool_call_id === "string" ? [{ type: "function_call_output", call_id: item.tool_call_id, output }] : [{ type: "input_text", text: output }]
-    }];
-  }
-  const content = normalizeMessageContent(item.content, role);
-  if (role === "assistant" && Array.isArray(item.tool_calls)) {
-    content.push(...item.tool_calls.flatMap((toolCall) => normalizeChatToolCall(toolCall)));
-  }
-  return [{ role, content }];
-}
-function normalizeChatToolCall(value) {
-  if (!value || typeof value !== "object" || Array.isArray(value))
-    return [];
-  const item = value;
-  const fn = item.function && typeof item.function === "object" && !Array.isArray(item.function) ? item.function : undefined;
-  const callId = typeof item.id === "string" ? item.id : typeof item.call_id === "string" ? item.call_id : `call_${crypto.randomUUID().replace(/-/g, "")}`;
-  const name = typeof fn?.name === "string" ? fn.name : typeof item.name === "string" ? item.name : "unknown";
-  const rawArguments = fn?.arguments ?? item.arguments ?? {};
-  const args = typeof rawArguments === "string" ? rawArguments : JSON.stringify(rawArguments);
-  return [{ type: "function_call", id: typeof item.id === "string" ? item.id : `fc_${crypto.randomUUID().replace(/-/g, "")}`, call_id: callId, name, arguments: args }];
-}
-function normalizeMessageContent(value, role) {
-  if (typeof value === "string")
-    return [chatTextBlock(role, value)];
-  if (isJsonObject(value))
-    return normalizeMessageContentPart(value, role);
-  if (!Array.isArray(value))
-    return [];
-  return value.flatMap((item) => normalizeMessageContentPart(item, role));
-}
-function normalizeMessageContentPart(value, role) {
-  if (typeof value === "string")
-    return [chatTextBlock(role, value)];
-  if (!isJsonObject(value))
-    return [];
-  if (value.type === "text" && typeof value.text === "string")
-    return [chatTextBlock(role, value.text)];
-  if (value.type === "refusal" && typeof value.refusal === "string")
-    return [chatTextBlock(role, value.refusal)];
-  if (value.type === "image_url") {
-    const image = value.image_url;
-    const imageUrl = typeof image === "string" ? image : isJsonObject(image) && typeof image.url === "string" ? image.url : undefined;
-    if (!imageUrl)
-      return [];
-    return [{
-      type: "input_image",
-      image_url: imageUrl,
-      ...isJsonObject(image) && typeof image.detail === "string" ? { detail: image.detail } : {}
-    }];
-  }
-  return [value];
-}
-function chatTextBlock(role, text) {
-  return { type: role === "assistant" ? "output_text" : "input_text", text };
-}
-function normalizeTools(value, options) {
-  if (!Array.isArray(value))
-    return;
-  if (options.passthrough)
-    return value;
-  return value.flatMap((tool) => normalizeTool(tool));
-}
-function normalizeTool(value) {
-  if (!value || typeof value !== "object" || Array.isArray(value))
-    return [];
-  const item = value;
-  if (item.type === "web_search" || item.type === "web_search_preview")
-    return [{ type: "web_search" }];
-  if (item.type === "function") {
-    const fn = item.function && typeof item.function === "object" && !Array.isArray(item.function) ? item.function : undefined;
-    if (fn) {
-      return [{
-        type: "function",
-        name: typeof fn.name === "string" ? fn.name : "unknown",
-        ...typeof fn.description === "string" ? { description: fn.description } : {},
-        parameters: isJsonObject(fn.parameters) ? fn.parameters : { type: "object", properties: {} },
-        ...typeof item.strict === "boolean" ? { strict: item.strict } : typeof fn.strict === "boolean" ? { strict: fn.strict } : {}
-      }];
-    }
-  }
-  return [item];
-}
-function normalizeToolChoice(value) {
-  if (typeof value === "string")
-    return value;
-  if (!isJsonObject(value))
-    return;
-  if (value.type === "auto" || value.type === "none" || value.type === "required")
-    return value.type;
-  if (value.type === "web_search_preview")
-    return { type: "web_search" };
-  if (value.type === "tool" && typeof value.name === "string")
-    return { type: "function", name: value.name };
-  return value;
-}
-function contentToText(value) {
-  if (typeof value === "string")
-    return value;
-  if (!Array.isArray(value)) {
-    if (value === undefined || value === null)
-      return "";
-    if (isJsonObject(value)) {
-      if (typeof value.text === "string")
-        return value.text;
-      if (typeof value.refusal === "string")
-        return value.refusal;
-      if (typeof value.output === "string")
-        return value.output;
-      if (typeof value.content === "string")
-        return value.content;
-      if (Array.isArray(value.content))
-        return contentToText(value.content);
-    }
-    return JSON.stringify(value);
-  }
-  return value.map((item) => {
-    if (typeof item === "string")
-      return item;
-    if (!isJsonObject(item))
-      return "";
-    if (typeof item.text === "string")
-      return item.text;
-    if (typeof item.refusal === "string")
-      return item.refusal;
-    if (typeof item.output === "string")
-      return item.output;
-    if (typeof item.content === "string")
-      return item.content;
-    if (Array.isArray(item.content))
-      return contentToText(item.content);
-    return JSON.stringify(item);
-  }).filter(Boolean).join(`
-`);
-}
-function isChatPath(pathname) {
-  return pathname === "/v1/chat/completions";
-}
-function isJsonObject(value) {
-  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+function responseStopReason(body) {
+  if (!body)
+    return "end_turn";
+  if (body.status === "incomplete" && body.incomplete_details && typeof body.incomplete_details === "object" && body.incomplete_details.reason === "max_output_tokens")
+    return "max_tokens";
+  const output = Array.isArray(body.output) ? body.output : [];
+  if (output.some((item) => item?.type === "function_call"))
+    return "tool_use";
+  return "end_turn";
 }
 
-// src/inbound/openai/response.ts
-function openAICanonicalResponse(response, pathname, request) {
-  if (isChatPath2(pathname))
-    return Response.json(canonicalResponseToChatCompletion(response));
-  return Response.json(canonicalResponseToResponsesBody(response, request));
-}
-function openAICanonicalStreamResponse(response, pathname, request) {
-  if (isChatPath2(pathname))
-    return chatCompletionStreamResponse(response);
-  return responsesStreamResponse(response, request);
-}
-function canonicalResponseToResponsesBody(response, request) {
-  const output = canonicalContentToResponsesOutput(response.content);
-  const incompleteReason = response.stopReason === "max_tokens" ? "max_output_tokens" : undefined;
-  return responseObject({
-    id: response.id,
-    model: response.model,
-    status: incompleteReason ? "incomplete" : "completed",
-    request,
-    output,
-    usage: responsesUsage(response.usage),
-    incompleteReason
-  });
-}
-function canonicalResponseToChatCompletion(response) {
-  const toolCalls = response.content.filter((block) => block.type === "tool_call");
-  const text = response.content.flatMap((block) => block.type === "text" ? [block.text] : []).join("");
-  const thinking = response.content.flatMap((block) => block.type === "thinking" ? [block.thinking] : []).join("");
-  return {
-    id: response.id.replace(/^resp_/, "chatcmpl_"),
-    object: "chat.completion",
-    created: nowSeconds(),
-    model: response.model,
-    choices: [
-      {
-        index: 0,
-        message: {
-          role: "assistant",
-          content: toolCalls.length && !text ? null : text,
-          ...thinking ? { reasoning_content: thinking } : {},
-          ...toolCalls.length ? { tool_calls: toolCalls.map(chatToolCall) } : {}
-        },
-        finish_reason: chatFinishReason(response.stopReason, toolCalls.length > 0)
-      }
-    ],
-    usage: chatUsage(response.usage)
-  };
-}
-function responsesStreamResponse(response, request) {
-  const encoder = new TextEncoder;
-  const id = response.id;
-  const model = response.model || stringOr(request.model, "unknown");
-  const created = nowSeconds();
-  const output = [];
-  const toolStates = new Map;
-  let iterator;
-  let closed = false;
-  let messageId = `msg_${id.replace(/^resp_/, "")}`;
-  let messageStarted = false;
-  let messageDone = false;
-  let messageDoneItem;
-  let text = "";
-  let reasoningId = `rs_${crypto.randomUUID().replace(/-/g, "")}`;
-  let reasoningStarted = false;
-  let reasoningDone = false;
-  let reasoningText = "";
-  let usage = null;
-  let accumulatedUsage;
-  let stopReason = "end_turn";
-  let incompleteReason;
-  let completionOutputOverride;
-  return new Response(new ReadableStream({
-    async start(controller) {
-      function send(event, data) {
-        if (closed)
-          return;
-        controller.enqueue(encoder.encode(`event: ${event}
-data: ${JSON.stringify(data)}
-
-`));
-      }
-      async function sendTextDeltas(itemId, outputIndex, contentIndex, delta) {
-        const parts = textDeltaChunks(delta);
-        for (let index = 0;index < parts.length; index += 1) {
-          const part = parts[index];
-          send("response.output_text.delta", {
-            type: "response.output_text.delta",
-            item_id: itemId,
-            output_index: outputIndex,
-            content_index: contentIndex,
-            delta: part
-          });
-          if (index < parts.length - 1)
-            await streamFlushYield();
-        }
-      }
-      function hasOutputState() {
-        return messageStarted || reasoningStarted || toolStates.size > 0 || output.some(Boolean);
-      }
-      async function emitCompletedOutputItem(item) {
-        const outputIndex = output.length;
-        if (item.type === "message") {
-          const message = completedMessageOutputItem(item);
-          send("response.output_item.added", {
-            type: "response.output_item.added",
-            output_index: outputIndex,
-            item: { ...message, status: "in_progress", content: [] }
-          });
-          const content = Array.isArray(message.content) ? message.content : [];
-          for (const [contentIndex, part] of content.entries()) {
-            if (!isJsonObject2(part))
-              continue;
-            send("response.content_part.added", {
-              type: "response.content_part.added",
-              item_id: String(message.id),
-              output_index: outputIndex,
-              content_index: contentIndex,
-              part: part.type === "output_text" ? { ...part, text: "" } : part
-            });
-            if (part.type === "output_text" && typeof part.text === "string") {
-              await sendTextDeltas(String(message.id), outputIndex, contentIndex, part.text);
-              send("response.output_text.done", {
-                type: "response.output_text.done",
-                item_id: String(message.id),
-                output_index: outputIndex,
-                content_index: contentIndex,
-                text: part.text
-              });
-            }
-            send("response.content_part.done", {
-              type: "response.content_part.done",
-              item_id: String(message.id),
-              output_index: outputIndex,
-              content_index: contentIndex,
-              part
-            });
-          }
-          send("response.output_item.done", {
-            type: "response.output_item.done",
-            output_index: outputIndex,
-            item: message
-          });
-          output.push(message);
-          return;
-        }
-        if (item.type === "function_call") {
-          const tool = completedFunctionCallOutputItem(item);
-          send("response.output_item.added", {
-            type: "response.output_item.added",
-            output_index: outputIndex,
-            item: { ...tool, status: "in_progress" }
-          });
-          send("response.function_call_arguments.done", {
-            type: "response.function_call_arguments.done",
-            item_id: String(tool.id),
-            output_index: outputIndex,
-            arguments: String(tool.arguments ?? "")
-          });
-          send("response.output_item.done", {
-            type: "response.output_item.done",
-            output_index: outputIndex,
-            item: tool
-          });
-          output.push(tool);
-          stopReason = "tool_use";
-          return;
-        }
-        const outputItem = completedResponseOutputItem(item);
-        send("response.output_item.added", {
-          type: "response.output_item.added",
-          output_index: outputIndex,
-          item: { ...outputItem, status: "in_progress" }
-        });
-        send("response.output_item.done", {
-          type: "response.output_item.done",
-          output_index: outputIndex,
-          item: outputItem
-        });
-        output.push(outputItem);
-      }
-      function ensureMessageStarted() {
-        finishReasoning();
-        if (messageStarted && !messageDone)
-          return;
-        if (messageDone) {
-          messageId = `msg_${crypto.randomUUID().replace(/-/g, "")}`;
-          messageStarted = false;
-          messageDone = false;
-          messageDoneItem = undefined;
-          text = "";
-        }
-        messageStarted = true;
-        send("response.output_item.added", {
-          type: "response.output_item.added",
-          output_index: output.length,
-          item: { id: messageId, type: "message", status: "in_progress", role: "assistant", content: [] }
-        });
-        send("response.content_part.added", {
-          type: "response.content_part.added",
-          item_id: messageId,
-          output_index: output.length,
-          content_index: 0,
-          part: { type: "output_text", text: "", annotations: [] }
-        });
-      }
-      function finishMessage() {
-        if (!messageStarted || messageDone)
-          return;
-        const outputIndex = output.length;
-        const item = messageDoneItem ? completedStreamMessageOutputItem(messageId, text, messageDoneItem) : messageOutputItem(messageId, text);
-        send("response.output_text.done", {
-          type: "response.output_text.done",
-          item_id: messageId,
-          output_index: outputIndex,
-          content_index: 0,
-          text
-        });
-        send("response.content_part.done", {
-          type: "response.content_part.done",
-          item_id: messageId,
-          output_index: outputIndex,
-          content_index: 0,
-          part: Array.isArray(item.content) && isJsonObject2(item.content[0]) ? item.content[0] : { type: "output_text", text, annotations: [] }
-        });
-        send("response.output_item.done", {
-          type: "response.output_item.done",
-          output_index: outputIndex,
-          item
-        });
-        output.push(item);
-        messageDone = true;
-      }
-      function ensureReasoningStarted() {
-        if (reasoningStarted && !reasoningDone)
-          return;
-        if (reasoningDone) {
-          reasoningId = `rs_${crypto.randomUUID().replace(/-/g, "")}`;
-          reasoningStarted = false;
-          reasoningDone = false;
-          reasoningText = "";
-        }
-        finishMessage();
-        reasoningStarted = true;
-        send("response.output_item.added", {
-          type: "response.output_item.added",
-          output_index: output.length,
-          item: { id: reasoningId, type: "reasoning", status: "in_progress", summary: [] }
-        });
-      }
-      function finishReasoning() {
-        if (!reasoningStarted || reasoningDone)
-          return;
-        const outputIndex = output.length;
-        const item = { ...reasoningOutputItem(reasoningText), id: reasoningId };
-        send("response.output_item.done", {
-          type: "response.output_item.done",
-          output_index: outputIndex,
-          item
-        });
-        output.push(item);
-        reasoningDone = true;
-      }
-      function ensureToolStarted(callId, name) {
-        finishReasoning();
-        let state = toolStates.get(callId);
-        if (state) {
-          if (state.name === "unknown" && name !== "unknown")
-            state.name = name;
-          return state;
-        }
-        finishMessage();
-        const outputIndex = output.length;
-        output.push(undefined);
-        state = { id: `fc_${crypto.randomUUID().replace(/-/g, "")}`, callId, name, arguments: "", done: false, outputIndex };
-        toolStates.set(callId, state);
-        send("response.output_item.added", {
-          type: "response.output_item.added",
-          output_index: state.outputIndex,
-          item: functionCallOutputItem(state, "in_progress")
-        });
-        return state;
-      }
-      function finishTool(state) {
-        if (state.done)
-          return;
-        state.done = true;
-        send("response.function_call_arguments.done", {
-          type: "response.function_call_arguments.done",
-          item_id: state.id,
-          output_index: state.outputIndex,
-          arguments: state.arguments
-        });
-        const item = functionCallOutputItem(state);
-        send("response.output_item.done", {
-          type: "response.output_item.done",
-          output_index: state.outputIndex,
-          item
-        });
-        output[state.outputIndex] = item;
-      }
-      async function repairCurrentMessageFromItem(item) {
-        if (!messageStarted || messageDone || item.type !== "message")
-          return;
-        const message = completedMessageOutputItem(item);
-        const doneText = outputTextFromOutput([message]);
-        const delta = doneSuffix(text, doneText);
-        if (delta) {
-          text += delta;
-          await sendTextDeltas(messageId, output.length, 0, delta);
-        } else if (doneText && doneText !== text) {
-          text = doneText;
-        }
-        if (Array.isArray(message.content) && message.content.length)
-          messageDoneItem = message;
-      }
-      async function reconcileCompletionOutputItems(items) {
-        const emittedMessageCount = output.filter((item) => isJsonObject2(item) && item.type === "message").length;
-        let messageIndex = 0;
-        let repairedOpenMessage = false;
-        for (const item of items) {
-          if (item.type === "message") {
-            const shouldSkipCompletedMessage = messageIndex < emittedMessageCount;
-            messageIndex += 1;
-            if (shouldSkipCompletedMessage)
-              continue;
-            if (messageStarted && !messageDone && !repairedOpenMessage) {
-              await repairCurrentMessageFromItem(item);
-              finishMessage();
-              repairedOpenMessage = true;
-              continue;
-            }
-            if (!output.some((existing) => isJsonObject2(existing) && sameOutputItem(existing, completedMessageOutputItem(item)))) {
-              finishReasoning();
-              await emitCompletedOutputItem(item);
-            }
-            continue;
-          }
-          if (item.type === "function_call") {
-            await repairToolFromItem(item, true);
-            continue;
-          }
-          if (item.type === "reasoning" && reasoningStarted && !reasoningDone) {
-            finishReasoning();
-            continue;
-          }
-          const completed = completedResponseOutputItem(item);
-          if (output.some((existing) => isJsonObject2(existing) && sameOutputItem(existing, completed)))
-            continue;
-          finishMessage();
-          finishReasoning();
-          await emitCompletedOutputItem(completed);
-        }
-      }
-      async function emitMessageItemDone(item) {
-        const message = completedMessageOutputItem(item);
-        if (output.some((existing) => isJsonObject2(existing) && sameOutputItem(existing, message)))
-          return;
-        finishReasoning();
-        await emitCompletedOutputItem(message);
-      }
-      async function repairToolFromItem(item, finish) {
-        if (item.type !== "function_call")
-          return;
-        const tool = completedFunctionCallOutputItem(item);
-        const callId = typeof tool.call_id === "string" ? tool.call_id : String(tool.id);
-        const argumentsText = typeof tool.arguments === "string" ? tool.arguments : "";
-        const state = toolStates.get(callId);
-        if (state) {
-          if (typeof item.id === "string")
-            state.id = item.id;
-          if (state.name === "unknown" && typeof tool.name === "string" && tool.name !== "unknown")
-            state.name = tool.name;
-          const delta = doneSuffix(state.arguments, argumentsText);
-          if (delta && !state.done) {
-            state.arguments += delta;
-            send("response.function_call_arguments.delta", {
-              type: "response.function_call_arguments.delta",
-              item_id: state.id,
-              output_index: state.outputIndex,
-              delta
-            });
-          } else if (!state.done && argumentsText && argumentsText !== state.arguments) {
-            state.arguments = argumentsText;
-          } else if (state.done && argumentsText) {
-            state.arguments = argumentsText;
-          }
-          if (state.done)
-            output[state.outputIndex] = functionCallOutputItem(state);
-          if (finish)
-            finishTool(state);
-          stopReason = "tool_use";
-          return;
-        }
-        if (output.some((existing) => isJsonObject2(existing) && existing.type === "function_call" && existing.call_id === callId))
-          return;
-        finishMessage();
-        finishReasoning();
-        await emitCompletedOutputItem(tool);
-      }
-      send("response.created", {
-        type: "response.created",
-        response: responseObject({ id, model, status: "in_progress", created, request, output: [], usage: null })
-      });
-      send("response.in_progress", {
-        type: "response.in_progress",
-        response: responseObject({ id, model, status: "in_progress", created, request, output: [], usage: null })
-      });
-      try {
-        iterator = response.events[Symbol.asyncIterator]();
-        while (true) {
-          const chunk = await iterator.next();
-          if (chunk.done)
-            break;
-          const event = chunk.value;
-          if (event.type === "text_delta") {
-            ensureMessageStarted();
-            text += event.delta;
-            await sendTextDeltas(messageId, output.length, 0, event.delta);
-            continue;
-          }
-          if (event.type === "text_done") {
-            ensureMessageStarted();
-            const delta = doneSuffix(text, event.text);
-            if (delta) {
-              text += delta;
-              await sendTextDeltas(messageId, output.length, 0, delta);
-            } else if (event.text && event.text !== text) {
-              text = event.text;
-            }
-            continue;
-          }
-          if (event.type === "tool_call_delta") {
-            const state = ensureToolStarted(event.callId, event.name);
-            state.arguments += event.argumentsDelta;
-            send("response.function_call_arguments.delta", {
-              type: "response.function_call_arguments.delta",
-              item_id: state.id,
-              output_index: state.outputIndex,
-              delta: event.argumentsDelta
-            });
-            continue;
-          }
-          if (event.type === "tool_call_done") {
-            const state = ensureToolStarted(event.callId, event.name);
-            const delta = doneSuffix(state.arguments, event.arguments);
-            state.arguments = delta ? state.arguments + delta : event.arguments || state.arguments;
-            finishTool(state);
-            stopReason = "tool_use";
-            continue;
-          }
-          if (event.type === "server_tool_block") {
-            finishMessage();
-            finishReasoning();
-            for (const block of event.blocks) {
-              await emitCompletedOutputItem(block);
-            }
-            continue;
-          }
-          if (event.type === "thinking_delta") {
-            ensureReasoningStarted();
-            reasoningText += event.text ?? event.label ?? "";
-            continue;
-          }
-          if (event.type === "thinking_signature") {
-            continue;
-          }
-          if (event.type === "usage") {
-            accumulatedUsage = mergeStreamUsage(accumulatedUsage, event.usage);
-            usage = responsesUsage(accumulatedUsage);
-            continue;
-          }
-          if (event.type === "message_stop") {
-            stopReason = event.stopReason;
-            if (event.stopReason === "max_tokens")
-              incompleteReason = "max_output_tokens";
-            continue;
-          }
-          if (event.type === "completion") {
-            if (event.usage) {
-              accumulatedUsage = mergeStreamUsage(accumulatedUsage, event.usage);
-              usage = responsesUsage(accumulatedUsage);
-            }
-            if (event.stopReason)
-              stopReason = event.stopReason;
-            if (event.incompleteReason)
-              incompleteReason = event.incompleteReason;
-            const completionOutput = responseOutputItems(event.output);
-            if (completionOutput.length)
-              completionOutputOverride = completionOutput;
-            if (completionOutput.length && !hasOutputState()) {
-              for (const item of completionOutput)
-                await emitCompletedOutputItem(item);
-            } else if (completionOutput.length) {
-              await reconcileCompletionOutputItems(completionOutput);
-            }
-            continue;
-          }
-          if (event.type === "message_item_done") {
-            if (!hasOutputState()) {
-              await emitCompletedOutputItem(event.item);
-            } else if (event.item.type === "message") {
-              if (messageStarted && !messageDone) {
-                await repairCurrentMessageFromItem(event.item);
-                finishMessage();
-              } else {
-                await emitMessageItemDone(event.item);
-              }
-            } else if (event.item.type === "function_call") {
-              await repairToolFromItem(event.item, true);
-            }
-            continue;
-          }
-          if (event.type === "error") {
-            send("error", { type: "error", error: { message: event.message } });
-            closed = true;
-            controller.close();
-            return;
-          }
-        }
-        finishReasoning();
-        finishMessage();
-        for (const state of toolStates.values())
-          finishTool(state);
-        const streamedOutput = compactOutput(output);
-        const completedOutput = completionOutputOverride ? mergeCompletionOutput(streamedOutput, completionOutputOverride) : streamedOutput;
-        const finalIncompleteReason = incompleteReason ?? (stopReason === "max_tokens" ? "max_output_tokens" : undefined);
-        send("response.completed", {
-          type: "response.completed",
-          response: responseObject({
-            id,
-            model,
-            status: finalIncompleteReason ? "incomplete" : "completed",
-            created,
-            request,
-            output: completedOutput,
-            usage,
-            incompleteReason: finalIncompleteReason
-          })
-        });
-        closed = true;
-        controller.close();
-      } catch (error) {
-        if (!closed) {
-          send("error", { type: "error", error: { message: error instanceof Error ? error.message : String(error) } });
-          closed = true;
-          controller.close();
-        }
-      }
-    },
-    cancel(reason) {
-      closed = true;
-      const current = iterator;
-      iterator = undefined;
-      current?.return?.({ type: "lifecycle", label: String(reason ?? "client disconnected") }).catch(() => {
-        return;
-      });
-    }
-  }), streamHeaders());
-}
-function chatCompletionStreamResponse(response) {
-  const encoder = new TextEncoder;
-  const id = response.id.replace(/^resp_/, "chatcmpl_");
-  const created = nowSeconds();
-  const model = response.model;
-  const toolStates = new Map;
-  let iterator;
-  let closed = false;
-  let sentRole = false;
-  let text = "";
-  let currentChatMessageText = "";
-  let usage;
-  let accumulatedUsage;
-  let stopReason = "stop";
-  const completedChatMessageIds = new Set;
-  return new Response(new ReadableStream({
-    async start(controller) {
-      function send(data) {
-        if (closed)
-          return;
-        controller.enqueue(encoder.encode(`data: ${typeof data === "string" ? data : JSON.stringify(data)}
-
-`));
-      }
-      function chunk(delta, finishReason = null, chunkUsage = null) {
-        send({
-          id,
-          object: "chat.completion.chunk",
-          created,
-          model,
-          choices: [{ index: 0, delta, finish_reason: finishReason }],
-          ...chunkUsage ? { usage: chunkUsage } : {}
-        });
-      }
-      function roleDelta(delta) {
-        if (sentRole)
-          return delta;
-        sentRole = true;
-        return { role: "assistant", ...delta };
-      }
-      async function textChunk(delta) {
-        if (!delta)
-          return;
-        const parts = textDeltaChunks(delta);
-        for (let index = 0;index < parts.length; index += 1) {
-          const part = parts[index];
-          text += part;
-          currentChatMessageText += part;
-          chunk(roleDelta({ content: part }));
-          if (index < parts.length - 1)
-            await streamFlushYield();
-        }
-      }
-      async function reasoningChunk(delta) {
-        if (!delta)
-          return;
-        const parts = textDeltaChunks(delta);
-        for (let index = 0;index < parts.length; index += 1) {
-          chunk(roleDelta({ reasoning_content: parts[index] }));
-          if (index < parts.length - 1)
-            await streamFlushYield();
-        }
-      }
-      function toolState(callId, name) {
-        let state = toolStates.get(callId);
-        if (state) {
-          if (state.name === "unknown" && name !== "unknown")
-            state.name = name;
-          return state;
-        }
-        state = { index: toolStates.size, id: callId, callId, name, arguments: "" };
-        toolStates.set(callId, state);
-        return state;
-      }
-      async function emitChatOutputItems(items) {
-        for (const item of items) {
-          if (item.type === "message") {
-            await emitChatMessageItem(item);
-            continue;
-          }
-          if (item.type === "function_call") {
-            emitChatFunctionCallItem(item);
-          }
-        }
-      }
-      async function emitChatMessageItem(item) {
-        const message = completedMessageOutputItem(item);
-        if (typeof message.id === "string" && completedChatMessageIds.has(message.id))
-          return;
-        if (typeof message.id === "string")
-          completedChatMessageIds.add(message.id);
-        const doneText = outputTextFromOutput([message]);
-        if (doneText) {
-          const delta = doneSuffix(currentChatMessageText, doneText);
-          if (delta) {
-            await textChunk(delta);
-          } else if (!currentChatMessageText && !text.endsWith(doneText)) {
-            await textChunk(doneText);
-          }
-        }
-        currentChatMessageText = "";
-      }
-      async function reconcileChatOutputItems(items) {
-        for (const item of items) {
-          if (item.type === "message") {
-            await emitChatMessageItem(item);
-            continue;
-          }
-          if (item.type === "function_call")
-            emitChatFunctionCallItem(item);
-        }
-      }
-      function emitChatFunctionCallItem(item) {
-        currentChatMessageText = "";
-        const tool = completedFunctionCallOutputItem(item);
-        const callId = typeof tool.call_id === "string" ? tool.call_id : String(tool.id);
-        const name = typeof tool.name === "string" ? tool.name : "unknown";
-        const args = typeof tool.arguments === "string" ? tool.arguments : "{}";
-        const previous = toolStates.get(callId);
-        const nameChanged = Boolean(previous && previous.name === "unknown" && name !== "unknown");
-        const state = toolState(callId, name);
-        const delta = previous ? doneSuffix(state.arguments, args) : args;
-        if (!previous || delta || nameChanged) {
-          state.arguments += delta;
-          chunk(roleDelta({
-            tool_calls: [{
-              index: state.index,
-              id: state.id,
-              type: "function",
-              function: { name: state.name, ...!previous || delta ? { arguments: delta } : {} }
-            }]
-          }));
-        }
-        stopReason = "tool_calls";
-      }
-      try {
-        iterator = response.events[Symbol.asyncIterator]();
-        while (true) {
-          const next = await iterator.next();
-          if (next.done)
-            break;
-          const event = next.value;
-          if (event.type === "thinking_delta") {
-            await reasoningChunk(event.text ?? event.label ?? "");
-            continue;
-          }
-          if (event.type === "text_delta") {
-            await textChunk(event.delta);
-            continue;
-          }
-          if (event.type === "text_done") {
-            const delta = doneSuffix(currentChatMessageText, event.text);
-            if (delta) {
-              await textChunk(delta);
-            } else if (!currentChatMessageText && event.text && !text.endsWith(event.text)) {
-              await textChunk(event.text);
-            }
-            continue;
-          }
-          if (event.type === "tool_call_delta") {
-            currentChatMessageText = "";
-            const state = toolState(event.callId, event.name);
-            state.arguments += event.argumentsDelta;
-            chunk(roleDelta({
-              tool_calls: [{
-                index: state.index,
-                id: state.id,
-                type: "function",
-                function: { name: state.name, arguments: event.argumentsDelta }
-              }]
-            }));
-            stopReason = "tool_calls";
-            continue;
-          }
-          if (event.type === "tool_call_done") {
-            emitChatFunctionCallItem({ type: "function_call", call_id: event.callId, name: event.name, arguments: event.arguments });
-            continue;
-          }
-          if (event.type === "usage") {
-            accumulatedUsage = mergeStreamUsage(accumulatedUsage, event.usage);
-            usage = chatUsage(accumulatedUsage);
-            continue;
-          }
-          if (event.type === "message_stop") {
-            stopReason = chatFinishReason(event.stopReason, toolStates.size > 0);
-            continue;
-          }
-          if (event.type === "completion") {
-            const completionOutput = responseOutputItems(event.output);
-            if (completionOutput.length && !sentRole && !text && toolStates.size === 0) {
-              await emitChatOutputItems(completionOutput);
-            } else if (completionOutput.length) {
-              await reconcileChatOutputItems(completionOutput);
-            }
-            if (event.usage) {
-              accumulatedUsage = mergeStreamUsage(accumulatedUsage, event.usage);
-              usage = chatUsage(accumulatedUsage);
-            }
-            if (event.stopReason)
-              stopReason = chatFinishReason(event.stopReason, toolStates.size > 0);
-            else if (event.incompleteReason === "max_output_tokens")
-              stopReason = "length";
-            continue;
-          }
-          if (event.type === "message_item_done") {
-            if (!sentRole && !text && toolStates.size === 0) {
-              await emitChatOutputItems([event.item]);
-              continue;
-            }
-            if (event.item.type === "function_call") {
-              emitChatFunctionCallItem(event.item);
-              continue;
-            }
-            if (event.item.type === "message")
-              await emitChatMessageItem(event.item);
-            continue;
-          }
-          if (event.type === "error") {
-            send({ error: { message: event.message } });
-            send("[DONE]");
-            closed = true;
-            controller.close();
-            return;
-          }
-        }
-        if (!sentRole)
-          chunk({ role: "assistant" });
-        chunk({}, stopReason, usage ?? chatUsage({ inputTokens: 0, outputTokens: 0 }));
-        send("[DONE]");
-        closed = true;
-        controller.close();
-      } catch (error) {
-        if (!closed) {
-          send({ error: { message: error instanceof Error ? error.message : String(error) } });
-          send("[DONE]");
-          closed = true;
-          controller.close();
-        }
-      }
-    },
-    cancel(reason) {
-      closed = true;
-      const current = iterator;
-      iterator = undefined;
-      current?.return?.({ type: "lifecycle", label: String(reason ?? "client disconnected") }).catch(() => {
-        return;
-      });
-    }
-  }), streamHeaders());
-}
-function canonicalContentToResponsesOutput(content) {
-  const output = [];
-  let pendingText = [];
-  const flushText = () => {
-    if (!pendingText.length)
-      return;
-    output.push(messageOutputItemFromParts(`msg_${crypto.randomUUID().replace(/-/g, "")}`, pendingText));
-    pendingText = [];
-  };
-  for (const block of content) {
-    if (block.type === "text") {
-      pendingText.push({ text: block.text, annotations: block.annotations });
-      continue;
-    }
-    flushText();
-    if (block.type === "tool_call")
-      output.push(functionCallOutputItem(block));
-    else if (block.type === "thinking")
-      output.push(reasoningOutputItem(block.thinking));
-    else if (block.type === "server_tool")
-      output.push(...block.blocks.map((item) => ({ ...item, status: "completed" })));
+// src/upstream/copilot/client.ts
+class Copilot_Client {
+  auth;
+  fetchFn;
+  constructor(options) {
+    this.auth = options.auth;
+    this.fetchFn = options.fetch ?? fetch;
   }
-  flushText();
-  return output;
-}
-function messageOutputItem(id, text) {
-  return messageOutputItemFromParts(id, [{ text }]);
-}
-function messageOutputItemFromParts(id, parts) {
-  return {
-    id,
-    type: "message",
-    status: "completed",
-    role: "assistant",
-    content: parts.map((part) => ({
-      type: "output_text",
-      text: part.text,
-      annotations: Array.isArray(part.annotations) ? part.annotations : []
-    }))
-  };
-}
-function functionCallOutputItem(block, status = "completed") {
-  return {
-    id: block.id,
-    type: "function_call",
-    call_id: block.callId,
-    name: block.name,
-    arguments: block.arguments,
-    status
-  };
-}
-function compactOutput(output) {
-  return output.filter((item) => Boolean(item));
-}
-function mergeCompletionOutput(streamedOutput, completionOutput) {
-  const usedCompletionIndexes = new Set;
-  const merged = [];
-  const flushCompletionBefore = (targetIndex) => {
-    for (let index = 0;index < targetIndex; index += 1) {
-      if (usedCompletionIndexes.has(index))
-        continue;
-      usedCompletionIndexes.add(index);
-      merged.push(completionOutput[index]);
-    }
-  };
-  for (const streamedItem of streamedOutput) {
-    const replacementIndex = completionOutput.findIndex((candidate, index) => !usedCompletionIndexes.has(index) && replacementMatchesStreamedItem(candidate, streamedItem));
-    if (replacementIndex >= 0) {
-      flushCompletionBefore(replacementIndex);
-      usedCompletionIndexes.add(replacementIndex);
-      merged.push(completionOutput[replacementIndex]);
-      continue;
-    }
-    if (streamedItem.type !== "message" && streamedItem.type !== "function_call")
-      merged.push(streamedItem);
+  async proxy(request, options) {
+    const accessToken = await this.auth.getAccessToken();
+    const body = buildCopilotResponsesBody(request);
+    options?.onRequestBody?.(JSON.stringify(body));
+    return this.fetchJson("/responses", accessToken, body, options);
   }
-  completionOutput.forEach((item, index) => {
-    if (!usedCompletionIndexes.has(index))
-      merged.push(item);
-  });
-  return merged;
-}
-function replacementMatchesStreamedItem(candidate, streamedItem) {
-  if (sameOutputItem(candidate, streamedItem))
-    return true;
-  if (streamedItem.type === "message")
-    return candidate.type === "message";
-  if (streamedItem.type === "function_call")
-    return candidate.type === "function_call";
-  return false;
-}
-function sameOutputItem(left, right) {
-  if (typeof left.id === "string" && typeof right.id === "string" && left.id === right.id)
-    return true;
-  if (left.type === "function_call" && right.type === "function_call" && typeof left.call_id === "string" && left.call_id === right.call_id)
-    return true;
-  if (left.type === "reasoning" && right.type === "reasoning")
-    return true;
-  return false;
-}
-function responseOutputItems(output) {
-  if (!Array.isArray(output))
-    return [];
-  const items = output.filter(isJsonObject2);
-  const normalized = [];
-  let pendingCanonical = [];
-  const flushCanonical = () => {
-    if (!pendingCanonical.length)
-      return;
-    normalized.push(...canonicalContentToResponsesOutput(pendingCanonical));
-    pendingCanonical = [];
-  };
-  for (const item of items) {
-    if (isCanonicalContentOutputItem(item)) {
-      pendingCanonical.push(item);
-      continue;
-    }
-    flushCanonical();
-    normalized.push(completedResponseOutputItem(item));
+  async embeddingsRaw(body, options) {
+    options?.onRequestBody?.(JSON.stringify(body));
+    const accessToken = await this.auth.getAccessToken();
+    return this.fetchJson("/embeddings", accessToken, body, options);
   }
-  flushCanonical();
-  return normalized;
-}
-function isCanonicalContentOutputItem(item) {
-  return item.type === "text" || item.type === "tool_call" || item.type === "server_tool" || item.type === "thinking";
-}
-function completedResponseOutputItem(item) {
-  if (item.type === "message")
-    return completedMessageOutputItem(item);
-  if (item.type === "function_call")
-    return completedFunctionCallOutputItem(item);
-  return { ...item, status: "completed" };
-}
-function completedMessageOutputItem(item) {
-  return {
-    id: typeof item.id === "string" ? item.id : `msg_${crypto.randomUUID().replace(/-/g, "")}`,
-    type: "message",
-    status: "completed",
-    role: typeof item.role === "string" ? item.role : "assistant",
-    content: outputContent(item.content)
-  };
-}
-function completedStreamMessageOutputItem(id, text, item) {
-  return messageOutputItemFromParts(id, [{ text, annotations: outputAnnotations(item) }]);
-}
-function outputAnnotations(item) {
-  return outputContent(item.content).flatMap((part) => {
-    if (!Array.isArray(part.annotations))
-      return [];
-    return part.annotations.filter(isJsonObject2);
-  });
-}
-function outputContent(value) {
-  if (Array.isArray(value))
-    return value.flatMap(outputContentPart);
-  return outputContentPart(value);
-}
-function outputContentPart(part) {
-  if (typeof part === "string")
-    return [{ type: "output_text", text: part, annotations: [] }];
-  if (!isJsonObject2(part))
-    return [];
-  if (part.type === "output_text") {
-    return [{
-      ...part,
-      text: typeof part.text === "string" ? part.text : "",
-      annotations: Array.isArray(part.annotations) ? part.annotations : []
-    }];
+  async modelsRaw(options) {
+    const accessToken = await this.auth.getAccessToken();
+    return this.fetchJson("/models", accessToken, undefined, options);
   }
-  if (part.type === "text" && typeof part.text === "string")
-    return [{ type: "output_text", text: part.text, annotations: [] }];
-  if (part.type === "refusal" && typeof part.refusal === "string")
-    return [{ type: "output_text", text: part.refusal, annotations: [] }];
-  return [part];
-}
-function completedFunctionCallOutputItem(item) {
-  const callId = typeof item.call_id === "string" ? item.call_id : typeof item.id === "string" ? item.id : `call_${crypto.randomUUID().replace(/-/g, "")}`;
-  const rawArguments = item.arguments ?? {};
-  return {
-    id: typeof item.id === "string" ? item.id : `fc_${crypto.randomUUID().replace(/-/g, "")}`,
-    type: "function_call",
-    call_id: callId,
-    name: typeof item.name === "string" ? item.name : "unknown",
-    arguments: typeof rawArguments === "string" ? rawArguments : JSON.stringify(rawArguments),
-    status: "completed"
-  };
-}
-function reasoningOutputItem(text) {
-  return {
-    id: `rs_${crypto.randomUUID().replace(/-/g, "")}`,
-    type: "reasoning",
-    status: "completed",
-    summary: [{ type: "summary_text", text }]
-  };
-}
-function chatToolCall(block) {
-  return {
-    id: block.callId,
-    type: "function",
-    function: {
-      name: block.name,
-      arguments: block.arguments
-    }
-  };
-}
-function responseObject(options) {
-  const created = options.created ?? nowSeconds();
-  return {
-    id: options.id,
-    object: "response",
-    created_at: created,
-    status: options.status,
-    ...options.status === "completed" ? { completed_at: nowSeconds() } : {},
-    error: null,
-    incomplete_details: options.incompleteReason ? { reason: options.incompleteReason } : null,
-    instructions: typeof options.request.instructions === "string" ? options.request.instructions : null,
-    max_output_tokens: numberOrNull(options.request.max_output_tokens ?? options.request.max_completion_tokens),
-    model: options.model,
-    output: options.output,
-    parallel_tool_calls: options.request.parallel_tool_calls ?? true,
-    previous_response_id: options.request.previous_response_id ?? null,
-    reasoning: requestReasoning(options.request),
-    store: options.request.store ?? true,
-    temperature: options.request.temperature ?? 1,
-    text: requestText(options.request),
-    tool_choice: options.request.tool_choice ?? "auto",
-    tools: Array.isArray(options.request.tools) ? options.request.tools : [],
-    top_p: options.request.top_p ?? 1,
-    truncation: options.request.truncation ?? "disabled",
-    usage: options.usage,
-    user: options.request.user ?? null,
-    metadata: isJsonObject2(options.request.metadata) ? options.request.metadata : {}
-  };
-}
-function responsesUsage(usage) {
-  const inputTokens = canonicalInputTokenTotal(usage);
-  const outputTokens = usage?.outputTokens ?? 0;
-  const cachedTokens = usage?.cacheReadInputTokens ?? 0;
-  return {
-    input_tokens: inputTokens,
-    input_tokens_details: { cached_tokens: cachedTokens },
-    output_tokens: outputTokens,
-    output_tokens_details: { reasoning_tokens: usage?.outputReasoningTokens ?? 0 },
-    total_tokens: inputTokens + outputTokens
-  };
-}
-function chatUsage(usage) {
-  const inputTokens = canonicalInputTokenTotal(usage);
-  const outputTokens = usage?.outputTokens ?? 0;
-  const cachedTokens = usage?.cacheReadInputTokens ?? 0;
-  return {
-    prompt_tokens: inputTokens,
-    completion_tokens: outputTokens,
-    total_tokens: inputTokens + outputTokens,
-    prompt_tokens_details: { cached_tokens: cachedTokens },
-    completion_tokens_details: { reasoning_tokens: usage?.outputReasoningTokens ?? 0 }
-  };
-}
-function mergeStreamUsage(current, next) {
-  const merged = current ?? { inputTokens: 0, outputTokens: 0 };
-  mergeCanonicalUsage(merged, next);
-  return merged;
-}
-function outputTextFromOutput(output) {
-  return output.flatMap((item) => {
-    const content = Array.isArray(item.content) ? item.content : [];
-    return content.flatMap((block) => isJsonObject2(block) && block.type === "output_text" && typeof block.text === "string" ? [block.text] : []);
-  }).join("");
-}
-function chatFinishReason(stopReason, hasToolCalls) {
-  if (hasToolCalls || stopReason === "tool_use")
-    return "tool_calls";
-  if (stopReason === "max_tokens")
-    return "length";
-  return "stop";
-}
-function doneSuffix(current, done) {
-  if (!done)
-    return "";
-  if (!current)
-    return done;
-  return done.startsWith(current) ? done.slice(current.length) : "";
-}
-var STREAM_TEXT_DELTA_TARGET_LENGTH = 64;
-function textDeltaChunks(text) {
-  const chars = Array.from(text);
-  if (!chars.length)
-    return [];
-  if (chars.length <= STREAM_TEXT_DELTA_TARGET_LENGTH)
-    return [text];
-  const chunks = [];
-  let start = 0;
-  while (start < chars.length) {
-    let end = Math.min(start + STREAM_TEXT_DELTA_TARGET_LENGTH, chars.length);
-    if (end < chars.length) {
-      for (let index = end - 1;index > start + STREAM_TEXT_DELTA_TARGET_LENGTH / 2; index -= 1) {
-        if (/\s/.test(chars[index])) {
-          end = index + 1;
-          break;
-        }
-      }
-    }
-    chunks.push(chars.slice(start, end).join(""));
-    start = end;
+  async usage(options) {
+    const response = await this.fetchFn(`${COPILOT_GITHUB_API_BASE_URL}/copilot_internal/user`, {
+      headers: githubHeaders(await this.auth.getGitHubToken(), this.auth.getAccountType()),
+      signal: options?.signal
+    });
+    return response;
   }
-  return chunks;
-}
-function streamFlushYield() {
-  return new Promise((resolve) => setTimeout(resolve, 0));
-}
-function requestText(request) {
-  if (isJsonObject2(request.text))
-    return request.text;
-  if (isJsonObject2(request.response_format))
-    return { format: request.response_format };
-  return { format: { type: "text" } };
-}
-function requestReasoning(request) {
-  if (isJsonObject2(request.reasoning))
-    return { effort: request.reasoning.effort ?? null, summary: request.reasoning.summary ?? null };
-  return { effort: typeof request.reasoning_effort === "string" ? request.reasoning_effort : null, summary: null };
-}
-function numberOrNull(value) {
-  return typeof value === "number" ? value : null;
-}
-function stringOr(value, fallback) {
-  return typeof value === "string" ? value : fallback;
-}
-function isChatPath2(pathname) {
-  return pathname === "/v1/chat/completions";
-}
-function isJsonObject2(value) {
-  return Boolean(value && typeof value === "object" && !Array.isArray(value));
-}
-function nowSeconds() {
-  return Math.floor(Date.now() / 1000);
-}
-function streamHeaders() {
-  return {
-    headers: {
-      "content-type": "text/event-stream",
-      "cache-control": "no-cache"
-    }
-  };
-}
-
-// src/inbound/openai/index.ts
-class OpenAI_Inbound_Provider {
-  name;
-  routeDescriptors;
-  passthrough;
-  upstreamLogLabel;
-  upstreamTarget;
-  expectedUpstreamKind;
-  constructor(options = {}) {
-    this.name = options.name ?? "openai";
-    this.routeDescriptors = options.routes ?? [
-      { path: "/v1/responses", method: "POST" },
-      { path: "/v1/chat/completions", method: "POST" }
-    ];
-    this.passthrough = options.passthrough ?? true;
-    this.upstreamLogLabel = options.upstreamLogLabel ?? "Codex responses";
-    this.upstreamTarget = options.upstreamTarget ?? "/v1/responses";
-    this.expectedUpstreamKind = options.expectedUpstreamKind;
-  }
-  routes() {
-    return this.routeDescriptors;
-  }
-  async handle(request, route, upstream, context) {
-    const upstreamMismatch = this.upstreamMismatch(upstream);
-    if (upstreamMismatch)
-      return openAIErrorResponse(upstreamMismatch, 500, "server_error");
-    let body;
-    try {
-      body = await request.json();
-    } catch (error) {
-      if (!this.passthrough) {
-        return openAIErrorResponse(`Invalid JSON: ${error instanceof Error ? error.message : String(error)}`, 400, "invalid_request_error");
-      }
-      return Response.json({
-        error: {
-          message: `Invalid JSON: ${error instanceof Error ? error.message : String(error)}`
-        }
-      }, { status: 500 });
-    }
-    if (!isJsonObject3(body)) {
-      return openAIErrorResponse("Request body must be a JSON object", 400, "invalid_request_error");
-    }
-    const wireBody = body;
-    if (!this.passthrough) {
-      const validationError = validateOpenAIRequestShape(route.path, wireBody);
-      if (validationError)
-        return openAIErrorResponse(validationError, 400, "invalid_request_error");
-    }
-    const shouldCaptureProxyBody = context.logBody && context.onProxy !== undefined;
-    const requestBody = shouldCaptureProxyBody ? previewText2(JSON.stringify(normalizeRequestBody(route.path, wireBody))) : undefined;
-    const upstreamRequestPreview = shouldCaptureProxyBody ? createLogPreview() : undefined;
-    const upstreamResponsePreview = shouldCaptureProxyBody ? createLogPreview() : undefined;
+  async checkHealth(timeoutMs) {
+    const controller = new AbortController;
     const started = Date.now();
-    if (route.path === "/v1/embeddings") {
-      if (!upstream.embeddingsRaw)
-        return openAIErrorResponse("Embeddings are not supported by this upstream provider.", 501, "server_error");
-      const embeddingsBody = normalizeRequestBody(route.path, wireBody);
-      const response = await upstream.embeddingsRaw(embeddingsBody, {
-        headers: request.headers,
-        signal: request.signal,
-        ...upstreamRequestPreview ? {
-          onRequestBody: (nextBody) => upstreamRequestPreview.append(nextBody)
-        } : {}
-      });
-      const durationMs2 = Date.now() - started;
-      const proxyRequestBody2 = upstreamRequestPreview?.text() || requestBody;
-      const proxyLog = context.onProxy ? {
-        label: this.upstreamLogLabel,
-        method: "POST",
-        target: this.upstreamTarget,
+    const timer = setTimeout(() => controller.abort("health timeout"), timeoutMs);
+    try {
+      const response = await this.modelsRaw({ signal: controller.signal });
+      return {
+        ok: response.ok,
         status: response.status,
-        durationMs: durationMs2,
-        error: response.ok ? "-" : response.statusText || `HTTP ${response.status}`,
-        requestBody: proxyRequestBody2,
-        responseBody: undefined
-      } : undefined;
-      if (proxyLog)
-        context.onProxy?.(proxyLog);
-      if (!response.body || !shouldCaptureProxyBody || !proxyLog)
-        return response;
-      return interceptResponseStream(response, {
-        onComplete: (responseBody) => {
-          proxyLog.responseBody = responseBody;
-          if (response.status >= 400) {
-            proxyLog.error = responseBody ? previewText2(responseBody) || proxyLog.error : proxyLog.error;
-          }
-        }
-      });
+        latencyMs: Date.now() - started,
+        checkedAt: new Date().toISOString()
+      };
+    } catch (error) {
+      return {
+        ok: false,
+        error: error instanceof Error ? error.message : String(error),
+        latencyMs: Date.now() - started,
+        checkedAt: new Date().toISOString()
+      };
+    } finally {
+      clearTimeout(timer);
     }
-    const result = await upstream.proxy(normalizeCanonicalRequest(route.path, wireBody, { passthrough: this.passthrough }), {
-      headers: request.headers,
-      signal: request.signal,
-      ...upstreamRequestPreview && upstreamResponsePreview ? {
-        onRequestBody: (nextBody) => upstreamRequestPreview.append(nextBody),
-        onResponseBodyChunk: (chunk) => upstreamResponsePreview.append(chunk)
-      } : {}
-    });
-    const durationMs = Date.now() - started;
-    const proxyRequestBody = upstreamRequestPreview?.text() || requestBody;
-    if (isCanonicalPassthrough2(result)) {
-      const proxyLog = context.onProxy ? {
-        label: this.upstreamLogLabel,
-        method: "POST",
-        target: this.upstreamTarget,
-        status: result.status,
-        durationMs,
-        error: "-",
-        requestBody: proxyRequestBody
-      } : undefined;
-      if (proxyLog)
-        context.onProxy?.(proxyLog);
-      const response = new Response(passthroughBodyInit(result.body), {
-        status: result.status,
-        statusText: result.statusText,
-        headers: responseHeaders(result.headers)
-      });
-      if (!response.body || !shouldCaptureProxyBody || !proxyLog)
-        return response;
-      return interceptResponseStream(response, {
-        onComplete: (responseBody) => {
-          proxyLog.responseBody = responseBody;
-        }
-      });
-    }
-    if (isCanonicalError2(result)) {
-      const proxyLog = context.onProxy ? {
-        label: this.upstreamLogLabel,
-        method: "POST",
-        target: this.upstreamTarget,
-        status: result.status,
-        durationMs,
-        error: previewText2(result.body) || "-",
-        requestBody: proxyRequestBody,
-        responseBody: shouldCaptureProxyBody ? previewText2(result.body) || undefined : undefined
-      } : undefined;
-      if (proxyLog && this.expectedUpstreamKind === "kiro" && kiroDebugOnErrorEnabled()) {
-        proxyLog.debug = createKiroDebugBundle({
-          route: route.path,
-          status: result.status,
-          model: wireBody.model,
-          error: result.body,
-          requestBody,
-          upstreamRequestBody: proxyRequestBody,
-          upstreamResponseBody: upstreamResponsePreview?.text(),
-          transformedResponseBody: result.body
-        });
-      }
-      if (proxyLog)
-        context.onProxy?.(proxyLog);
-      if (!this.passthrough) {
-        return openAIErrorResponse(result.body, result.status, "upstream_error", result.headers);
-      }
-      return new Response(result.body, {
-        status: result.status,
-        headers: responseHeaders(result.headers)
-      });
-    }
-    if (isCanonicalResponse2(result)) {
-      backfillInputTokens2(result, wireBody);
-      const response = openAICanonicalResponse(result, route.path, wireBody);
-      if (context.onProxy) {
-        context.onProxy({
-          label: this.upstreamLogLabel,
-          method: "POST",
-          target: this.upstreamTarget,
-          status: 200,
-          durationMs,
-          error: "-",
-          requestBody: proxyRequestBody,
-          responseBody: shouldCaptureProxyBody ? upstreamResponsePreview?.text() || undefined : undefined
-        });
-      }
-      return response;
-    }
-    if (isCanonicalStream2(result)) {
-      const clientWantsStream = wireBody.stream === true || wireBody.stream === "true";
-      if (!clientWantsStream) {
-        const accumulated = await accumulateCanonicalStream(result);
-        backfillInputTokens2(accumulated, wireBody);
-        const response2 = openAICanonicalResponse(accumulated, route.path, wireBody);
-        if (context.onProxy) {
-          context.onProxy({
-            label: this.upstreamLogLabel,
-            method: "POST",
-            target: this.upstreamTarget,
-            status: 200,
-            durationMs,
-            error: "-",
-            requestBody: proxyRequestBody,
-            responseBody: shouldCaptureProxyBody ? upstreamResponsePreview?.text() || undefined : undefined
-          });
-        }
-        return response2;
-      }
-      const proxyLog = context.onProxy ? {
-        label: this.upstreamLogLabel,
-        method: "POST",
-        target: this.upstreamTarget,
-        status: result.status,
-        durationMs,
-        error: "-",
-        requestBody: proxyRequestBody,
-        responseBody: shouldCaptureProxyBody ? upstreamResponsePreview?.text() || undefined : undefined
-      } : undefined;
-      if (proxyLog)
-        context.onProxy?.(proxyLog);
-      const response = openAICanonicalStreamResponse(result, route.path, wireBody);
-      if (!response.body || !shouldCaptureProxyBody || !proxyLog)
-        return response;
-      return interceptResponseStream(response, {
-        onComplete: (responseBody) => {
-          proxyLog.responseBody = upstreamResponsePreview?.text() || responseBody;
-        }
-      });
-    }
-    return unexpectedNonPassthroughResponse();
   }
-  upstreamMismatch(upstream) {
-    if (!this.expectedUpstreamKind || upstream.providerKind === this.expectedUpstreamKind)
+  async refresh() {
+    return this.auth.refreshAndPersist();
+  }
+  async fetchJson(path, accessToken, body, options) {
+    const response = await this.fetchFn(`${this.baseUrl()}${path}`, {
+      method: body === undefined ? "GET" : "POST",
+      headers: copilotHeaders(accessToken, this.auth.getAccountType(), this.auth.getGitHubToken()),
+      signal: options?.signal,
+      ...body === undefined ? {} : { body: JSON.stringify(body) }
+    });
+    return response;
+  }
+  baseUrl() {
+    const accountType = this.auth.getAccountType();
+    return accountType && accountType !== "individual" ? `https://api.${accountType}.githubcopilot.com` : "https://api.githubcopilot.com";
+  }
+}
+function copilotHeaders(accessToken, accountType, githubToken) {
+  return {
+    "content-type": "application/json",
+    accept: "application/json",
+    authorization: `Bearer ${accessToken}`,
+    "copilot-integration-id": "vscode-chat",
+    "editor-version": "vscode/1.112.0",
+    "editor-plugin-version": COPILOT_EDITOR_PLUGIN_VERSION,
+    "user-agent": COPILOT_USER_AGENT,
+    "openai-intent": "conversation-panel",
+    "x-github-api-version": COPILOT_API_VERSION,
+    "x-vscode-user-agent-library-version": "electron-fetch",
+    "x-copilot-account-type": accountType,
+    "x-copilot-github-token": githubToken,
+    "x-copilot-version": COPILOT_GITHUB_VERSION,
+    "x-request-id": crypto.randomUUID()
+  };
+}
+function githubHeaders(githubToken, accountType) {
+  return {
+    "content-type": "application/json",
+    accept: "application/json",
+    authorization: `token ${githubToken}`,
+    "editor-version": "vscode/1.112.0",
+    "editor-plugin-version": COPILOT_EDITOR_PLUGIN_VERSION,
+    "user-agent": COPILOT_USER_AGENT,
+    "x-github-api-version": COPILOT_API_VERSION,
+    "x-vscode-user-agent-library-version": "electron-fetch",
+    "x-copilot-account-type": accountType,
+    "x-request-id": crypto.randomUUID()
+  };
+}
+
+// src/upstream/copilot/cache.ts
+function copilotCacheFilePath(filePath) {
+  const resolved = filePath ?? bunPath.join(appDataDir(), COPILOT_CACHE_FILE_NAME);
+  return resolved;
+}
+async function readCopilotCacheFile(filePath) {
+  const resolved = copilotCacheFilePath(filePath);
+  try {
+    const parsed = JSON.parse(await readTextFile(resolved));
+    return normalizeCopilotCacheFile(parsed);
+  } catch {
+    return { tokens: {}, models: {} };
+  }
+}
+async function writeCopilotCacheFile(file, filePath) {
+  await atomicJsonWrite(copilotCacheFilePath(filePath), normalizeCopilotCacheFile(file), { mode: 384 });
+}
+async function readCopilotTokenCache(accountKey, filePath) {
+  const file = await readCopilotCacheFile(filePath);
+  return file.tokens[accountKey];
+}
+async function writeCopilotTokenCache(accountKey, entry, filePath) {
+  const file = await readCopilotCacheFile(filePath);
+  file.tokens[accountKey] = entry;
+  await writeCopilotCacheFile(file, filePath);
+}
+async function readCopilotModelCache(accountKey, filePath) {
+  const file = await readCopilotCacheFile(filePath);
+  return file.models[accountKey];
+}
+async function writeCopilotModelCache(accountKey, entry, filePath) {
+  const file = await readCopilotCacheFile(filePath);
+  file.models[accountKey] = entry;
+  await writeCopilotCacheFile(file, filePath);
+}
+function normalizeCopilotCacheFile(value) {
+  return {
+    tokens: value?.tokens && typeof value.tokens === "object" && !Array.isArray(value.tokens) ? value.tokens : {},
+    models: value?.models && typeof value.models === "object" && !Array.isArray(value.models) ? value.models : {}
+  };
+}
+
+// src/upstream/copilot/account-store.ts
+async function readCopilotAuthFileSelection(filePath = bunPath.join(appDataDir(), COPILOT_AUTH_FILE_NAME), account) {
+  const authFilePath = expandHome(filePath);
+  if (isProviderStatePath(authFilePath)) {
+    const section = await readProviderSection("copilot", authFilePath);
+    const parsed2 = section?.data ?? { activeAccount: undefined, accounts: [] };
+    return selectCopilotAuthEntry(parsed2, account ?? section?.activeAccount, authFilePath);
+  }
+  let raw;
+  try {
+    raw = await readTextFile(authFilePath);
+  } catch (error) {
+    throw new Error(`Copilot auth file not found at ${authFilePath}: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (error) {
+    throw new Error(`Failed to parse Copilot auth file ${authFilePath}: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  return selectCopilotAuthEntry(parsed, account, authFilePath);
+}
+async function readCopilotAuthFileData(filePath) {
+  return (await readCopilotAuthFileSelection(filePath)).data;
+}
+async function ensureCopilotAuthFile(authFile = bunPath.join(appDataDir(), COPILOT_AUTH_FILE_NAME)) {
+  if (await pathExists(authFile)) {
+    const data = await readCopilotAuthFileData(authFile).catch(() => ({ activeAccount: undefined, accounts: [] }));
+    if (copilotAuthEntries(data).length)
+      return authFile;
+  }
+  const legacyAuthFile = bunPath.join(appDataDir(), "copilot-auth.json");
+  const legacyCacheFile = bunPath.join(appDataDir(), ".copilot-cache.json");
+  if (isProviderStatePath(authFile)) {
+    if (await pathExists(legacyAuthFile)) {
+      const legacyData = await readCopilotAuthFileData(legacyAuthFile);
+      await writeCopilotAuthFile(authFile, legacyData);
+      if (await pathExists(legacyCacheFile)) {
+        const legacyCache = await readCopilotCacheFile(legacyCacheFile);
+        await writeCopilotCacheFile(legacyCache);
+      }
+      await removePath(legacyAuthFile, { force: true }).catch(() => {});
+      await removePath(legacyCacheFile, { force: true }).catch(() => {});
+      return authFile;
+    }
+    await writeCopilotAuthFile(authFile, { activeAccount: undefined, accounts: [] });
+    return authFile;
+  }
+  if (await pathExists(legacyAuthFile))
+    return legacyAuthFile;
+  await atomicJsonWrite(authFile, { activeAccount: undefined, accounts: [] }, { mode: 384 });
+  return authFile;
+}
+async function connectCopilotAccount(authFile, draft, options) {
+  const githubToken = cleanToken(draft.githubToken);
+  if (!githubToken)
+    throw new Error("githubToken is required");
+  const snapshot = await fetchCopilotAccountSnapshot(githubToken, {
+    fetch: options?.fetch,
+    accountType: draft.accountType,
+    authType: options?.authType
+  });
+  const entry = connectedCopilotAuthEntry(draft, snapshot);
+  return saveConnectedCopilotAuth(authFile, entry, snapshot);
+}
+async function connectCopilotAccountFromGitHubToken(authFile, githubToken, options) {
+  return connectCopilotAccount(authFile, { githubToken }, options);
+}
+async function writeActiveCopilotAccount(authFile, data, account) {
+  const selected = selectCopilotAuthEntry(data, account, authFile);
+  await writeCopilotAuthFile(authFile, managedCopilotAuthFile(data, selected.key, copilotAuthEntries(data)));
+}
+async function saveCopilotCache(authFile, accountKey, snapshot) {
+  await writeCopilotTokenCache(accountKey, {
+    copilotToken: snapshot.copilotToken,
+    expiresAt: snapshot.copilotTokenExpiresAt,
+    accountType: snapshot.accountType
+  }, cacheFilePath(authFile));
+  await writeCopilotModelCache(accountKey, {
+    models: [],
+    fetchedAt: new Date().toISOString()
+  }, cacheFilePath(authFile));
+}
+function selectCopilotAuthEntry(value, account, filePath = "copilot-auth.json") {
+  const normalized = normalizeCopilotAuthFileData(value, filePath);
+  const activeAccount = normalized.format === "managed" ? normalized.data.activeAccount : undefined;
+  const requested = account ?? activeAccount;
+  const requestedIndex = requested ? normalized.accounts.findIndex((auth, index2) => copilotAuthEntryAliases(auth, index2).includes(requested)) : -1;
+  if (account && requestedIndex < 0)
+    throw new Error(`Copilot auth file ${filePath} does not contain account ${account}`);
+  const index = requestedIndex >= 0 ? requestedIndex : 0;
+  const credentials = normalized.accounts[index];
+  if (!credentials)
+    throw new Error(`Copilot auth file ${filePath} does not contain any accounts`);
+  return {
+    data: normalized.data,
+    credentials,
+    filePath,
+    format: normalized.format,
+    index,
+    key: copilotAccountKey(credentials, index)
+  };
+}
+function updateCopilotAuthSelection(selection, credentials) {
+  if (selection.format === "single")
+    return credentials;
+  if (selection.format === "array") {
+    return selection.data.map((account, index) => index === selection.index ? credentials : account);
+  }
+  const data = selection.data;
+  return {
+    ...data,
+    activeAccount: copilotAccountKey(credentials, selection.index),
+    accounts: data.accounts.map((account, index) => index === selection.index ? credentials : account)
+  };
+}
+function copilotAuthEntries(data) {
+  if (Array.isArray(data))
+    return data;
+  if (isCopilotManagedAuthFile(data))
+    return data.accounts;
+  return [data];
+}
+function copilotAccountKey(auth, index) {
+  return firstString(auth.accountId, auth.email, auth.label, auth.accountType, auth.sourceAuthFile) ?? `copilot-account-${index + 1}`;
+}
+function validateCopilotAuthToken(value, filePath) {
+  if (!value || typeof value !== "object" || Array.isArray(value))
+    throw new Error(`Copilot auth file ${filePath} must contain a JSON object`);
+  const item = value;
+  if (typeof item.githubToken !== "string")
+    throw new Error(`Copilot auth file ${filePath} is missing string field githubToken`);
+  return {
+    type: "copilot",
+    githubToken: item.githubToken,
+    ...typeof item.label === "string" ? { label: item.label } : {},
+    ...typeof item.accountId === "string" ? { accountId: item.accountId } : {},
+    ...typeof item.email === "string" ? { email: item.email } : {},
+    ...typeof item.plan === "string" ? { plan: item.plan } : {},
+    ...typeof item.accountType === "string" ? { accountType: item.accountType } : {},
+    ...typeof item.authType === "string" ? { authType: item.authType } : {},
+    ...typeof item.sourceAuthFile === "string" ? { sourceAuthFile: item.sourceAuthFile } : {},
+    ...typeof item.sourceAccountKey === "string" ? { sourceAccountKey: item.sourceAccountKey } : {}
+  };
+}
+async function saveConnectedCopilotAuth(authFile, auth, snapshot) {
+  const file = await readCopilotAuthFileData(authFile).catch(() => ({ activeAccount: undefined, accounts: [] }));
+  const entries = copilotAuthEntries(file);
+  const index = entries.findIndex((entry, itemIndex) => copilotAuthEntryAliases(entry, itemIndex).some((alias) => copilotAuthEntryAliases(auth, itemIndex).includes(alias)));
+  const nextEntries = index >= 0 ? entries.map((entry, itemIndex) => itemIndex === index ? { ...entry, ...auth } : entry) : [...entries, auth];
+  const accountIndex = index >= 0 ? index : nextEntries.length - 1;
+  const accountKey = copilotAccountKey(nextEntries[accountIndex], accountIndex);
+  const data = managedCopilotAuthFile(file, accountKey, nextEntries);
+  await writeCopilotAuthFile(authFile, data);
+  await saveCopilotCache(authFile, accountKey, snapshot);
+  return { accountKey, data };
+}
+function connectedCopilotAuthEntry(draft, snapshot) {
+  const label = cleanText(draft.label);
+  const accountType = cleanToken(draft.accountType) || snapshot.accountType;
+  const githubToken = cleanToken(draft.githubToken);
+  if (!githubToken)
+    throw new Error("githubToken is required");
+  return {
+    type: "copilot",
+    githubToken,
+    ...label ? { label } : {},
+    ...snapshot.accountId ? { accountId: snapshot.accountId } : {},
+    ...snapshot.email ? { email: snapshot.email } : {},
+    ...snapshot.plan ? { plan: snapshot.plan } : {},
+    ...accountType ? { accountType } : {},
+    authType: snapshot.authType
+  };
+}
+async function writeCopilotAuthFile(authFile, data) {
+  if (isProviderStatePath(authFile)) {
+    const activeAccount = Array.isArray(data) ? undefined : data.activeAccount;
+    await updateProviderSection("copilot", authFile, async (section) => ({
+      ...section ?? {},
+      data,
+      activeAccount: activeAccount ?? section?.activeAccount
+    }));
+    return;
+  }
+  await atomicJsonWrite(expandHome(authFile), data, { mode: 384 });
+}
+function managedCopilotAuthFile(data, activeAccount, accounts) {
+  if (isCopilotManagedAuthFile(data)) {
+    return {
+      ...data,
+      activeAccount,
+      accounts
+    };
+  }
+  return {
+    activeAccount,
+    accounts
+  };
+}
+function normalizeCopilotAuthFileData(value, filePath) {
+  if (Array.isArray(value)) {
+    const accounts = value.map((entry, index) => validateCopilotAuthToken(entry, `${filePath}[${index}]`));
+    return { data: accounts, accounts, format: "array" };
+  }
+  if (isCopilotManagedAuthFile(value)) {
+    const accounts = value.accounts.map((entry, index) => validateCopilotAuthToken(entry, `${filePath}.accounts[${index}]`));
+    return { data: { ...value, accounts }, accounts, format: "managed" };
+  }
+  return { data: validateCopilotAuthToken(value, filePath), accounts: [validateCopilotAuthToken(value, filePath)], format: "single" };
+}
+function copilotAuthEntryAliases(auth, index) {
+  return [
+    auth.accountId,
+    auth.email,
+    auth.label,
+    auth.accountType,
+    auth.sourceAccountKey,
+    copilotAccountKey(auth, index)
+  ].filter((value) => typeof value === "string" && value.length > 0);
+}
+function cacheFilePath(authFile) {
+  return bunPath.join(bunPath.dirname(expandHome(authFile)), COPILOT_CACHE_FILE_NAME);
+}
+function firstString(...values) {
+  return values.find((value) => typeof value === "string" && value.trim().length > 0);
+}
+function cleanToken(value) {
+  return value?.trim().replace(/^['"]|['"]$/g, "").replace(/\s+/g, "") ?? "";
+}
+function cleanText(value) {
+  const cleaned = value?.trim();
+  return cleaned ? cleaned : undefined;
+}
+function isCopilotManagedAuthFile(value) {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value) && Array.isArray(value.accounts));
+}
+
+// src/upstream/copilot/auth.ts
+class Copilot_Auth_Manager {
+  githubToken;
+  copilotToken;
+  copilotTokenExpiresAt;
+  authFilePath;
+  fetchFn;
+  fingerprint;
+  copilotVersion;
+  selection;
+  accountType;
+  accountId;
+  email;
+  plan;
+  authType;
+  refreshPromise;
+  originalCredentials;
+  constructor(credentials, authFilePath, options = {}) {
+    this.githubToken = credentials.githubToken;
+    this.copilotToken = credentials.githubToken;
+    this.copilotTokenExpiresAt = credentials.copilotTokenExpiresAt ?? new Date(0).toISOString();
+    this.authFilePath = authFilePath;
+    this.fetchFn = options.fetch ?? fetch;
+    this.fingerprint = options.fingerprint ?? crypto.randomUUID().replace(/-/g, "").slice(0, 12);
+    this.copilotVersion = options.copilotVersion ?? COPILOT_GITHUB_VERSION;
+    this.selection = options.selection;
+    this.accountType = credentials.accountType ?? options.accountType ?? "individual";
+    this.accountId = credentials.accountId;
+    this.email = credentials.email;
+    this.plan = credentials.plan;
+    this.authType = credentials.authType ?? "unknown";
+    this.originalCredentials = { ...credentials };
+    if (credentials.copilotToken) {
+      this.copilotToken = credentials.copilotToken;
+      this.copilotTokenExpiresAt = credentials.copilotTokenExpiresAt ?? new Date(0).toISOString();
+    }
+  }
+  static async fromAuthFile(filePath = defaultCopilotAuthFile(), options = {}) {
+    const authFilePath = expandHome(filePath);
+    const selection = await readCopilotAuthFileSelection(authFilePath, options.authAccount);
+    const manager = new Copilot_Auth_Manager(selection.credentials, authFilePath, { ...options, selection });
+    await manager.loadCachedState();
+    return manager;
+  }
+  async getAccessToken() {
+    if (this.isTokenExpiringSoon())
+      await this.refresh();
+    return this.copilotToken;
+  }
+  getAuthType() {
+    return this.authType;
+  }
+  getAccountType() {
+    return this.accountType;
+  }
+  getEmail() {
+    return this.email;
+  }
+  getPlan() {
+    return this.plan;
+  }
+  getAccountId() {
+    return this.accountId;
+  }
+  getGitHubToken() {
+    return this.githubToken;
+  }
+  getCopilotToken() {
+    return this.copilotToken;
+  }
+  isTokenExpiringSoon() {
+    const time = Date.parse(this.copilotTokenExpiresAt);
+    if (Number.isNaN(time))
+      return true;
+    return Date.now() >= time - COPILOT_TOKEN_REFRESH_MARGIN_SECONDS * 1000;
+  }
+  async refresh() {
+    if (this.refreshPromise)
+      return this.refreshPromise;
+    this.refreshPromise = this.refreshWithGitHubToken().finally(() => {
+      this.refreshPromise = undefined;
+    });
+    return this.refreshPromise;
+  }
+  async refreshAndPersist() {
+    await this.refresh();
+    await this.writeBackCredentials();
+  }
+  async loadCachedState() {
+    const accountKey = this.currentAccountKey();
+    const cache = await readCopilotTokenCache(accountKey, cacheFilePath2(this.authFilePath));
+    if (cache?.copilotToken && cache?.expiresAt) {
+      this.copilotToken = cache.copilotToken;
+      this.copilotTokenExpiresAt = cache.expiresAt;
+      this.accountType = cache.accountType || this.accountType;
       return;
-    return `OpenAI inbound provider '${this.name}' expected ${this.expectedUpstreamKind} upstream, received ${upstream.providerKind}`;
-  }
-}
-function unexpectedNonPassthroughResponse() {
-  return Response.json({
-    error: {
-      message: "Unexpected non-passthrough response for OpenAI inbound provider"
     }
-  }, { status: 500 });
-}
-function isCanonicalPassthrough2(result) {
-  return result.type === "canonical_passthrough";
-}
-function isCanonicalError2(result) {
-  return result.type === "canonical_error";
-}
-function isCanonicalResponse2(result) {
-  return result.type === "canonical_response";
-}
-function isCanonicalStream2(result) {
-  return result.type === "canonical_stream";
-}
-function backfillInputTokens2(response, wireBody) {
-  if (response.usage.inputTokens === 0) {
-    response.usage.inputTokens = countTokens(JSON.stringify(wireBody));
+    await this.refresh();
+    await this.writeBackCredentials();
+  }
+  async refreshWithGitHubToken() {
+    const snapshot = await fetchCopilotAccountSnapshot(this.githubToken, {
+      fetch: this.fetchFn,
+      accountType: this.accountType,
+      authType: this.authType === "unknown" ? undefined : this.authType,
+      fingerprint: this.fingerprint,
+      copilotVersion: this.copilotVersion
+    });
+    this.applySnapshot(snapshot);
+    await this.persistCache(snapshot);
+  }
+  applySnapshot(snapshot) {
+    this.copilotToken = snapshot.copilotToken;
+    this.copilotTokenExpiresAt = snapshot.copilotTokenExpiresAt;
+    this.accountType = snapshot.accountType;
+    this.authType = snapshot.authType;
+    this.accountId = snapshot.accountId ?? this.accountId;
+    this.email = snapshot.email ?? this.email;
+    this.plan = snapshot.plan ?? this.plan;
+  }
+  async persistCache(snapshot) {
+    await writeCopilotTokenCache(this.currentAccountKey(), {
+      copilotToken: snapshot.copilotToken,
+      expiresAt: snapshot.copilotTokenExpiresAt,
+      accountType: snapshot.accountType
+    }, cacheFilePath2(this.authFilePath));
+  }
+  async writeBackCredentials() {
+    const next = this.currentCredentials();
+    const payload = this.selection ? updateCopilotAuthSelection(this.selection, next) : next;
+    await writeCopilotAuthFile(this.authFilePath, payload);
+  }
+  currentCredentials() {
+    return {
+      ...this.originalCredentials,
+      githubToken: this.githubToken,
+      accountType: this.accountType,
+      ...this.accountId !== undefined ? { accountId: this.accountId } : {},
+      ...this.email !== undefined ? { email: this.email } : {},
+      ...this.plan !== undefined ? { plan: this.plan } : {},
+      authType: this.authType,
+      copilotToken: this.copilotToken,
+      copilotTokenExpiresAt: this.copilotTokenExpiresAt
+    };
+  }
+  currentAccountKey() {
+    return copilotAccountKey(this.currentCredentials(), this.selection?.index ?? 0);
   }
 }
-function previewText2(text) {
-  return redactSensitiveText(text).slice(0, LOG_BODY_PREVIEW_LIMIT);
+async function fetchCopilotAccountSnapshot(githubToken, options = {}) {
+  const fetchFn = options.fetch ?? fetch;
+  const accountType = cleanAccountType(options.accountType) ?? "individual";
+  const copilotToken = await getValidTempToken(githubToken, { fetch: fetchFn, fingerprint: options.fingerprint, copilotVersion: options.copilotVersion, accountType });
+  const usage = await getCopilotUsage(githubToken, { fetch: fetchFn, copilotVersion: options.copilotVersion });
+  return {
+    copilotToken,
+    copilotTokenExpiresAt: tokenExpiresAt(copilotToken),
+    accountType,
+    authType: options.authType ?? "github_token",
+    email: usage.userInfo?.email,
+    plan: usage.copilot_plan,
+    accountId: usage.userInfo?.userId
+  };
 }
-function openAIErrorResponse(message, status, type, sourceHeaders = new Headers) {
-  const headers = responseHeaders(sourceHeaders);
-  headers.set("content-type", "application/json; charset=utf-8");
-  return Response.json({
-    error: {
-      message,
-      type,
-      param: null,
-      code: null
+async function getCopilotUsage(githubToken, options = {}) {
+  const fetchFn = options.fetch ?? fetch;
+  const response = await fetchFn(`${COPILOT_GITHUB_API_BASE_URL}/copilot_internal/user`, {
+    headers: githubHeaders2(githubToken, options.copilotVersion)
+  });
+  if (!response.ok)
+    throw new Error(`Failed to get Copilot usage: ${response.status} ${await response.text()}`);
+  return await response.json();
+}
+async function getCopilotDeviceCode(options = {}) {
+  const response = await (options.fetch ?? fetch)(`${COPILOT_GITHUB_BASE_URL}/login/device/code`, {
+    method: "POST",
+    headers: standardHeaders(),
+    body: JSON.stringify({
+      client_id: COPILOT_GITHUB_CLIENT_ID,
+      scope: COPILOT_GITHUB_APP_SCOPES
+    })
+  });
+  if (!response.ok) {
+    const details = await response.text().catch(() => "");
+    throw new Error(`Failed to get device code (status ${response.status})${details ? `: ${details}` : ""}`);
+  }
+  return await response.json();
+}
+async function pollCopilotDeviceToken(deviceCode, options = {}) {
+  const response = await (options.fetch ?? fetch)(`${COPILOT_GITHUB_BASE_URL}/login/oauth/access_token`, {
+    method: "POST",
+    headers: standardHeaders(),
+    body: JSON.stringify({
+      client_id: COPILOT_GITHUB_CLIENT_ID,
+      device_code: deviceCode,
+      grant_type: "urn:ietf:params:oauth:grant-type:device_code"
+    })
+  });
+  if (!response.ok) {
+    const details = await response.text().catch(() => "");
+    throw new Error(`Failed to exchange device code (status ${response.status})${details ? `: ${details}` : ""}`);
+  }
+  return await response.json();
+}
+async function getValidTempToken(githubToken, options) {
+  const response = await (options.fetch ?? fetch)(`${COPILOT_GITHUB_API_BASE_URL}/copilot_internal/v2/token`, {
+    method: "GET",
+    headers: githubHeaders2(githubToken, options.copilotVersion, options.fingerprint, options.accountType)
+  });
+  if (!response.ok)
+    throw new Error(`Unable to generate Copilot token: ${response.status} ${await response.text()}`);
+  const json = await response.json();
+  if (!json.token)
+    throw new Error("Unable to generate new short-lived Copilot token");
+  return json.token;
+}
+function githubHeaders2(githubToken, copilotVersion = COPILOT_GITHUB_VERSION, fingerprint = crypto.randomUUID().replace(/-/g, "").slice(0, 12), accountType = "individual") {
+  return {
+    ...standardHeaders(),
+    authorization: `token ${githubToken}`,
+    "editor-version": `vscode/1.112.0`,
+    "editor-plugin-version": COPILOT_EDITOR_PLUGIN_VERSION,
+    "user-agent": COPILOT_USER_AGENT,
+    "x-github-api-version": COPILOT_API_VERSION,
+    "x-vscode-user-agent-library-version": "electron-fetch",
+    "x-copilot-account-type": accountType,
+    "x-request-id": crypto.randomUUID(),
+    "x-copilot-version": copilotVersion,
+    "x-copilot-fingerprint": fingerprint
+  };
+}
+function standardHeaders() {
+  return {
+    "content-type": "application/json",
+    accept: "application/json"
+  };
+}
+function cleanAccountType(value) {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : undefined;
+}
+function tokenExpiresAt(token) {
+  const parts = token.split(";");
+  for (const part of parts) {
+    if (part.startsWith("exp=")) {
+      const seconds = Number.parseInt(part.slice(4), 10);
+      if (Number.isFinite(seconds) && seconds > 0)
+        return new Date(seconds * 1000).toISOString();
     }
-  }, { status, headers });
-}
-function validateOpenAIRequestShape(pathname, body) {
-  if (!hasRequiredModel(body))
-    return "Missing required parameter: 'model'.";
-  if (pathname === "/v1/embeddings") {
-    if (typeof body.input !== "string" && !Array.isArray(body.input))
-      return "Embeddings request requires `input` (string or array).";
-    return;
   }
-  if (pathname === "/v1/responses") {
-    if ("messages" in body)
-      return "Unsupported parameter: 'messages'. Use 'input' with /v1/responses.";
-    if ("response_format" in body)
-      return "Unsupported parameter: 'response_format'. Use 'text.format' with /v1/responses.";
-    if (!hasResponsesInput(body.input))
-      return "Missing required parameter: 'input'.";
-    return;
-  }
-  if (pathname === "/v1/chat/completions") {
-    if ("input" in body)
-      return "Unsupported parameter: 'input'. Use 'messages' with /v1/chat/completions.";
-    if ("text" in body)
-      return "Unsupported parameter: 'text'. Use 'response_format' with /v1/chat/completions.";
-    if (!Array.isArray(body.messages) || body.messages.length === 0)
-      return "Missing required parameter: 'messages'.";
-  }
+  return new Date(Date.now() + 15 * 60000).toISOString();
 }
-function hasRequiredModel(body) {
-  return typeof body.model === "string" && body.model.trim().length > 0;
+function cacheFilePath2(authFile) {
+  return bunPath.join(bunPath.dirname(expandHome(authFile)), COPILOT_CACHE_FILE_NAME);
 }
-function hasResponsesInput(value) {
-  if (typeof value === "string")
-    return value.length > 0;
-  return Array.isArray(value) && value.length > 0;
-}
-function isJsonObject3(value) {
-  return Boolean(value && typeof value === "object" && !Array.isArray(value));
-}
-function passthroughBodyInit(body) {
-  if (body instanceof Uint8Array)
-    return body.buffer.slice(body.byteOffset, body.byteOffset + body.byteLength);
-  return body;
+function defaultCopilotAuthFile() {
+  return bunPath.join(homeDir(), ".codex2claudecode", COPILOT_AUTH_FILE_NAME);
 }
 
-// src/inbound/openai/copilot.ts
-class OpenAI_Copilot_Inbound_Adapter extends OpenAI_Inbound_Provider {
-  constructor() {
-    super({
-      name: "openai-copilot",
-      passthrough: false,
-      upstreamLogLabel: "Copilot OpenAI",
-      upstreamTarget: "upstream",
-      expectedUpstreamKind: "copilot",
-      routes: [
-        { path: "/v1/responses", method: "POST" },
-        { path: "/v1/chat/completions", method: "POST" },
-        { path: "/v1/embeddings", method: "POST" }
-      ]
+// src/upstream/copilot/index.ts
+class Copilot_Upstream_Provider {
+  providerKind = "copilot";
+  auth;
+  client;
+  authFilePath;
+  modelCache;
+  constructor(options) {
+    this.auth = options.auth;
+    this.client = options.client ?? new Copilot_Client({ auth: this.auth });
+    this.authFilePath = options.authFilePath;
+  }
+  static async fromAuthFile(path, options) {
+    const auth = await Copilot_Auth_Manager.fromAuthFile(path, options);
+    return new Copilot_Upstream_Provider({
+      auth,
+      client: new Copilot_Client({ auth, fetch: options?.fetch }),
+      authFilePath: path
     });
+  }
+  async proxy(request, options) {
+    const response = await this.client.proxy(request, options);
+    if (!response.ok)
+      return await toCanonicalError(response);
+    const collected = await collectCopilotResponse(response, request.model);
+    return request.stream ? streamCopilotResponse(collected) : collected;
+  }
+  async checkHealth(timeoutMs) {
+    return this.client.checkHealth(timeoutMs);
+  }
+  async usage(options) {
+    return this.client.usage(options);
+  }
+  async modelsRaw(options) {
+    return this.client.modelsRaw(options);
+  }
+  async embeddingsRaw(body, options) {
+    return this.client.embeddingsRaw(body, options);
+  }
+  async listModels() {
+    if (this.modelCache && Date.now() - this.modelCache.cachedAt < COPILOT_MODEL_CACHE_TTL_SECONDS * 1000)
+      return this.modelCache.models;
+    const accountKey = this.accountKey();
+    if (this.authFilePath) {
+      const cached = await readCopilotModelCache(accountKey, cacheFilePath3(this.authFilePath));
+      if (cached && Date.now() - Date.parse(cached.fetchedAt) < COPILOT_MODEL_CACHE_TTL_SECONDS * 1000) {
+        this.modelCache = { models: cached.models, cachedAt: Date.parse(cached.fetchedAt) || Date.now() };
+        return cached.models;
+      }
+    }
+    try {
+      const response = await this.client.modelsRaw();
+      if (!response.ok)
+        return this.modelCache?.models ?? [];
+      const body = await response.json().catch(() => {
+        return;
+      });
+      const models = Array.isArray(body?.data) ? body.data.flatMap((item) => typeof item?.id === "string" && item.model_picker_enabled !== false ? [item.id] : []) : [];
+      this.modelCache = { models, cachedAt: Date.now() };
+      if (this.authFilePath) {
+        await writeCopilotModelCache(accountKey, { models, fetchedAt: new Date().toISOString() }, cacheFilePath3(this.authFilePath));
+      }
+      return models;
+    } catch {
+      return this.modelCache?.models ?? [];
+    }
+  }
+  async refresh() {
+    await this.auth.refreshAndPersist();
+    return { copilotToken: this.auth.getCopilotToken() };
+  }
+  get tokens() {
+    return { copilotToken: this.auth.getCopilotToken() };
+  }
+  getAuthType() {
+    return this.auth.getAuthType();
+  }
+  getAccountType() {
+    return this.auth.getAccountType();
+  }
+  getEmail() {
+    return this.auth.getEmail();
+  }
+  getPlan() {
+    return this.auth.getPlan();
+  }
+  getAccountId() {
+    return this.auth.getAccountId();
+  }
+  accountKey() {
+    return this.getAccountId() ?? this.getEmail() ?? this.getPlan() ?? this.getAccountType() ?? "copilot-account";
   }
 }
-
-// src/inbound/openai/kiro.ts
-class OpenAI_Kiro_Inbound_Adapter extends OpenAI_Inbound_Provider {
-  constructor() {
-    super({
-      name: "openai-kiro",
-      passthrough: false,
-      upstreamLogLabel: "Kiro OpenAI",
-      upstreamTarget: "upstream",
-      expectedUpstreamKind: "kiro",
-      routes: [
-        { path: "/v1/responses", method: "POST" },
-        { path: "/v1/chat/completions", method: "POST" }
-      ]
-    });
-  }
+async function toCanonicalError(response) {
+  return {
+    type: "canonical_error",
+    status: response.status,
+    headers: responseHeaders(response.headers),
+    body: await response.text().catch(() => "")
+  };
+}
+function cacheFilePath3(authFile) {
+  return bunPath.join(bunPath.dirname(expandHome(authFile)), COPILOT_CACHE_FILE_NAME);
 }
 
 // src/upstream/codex/fast-mode.ts
@@ -40547,9 +39606,9 @@ async function readCodexCliAuthFile(path = DEFAULT_CODEX_CLI_AUTH_FILE) {
   return JSON.parse(await readTextFile(expandHome(path)));
 }
 function codexCliAuthAccountId(auth) {
-  return cleanToken(auth.tokens?.account_id) || extractAccountId({
-    access_token: cleanToken(auth.tokens?.access_token),
-    refresh_token: cleanToken(auth.tokens?.refresh_token)
+  return cleanToken2(auth.tokens?.account_id) || extractAccountId({
+    access_token: cleanToken2(auth.tokens?.access_token),
+    refresh_token: cleanToken2(auth.tokens?.refresh_token)
   });
 }
 async function pullCodexCliAuthTokens(input) {
@@ -40616,8 +39675,8 @@ async function syncCodexCliAuthTokens(input) {
 function codexCliAuthTokenSnapshot(auth, path) {
   if (auth.auth_mode && auth.auth_mode !== "chatgpt")
     return;
-  const accessToken = cleanToken(auth.tokens?.access_token);
-  const refreshToken = cleanToken(auth.tokens?.refresh_token);
+  const accessToken = cleanToken2(auth.tokens?.access_token);
+  const refreshToken = cleanToken2(auth.tokens?.refresh_token);
   if (!accessToken || !refreshToken)
     return;
   const accountId = codexCliAuthAccountId(auth);
@@ -40640,7 +39699,7 @@ function codexSourceMatchesLinkedAccount(input, source) {
     return true;
   return input.accessToken === source.accessToken || input.refreshToken === source.refreshToken;
 }
-function cleanToken(value) {
+function cleanToken2(value) {
   return (value ?? "").trim().replace(/^['"]|['"]$/g, "").replace(/\s+/g, "");
 }
 
@@ -41094,7 +40153,7 @@ class Codex_Upstream_Provider {
     const rawResponse = await this.client.proxy(body, options);
     const response = options?.onResponseBodyChunk ? withChunkCallback(rawResponse, options.onResponseBodyChunk) : rawResponse;
     if (!response.ok)
-      return toCanonicalError(response);
+      return toCanonicalError2(response);
     if (request.passthrough)
       return toCanonicalPassthrough(response);
     if (request.stream)
@@ -41162,7 +40221,7 @@ class Codex_Upstream_Provider {
     return { ...body, service_tier: "priority" };
   }
 }
-async function toCanonicalError(response) {
+async function toCanonicalError2(response) {
   return {
     type: "canonical_error",
     status: response.status,
@@ -41178,558 +40237,6 @@ function toCanonicalPassthrough(response) {
     headers: responseHeaders(response.headers),
     body: response.body
   };
-}
-
-// src/upstream/copilot/constants.ts
-var COPILOT_AUTH_FILE_NAME = "provider-state.json";
-var COPILOT_CACHE_FILE_NAME = "provider-cache.json";
-var COPILOT_MODEL_CACHE_TTL_SECONDS = 3600;
-var COPILOT_TOKEN_REFRESH_MARGIN_SECONDS = 60;
-var COPILOT_GITHUB_API_BASE_URL = "https://api.github.com";
-var COPILOT_GITHUB_BASE_URL = "https://github.com";
-var COPILOT_GITHUB_CLIENT_ID = "Iv1.b507a08c87ecfe98";
-var COPILOT_GITHUB_APP_SCOPES = ["read:user"].join(" ");
-var COPILOT_GITHUB_VERSION = "0.39.2";
-var COPILOT_EDITOR_PLUGIN_VERSION = `copilot-chat/${COPILOT_GITHUB_VERSION}`;
-var COPILOT_USER_AGENT = `GitHubCopilotChat/${COPILOT_GITHUB_VERSION}`;
-var COPILOT_API_VERSION = "2025-04-01";
-
-// src/upstream/copilot/cache.ts
-function copilotCacheFilePath(filePath) {
-  const resolved = filePath ?? bunPath.join(appDataDir(), COPILOT_CACHE_FILE_NAME);
-  return resolved;
-}
-async function readCopilotCacheFile(filePath) {
-  const resolved = copilotCacheFilePath(filePath);
-  try {
-    const parsed = JSON.parse(await readTextFile(resolved));
-    return normalizeCopilotCacheFile(parsed);
-  } catch {
-    return { tokens: {}, models: {} };
-  }
-}
-async function writeCopilotCacheFile(file, filePath) {
-  await atomicJsonWrite(copilotCacheFilePath(filePath), normalizeCopilotCacheFile(file), { mode: 384 });
-}
-async function readCopilotTokenCache(accountKey, filePath) {
-  const file = await readCopilotCacheFile(filePath);
-  return file.tokens[accountKey];
-}
-async function writeCopilotTokenCache(accountKey, entry, filePath) {
-  const file = await readCopilotCacheFile(filePath);
-  file.tokens[accountKey] = entry;
-  await writeCopilotCacheFile(file, filePath);
-}
-async function readCopilotModelCache(accountKey, filePath) {
-  const file = await readCopilotCacheFile(filePath);
-  return file.models[accountKey];
-}
-async function writeCopilotModelCache(accountKey, entry, filePath) {
-  const file = await readCopilotCacheFile(filePath);
-  file.models[accountKey] = entry;
-  await writeCopilotCacheFile(file, filePath);
-}
-function normalizeCopilotCacheFile(value) {
-  return {
-    tokens: value?.tokens && typeof value.tokens === "object" && !Array.isArray(value.tokens) ? value.tokens : {},
-    models: value?.models && typeof value.models === "object" && !Array.isArray(value.models) ? value.models : {}
-  };
-}
-
-// src/upstream/copilot/auth.ts
-class Copilot_Auth_Manager {
-  githubToken;
-  copilotToken;
-  copilotTokenExpiresAt;
-  authFilePath;
-  fetchFn;
-  fingerprint;
-  copilotVersion;
-  selection;
-  accountType;
-  accountId;
-  email;
-  plan;
-  authType;
-  refreshPromise;
-  originalCredentials;
-  constructor(credentials, authFilePath, options = {}) {
-    this.githubToken = credentials.githubToken;
-    this.copilotToken = credentials.githubToken;
-    this.copilotTokenExpiresAt = credentials.copilotTokenExpiresAt ?? new Date(0).toISOString();
-    this.authFilePath = authFilePath;
-    this.fetchFn = options.fetch ?? fetch;
-    this.fingerprint = options.fingerprint ?? crypto.randomUUID().replace(/-/g, "").slice(0, 12);
-    this.copilotVersion = options.copilotVersion ?? COPILOT_GITHUB_VERSION;
-    this.selection = options.selection;
-    this.accountType = credentials.accountType ?? options.accountType ?? "individual";
-    this.accountId = credentials.accountId;
-    this.email = credentials.email;
-    this.plan = credentials.plan;
-    this.authType = credentials.authType ?? "unknown";
-    this.originalCredentials = { ...credentials };
-    if (credentials.copilotToken) {
-      this.copilotToken = credentials.copilotToken;
-      this.copilotTokenExpiresAt = credentials.copilotTokenExpiresAt ?? new Date(0).toISOString();
-    }
-  }
-  static async fromAuthFile(filePath = defaultCopilotAuthFile(), options = {}) {
-    const authFilePath = expandHome(filePath);
-    const selection = await readCopilotAuthFileSelection(authFilePath, options.authAccount);
-    const manager = new Copilot_Auth_Manager(selection.credentials, authFilePath, { ...options, selection });
-    await manager.loadCachedState();
-    return manager;
-  }
-  async getAccessToken() {
-    if (this.isTokenExpiringSoon())
-      await this.refresh();
-    return this.copilotToken;
-  }
-  getAuthType() {
-    return this.authType;
-  }
-  getAccountType() {
-    return this.accountType;
-  }
-  getEmail() {
-    return this.email;
-  }
-  getPlan() {
-    return this.plan;
-  }
-  getAccountId() {
-    return this.accountId;
-  }
-  getGitHubToken() {
-    return this.githubToken;
-  }
-  getCopilotToken() {
-    return this.copilotToken;
-  }
-  isTokenExpiringSoon() {
-    const time = Date.parse(this.copilotTokenExpiresAt);
-    if (Number.isNaN(time))
-      return true;
-    return Date.now() >= time - COPILOT_TOKEN_REFRESH_MARGIN_SECONDS * 1000;
-  }
-  async refresh() {
-    if (this.refreshPromise)
-      return this.refreshPromise;
-    this.refreshPromise = this.refreshWithGitHubToken().finally(() => {
-      this.refreshPromise = undefined;
-    });
-    return this.refreshPromise;
-  }
-  async refreshAndPersist() {
-    await this.refresh();
-    await this.writeBackCredentials();
-  }
-  async loadCachedState() {
-    const accountKey = this.currentAccountKey();
-    const cache = await readCopilotTokenCache(accountKey, cacheFilePath(this.authFilePath));
-    if (cache?.copilotToken && cache?.expiresAt) {
-      this.copilotToken = cache.copilotToken;
-      this.copilotTokenExpiresAt = cache.expiresAt;
-      this.accountType = cache.accountType || this.accountType;
-      return;
-    }
-    await this.refresh();
-    await this.writeBackCredentials();
-  }
-  async refreshWithGitHubToken() {
-    const snapshot = await fetchCopilotAccountSnapshot(this.githubToken, {
-      fetch: this.fetchFn,
-      accountType: this.accountType,
-      authType: this.authType === "unknown" ? undefined : this.authType,
-      fingerprint: this.fingerprint,
-      copilotVersion: this.copilotVersion
-    });
-    this.applySnapshot(snapshot);
-    await this.persistCache(snapshot);
-  }
-  applySnapshot(snapshot) {
-    this.copilotToken = snapshot.copilotToken;
-    this.copilotTokenExpiresAt = snapshot.copilotTokenExpiresAt;
-    this.accountType = snapshot.accountType;
-    this.authType = snapshot.authType;
-    this.accountId = snapshot.accountId ?? this.accountId;
-    this.email = snapshot.email ?? this.email;
-    this.plan = snapshot.plan ?? this.plan;
-  }
-  async persistCache(snapshot) {
-    await writeCopilotTokenCache(this.currentAccountKey(), {
-      copilotToken: snapshot.copilotToken,
-      expiresAt: snapshot.copilotTokenExpiresAt,
-      accountType: snapshot.accountType
-    }, cacheFilePath(this.authFilePath));
-  }
-  async writeBackCredentials() {
-    const next = this.currentCredentials();
-    const payload = this.selection ? updateCopilotAuthSelection(this.selection, next) : next;
-    await writeCopilotAuthFile(this.authFilePath, payload);
-  }
-  currentCredentials() {
-    return {
-      ...this.originalCredentials,
-      githubToken: this.githubToken,
-      accountType: this.accountType,
-      ...this.accountId !== undefined ? { accountId: this.accountId } : {},
-      ...this.email !== undefined ? { email: this.email } : {},
-      ...this.plan !== undefined ? { plan: this.plan } : {},
-      authType: this.authType,
-      copilotToken: this.copilotToken,
-      copilotTokenExpiresAt: this.copilotTokenExpiresAt
-    };
-  }
-  currentAccountKey() {
-    return copilotAccountKey(this.currentCredentials(), this.selection?.index ?? 0);
-  }
-}
-async function fetchCopilotAccountSnapshot(githubToken, options = {}) {
-  const fetchFn = options.fetch ?? fetch;
-  const accountType = cleanAccountType(options.accountType) ?? "individual";
-  const copilotToken = await getValidTempToken(githubToken, { fetch: fetchFn, fingerprint: options.fingerprint, copilotVersion: options.copilotVersion, accountType });
-  const usage = await getCopilotUsage(githubToken, { fetch: fetchFn, copilotVersion: options.copilotVersion });
-  return {
-    copilotToken,
-    copilotTokenExpiresAt: tokenExpiresAt(copilotToken),
-    accountType,
-    authType: options.authType ?? "github_token",
-    email: usage.userInfo?.email,
-    plan: usage.copilot_plan,
-    accountId: usage.userInfo?.userId
-  };
-}
-async function getCopilotUsage(githubToken, options = {}) {
-  const fetchFn = options.fetch ?? fetch;
-  const response = await fetchFn(`${COPILOT_GITHUB_API_BASE_URL}/copilot_internal/user`, {
-    headers: githubHeaders(githubToken, options.copilotVersion)
-  });
-  if (!response.ok)
-    throw new Error(`Failed to get Copilot usage: ${response.status} ${await response.text()}`);
-  return await response.json();
-}
-async function getCopilotDeviceCode(options = {}) {
-  const response = await (options.fetch ?? fetch)(`${COPILOT_GITHUB_BASE_URL}/login/device/code`, {
-    method: "POST",
-    headers: standardHeaders(),
-    body: JSON.stringify({
-      client_id: COPILOT_GITHUB_CLIENT_ID,
-      scope: COPILOT_GITHUB_APP_SCOPES
-    })
-  });
-  if (!response.ok) {
-    const details = await response.text().catch(() => "");
-    throw new Error(`Failed to get device code (status ${response.status})${details ? `: ${details}` : ""}`);
-  }
-  return await response.json();
-}
-async function pollCopilotDeviceToken(deviceCode, options = {}) {
-  const response = await (options.fetch ?? fetch)(`${COPILOT_GITHUB_BASE_URL}/login/oauth/access_token`, {
-    method: "POST",
-    headers: standardHeaders(),
-    body: JSON.stringify({
-      client_id: COPILOT_GITHUB_CLIENT_ID,
-      device_code: deviceCode,
-      grant_type: "urn:ietf:params:oauth:grant-type:device_code"
-    })
-  });
-  if (!response.ok) {
-    const details = await response.text().catch(() => "");
-    throw new Error(`Failed to exchange device code (status ${response.status})${details ? `: ${details}` : ""}`);
-  }
-  return await response.json();
-}
-async function getValidTempToken(githubToken, options) {
-  const response = await (options.fetch ?? fetch)(`${COPILOT_GITHUB_API_BASE_URL}/copilot_internal/v2/token`, {
-    method: "GET",
-    headers: githubHeaders(githubToken, options.copilotVersion, options.fingerprint, options.accountType)
-  });
-  if (!response.ok)
-    throw new Error(`Unable to generate Copilot token: ${response.status} ${await response.text()}`);
-  const json = await response.json();
-  if (!json.token)
-    throw new Error("Unable to generate new short-lived Copilot token");
-  return json.token;
-}
-function githubHeaders(githubToken, copilotVersion = COPILOT_GITHUB_VERSION, fingerprint = crypto.randomUUID().replace(/-/g, "").slice(0, 12), accountType = "individual") {
-  return {
-    ...standardHeaders(),
-    authorization: `token ${githubToken}`,
-    "editor-version": `vscode/1.112.0`,
-    "editor-plugin-version": COPILOT_EDITOR_PLUGIN_VERSION,
-    "user-agent": COPILOT_USER_AGENT,
-    "x-github-api-version": COPILOT_API_VERSION,
-    "x-vscode-user-agent-library-version": "electron-fetch",
-    "x-copilot-account-type": accountType,
-    "x-request-id": crypto.randomUUID(),
-    "x-copilot-version": copilotVersion,
-    "x-copilot-fingerprint": fingerprint
-  };
-}
-function standardHeaders() {
-  return {
-    "content-type": "application/json",
-    accept: "application/json"
-  };
-}
-function cleanAccountType(value) {
-  const trimmed = value?.trim();
-  return trimmed ? trimmed : undefined;
-}
-function tokenExpiresAt(token) {
-  const parts = token.split(";");
-  for (const part of parts) {
-    if (part.startsWith("exp=")) {
-      const seconds = Number.parseInt(part.slice(4), 10);
-      if (Number.isFinite(seconds) && seconds > 0)
-        return new Date(seconds * 1000).toISOString();
-    }
-  }
-  return new Date(Date.now() + 15 * 60000).toISOString();
-}
-function cacheFilePath(authFile) {
-  return bunPath.join(bunPath.dirname(expandHome(authFile)), COPILOT_CACHE_FILE_NAME);
-}
-function defaultCopilotAuthFile() {
-  return bunPath.join(homeDir(), ".codex2claudecode", COPILOT_AUTH_FILE_NAME);
-}
-
-// src/upstream/copilot/account-store.ts
-async function readCopilotAuthFileSelection(filePath = bunPath.join(appDataDir(), COPILOT_AUTH_FILE_NAME), account) {
-  const authFilePath = expandHome(filePath);
-  if (isProviderStatePath(authFilePath)) {
-    const section = await readProviderSection("copilot", authFilePath);
-    const parsed2 = section?.data ?? { activeAccount: undefined, accounts: [] };
-    return selectCopilotAuthEntry2(parsed2, account ?? section?.activeAccount, authFilePath);
-  }
-  let raw;
-  try {
-    raw = await readTextFile(authFilePath);
-  } catch (error) {
-    throw new Error(`Copilot auth file not found at ${authFilePath}: ${error instanceof Error ? error.message : String(error)}`);
-  }
-  let parsed;
-  try {
-    parsed = JSON.parse(raw);
-  } catch (error) {
-    throw new Error(`Failed to parse Copilot auth file ${authFilePath}: ${error instanceof Error ? error.message : String(error)}`);
-  }
-  return selectCopilotAuthEntry2(parsed, account, authFilePath);
-}
-async function readCopilotAuthFileData(filePath) {
-  return (await readCopilotAuthFileSelection(filePath)).data;
-}
-async function ensureCopilotAuthFile(authFile = bunPath.join(appDataDir(), COPILOT_AUTH_FILE_NAME)) {
-  if (await pathExists(authFile)) {
-    const data = await readCopilotAuthFileData(authFile).catch(() => ({ activeAccount: undefined, accounts: [] }));
-    if (copilotAuthEntries(data).length)
-      return authFile;
-  }
-  const legacyAuthFile = bunPath.join(appDataDir(), "copilot-auth.json");
-  const legacyCacheFile = bunPath.join(appDataDir(), ".copilot-cache.json");
-  if (isProviderStatePath(authFile)) {
-    if (await pathExists(legacyAuthFile)) {
-      const legacyData = await readCopilotAuthFileData(legacyAuthFile);
-      await writeCopilotAuthFile(authFile, legacyData);
-      if (await pathExists(legacyCacheFile)) {
-        const legacyCache = await readCopilotCacheFile(legacyCacheFile);
-        await writeCopilotCacheFile(legacyCache);
-      }
-      await removePath(legacyAuthFile, { force: true }).catch(() => {});
-      await removePath(legacyCacheFile, { force: true }).catch(() => {});
-      return authFile;
-    }
-    await writeCopilotAuthFile(authFile, { activeAccount: undefined, accounts: [] });
-    return authFile;
-  }
-  if (await pathExists(legacyAuthFile))
-    return legacyAuthFile;
-  await atomicJsonWrite(authFile, { activeAccount: undefined, accounts: [] }, { mode: 384 });
-  return authFile;
-}
-async function connectCopilotAccount(authFile, draft, options) {
-  const githubToken = cleanToken2(draft.githubToken);
-  if (!githubToken)
-    throw new Error("githubToken is required");
-  const snapshot = await fetchCopilotAccountSnapshot(githubToken, {
-    fetch: options?.fetch,
-    accountType: draft.accountType,
-    authType: options?.authType
-  });
-  const entry = connectedCopilotAuthEntry(draft, snapshot);
-  return saveConnectedCopilotAuth(authFile, entry, snapshot);
-}
-async function connectCopilotAccountFromGitHubToken(authFile, githubToken, options) {
-  return connectCopilotAccount(authFile, { githubToken }, options);
-}
-async function writeActiveCopilotAccount(authFile, data, account) {
-  const selected = selectCopilotAuthEntry2(data, account, authFile);
-  await writeCopilotAuthFile(authFile, managedCopilotAuthFile(data, selected.key, copilotAuthEntries(data)));
-}
-async function saveCopilotCache(authFile, accountKey, snapshot) {
-  await writeCopilotTokenCache(accountKey, {
-    copilotToken: snapshot.copilotToken,
-    expiresAt: snapshot.copilotTokenExpiresAt,
-    accountType: snapshot.accountType
-  }, cacheFilePath2(authFile));
-  await writeCopilotModelCache(accountKey, {
-    models: [],
-    fetchedAt: new Date().toISOString()
-  }, cacheFilePath2(authFile));
-}
-function selectCopilotAuthEntry2(value, account, filePath = "copilot-auth.json") {
-  const normalized = normalizeCopilotAuthFileData(value, filePath);
-  const activeAccount = normalized.format === "managed" ? normalized.data.activeAccount : undefined;
-  const requested = account ?? activeAccount;
-  const requestedIndex = requested ? normalized.accounts.findIndex((auth, index2) => copilotAuthEntryAliases(auth, index2).includes(requested)) : -1;
-  if (account && requestedIndex < 0)
-    throw new Error(`Copilot auth file ${filePath} does not contain account ${account}`);
-  const index = requestedIndex >= 0 ? requestedIndex : 0;
-  const credentials = normalized.accounts[index];
-  if (!credentials)
-    throw new Error(`Copilot auth file ${filePath} does not contain any accounts`);
-  return {
-    data: normalized.data,
-    credentials,
-    filePath,
-    format: normalized.format,
-    index,
-    key: copilotAccountKey(credentials, index)
-  };
-}
-function updateCopilotAuthSelection(selection, credentials) {
-  if (selection.format === "single")
-    return credentials;
-  if (selection.format === "array") {
-    return selection.data.map((account, index) => index === selection.index ? credentials : account);
-  }
-  const data = selection.data;
-  return {
-    ...data,
-    activeAccount: copilotAccountKey(credentials, selection.index),
-    accounts: data.accounts.map((account, index) => index === selection.index ? credentials : account)
-  };
-}
-function copilotAuthEntries(data) {
-  if (Array.isArray(data))
-    return data;
-  if (isCopilotManagedAuthFile(data))
-    return data.accounts;
-  return [data];
-}
-function copilotAccountKey(auth, index) {
-  return firstString(auth.accountId, auth.email, auth.label, auth.accountType, auth.sourceAuthFile) ?? `copilot-account-${index + 1}`;
-}
-function validateCopilotAuthToken(value, filePath) {
-  if (!value || typeof value !== "object" || Array.isArray(value))
-    throw new Error(`Copilot auth file ${filePath} must contain a JSON object`);
-  const item = value;
-  if (typeof item.githubToken !== "string")
-    throw new Error(`Copilot auth file ${filePath} is missing string field githubToken`);
-  return {
-    type: "copilot",
-    githubToken: item.githubToken,
-    ...typeof item.label === "string" ? { label: item.label } : {},
-    ...typeof item.accountId === "string" ? { accountId: item.accountId } : {},
-    ...typeof item.email === "string" ? { email: item.email } : {},
-    ...typeof item.plan === "string" ? { plan: item.plan } : {},
-    ...typeof item.accountType === "string" ? { accountType: item.accountType } : {},
-    ...typeof item.authType === "string" ? { authType: item.authType } : {},
-    ...typeof item.sourceAuthFile === "string" ? { sourceAuthFile: item.sourceAuthFile } : {},
-    ...typeof item.sourceAccountKey === "string" ? { sourceAccountKey: item.sourceAccountKey } : {}
-  };
-}
-async function saveConnectedCopilotAuth(authFile, auth, snapshot) {
-  const file = await readCopilotAuthFileData(authFile).catch(() => ({ activeAccount: undefined, accounts: [] }));
-  const entries = copilotAuthEntries(file);
-  const index = entries.findIndex((entry, itemIndex) => copilotAuthEntryAliases(entry, itemIndex).some((alias) => copilotAuthEntryAliases(auth, itemIndex).includes(alias)));
-  const nextEntries = index >= 0 ? entries.map((entry, itemIndex) => itemIndex === index ? { ...entry, ...auth } : entry) : [...entries, auth];
-  const accountIndex = index >= 0 ? index : nextEntries.length - 1;
-  const accountKey = copilotAccountKey(nextEntries[accountIndex], accountIndex);
-  const data = managedCopilotAuthFile(file, accountKey, nextEntries);
-  await writeCopilotAuthFile(authFile, data);
-  await saveCopilotCache(authFile, accountKey, snapshot);
-  return { accountKey, data };
-}
-function connectedCopilotAuthEntry(draft, snapshot) {
-  const label = cleanText(draft.label);
-  const accountType = cleanToken2(draft.accountType) || snapshot.accountType;
-  const githubToken = cleanToken2(draft.githubToken);
-  if (!githubToken)
-    throw new Error("githubToken is required");
-  return {
-    type: "copilot",
-    githubToken,
-    ...label ? { label } : {},
-    ...snapshot.accountId ? { accountId: snapshot.accountId } : {},
-    ...snapshot.email ? { email: snapshot.email } : {},
-    ...snapshot.plan ? { plan: snapshot.plan } : {},
-    ...accountType ? { accountType } : {},
-    authType: snapshot.authType
-  };
-}
-async function writeCopilotAuthFile(authFile, data) {
-  if (isProviderStatePath(authFile)) {
-    const activeAccount = Array.isArray(data) ? undefined : data.activeAccount;
-    await updateProviderSection("copilot", authFile, async (section) => ({
-      ...section ?? {},
-      data,
-      activeAccount: activeAccount ?? section?.activeAccount
-    }));
-    return;
-  }
-  await atomicJsonWrite(expandHome(authFile), data, { mode: 384 });
-}
-function managedCopilotAuthFile(data, activeAccount, accounts) {
-  if (isCopilotManagedAuthFile(data)) {
-    return {
-      ...data,
-      activeAccount,
-      accounts
-    };
-  }
-  return {
-    activeAccount,
-    accounts
-  };
-}
-function normalizeCopilotAuthFileData(value, filePath) {
-  if (Array.isArray(value)) {
-    const accounts = value.map((entry, index) => validateCopilotAuthToken(entry, `${filePath}[${index}]`));
-    return { data: accounts, accounts, format: "array" };
-  }
-  if (isCopilotManagedAuthFile(value)) {
-    const accounts = value.accounts.map((entry, index) => validateCopilotAuthToken(entry, `${filePath}.accounts[${index}]`));
-    return { data: { ...value, accounts }, accounts, format: "managed" };
-  }
-  return { data: validateCopilotAuthToken(value, filePath), accounts: [validateCopilotAuthToken(value, filePath)], format: "single" };
-}
-function copilotAuthEntryAliases(auth, index) {
-  return [
-    auth.accountId,
-    auth.email,
-    auth.label,
-    auth.accountType,
-    auth.sourceAccountKey,
-    copilotAccountKey(auth, index)
-  ].filter((value) => typeof value === "string" && value.length > 0);
-}
-function cacheFilePath2(authFile) {
-  return bunPath.join(bunPath.dirname(expandHome(authFile)), COPILOT_CACHE_FILE_NAME);
-}
-function firstString(...values) {
-  return values.find((value) => typeof value === "string" && value.trim().length > 0);
-}
-function cleanToken2(value) {
-  return value?.trim().replace(/^['"]|['"]$/g, "").replace(/\s+/g, "") ?? "";
-}
-function cleanText(value) {
-  const cleaned = value?.trim();
-  return cleaned ? cleaned : undefined;
-}
-function isCopilotManagedAuthFile(value) {
-  return Boolean(value && typeof value === "object" && !Array.isArray(value) && Array.isArray(value.accounts));
 }
 
 // src/upstream/kiro/constants.ts
@@ -41795,6 +40302,63 @@ var HIDDEN_KIRO_MODELS = [
   "claude-3.7-sonnet",
   "claude-opus-4.1"
 ];
+
+// src/upstream/kiro/errors.ts
+var REDACTED = "[redacted]";
+var SECRET_KEYS = /authorization|access[_-]?token|refresh[_-]?token|id[_-]?token|profile[_-]?arn|mcp[_-]?authorization|client[_-]?secret/i;
+var TOKEN_LIKE = /\b(?:Bearer\s+)?[A-Za-z0-9._~+/=-]{24,}\b/g;
+function classifyNetworkError(error) {
+  const detail = errorMessage(error);
+  const lower = detail.toLowerCase();
+  const category = error instanceof DOMException && error.name === "AbortError" || /timeout|timed out|abort/.test(lower) ? "network_timeout" : /enotfound|eai_again|getaddrinfo|dns|name resolution|could not resolve/.test(lower) ? "network_dns" : /econnrefused|econnreset|econnaborted|network down|connection|connect|fetch failed/.test(lower) ? "network_connect" : "unknown";
+  return { category, detail: redact(detail), message: networkMessage(category, detail) };
+}
+function classifyHttpError(status, body) {
+  const lower = body.toLowerCase();
+  if (status === 401 || status === 403)
+    return "auth";
+  if (status === 429)
+    return "quota";
+  if (status >= 500)
+    return "upstream_5xx";
+  if (/content length|too large|exceeds|context limit|payload|improperly formed request|malformed request/.test(lower))
+    return "payload_too_large";
+  return "unknown";
+}
+function publicHttpErrorBody(status, body, category = classifyHttpError(status, body)) {
+  const preview2 = bounded(redact(body));
+  if (category === "auth")
+    return `Kiro auth error (${status}). Reconnect or refresh the active Kiro account. Details: ${preview2}`;
+  if (category === "quota")
+    return `Kiro quota/rate limit error (${status}). Wait for quota reset or reduce request frequency. Details: ${preview2}`;
+  if (category === "payload_too_large")
+    return `Kiro payload/context error (${status}). Reduce or compact the request context before retrying. Details: ${preview2}`;
+  if (category === "upstream_5xx")
+    return `Kiro upstream service error (${status}). Retry later. Details: ${preview2}`;
+  return preview2;
+}
+function redact(value) {
+  let redacted = value.replace(TOKEN_LIKE, REDACTED);
+  redacted = redacted.replace(new RegExp(`("(?:${SECRET_KEYS.source})"\\s*:\\s*")([^"]+)(")`, "gi"), `$1${REDACTED}$3`);
+  redacted = redacted.replace(new RegExp(`((?:${SECRET_KEYS.source})\\s*[=:]\\s*)([^\\s,;]+)`, "gi"), `$1${REDACTED}`);
+  return redacted;
+}
+function networkMessage(category, detail) {
+  const safeDetail = bounded(redact(detail));
+  if (category === "network_dns")
+    return `Kiro network error (${category}): could not resolve the Kiro API host. Check DNS, VPN, proxy, or network settings. Details: ${safeDetail}`;
+  if (category === "network_connect")
+    return `Kiro network error (${category}): could not connect to Kiro. Check connectivity, proxy/VPN, and firewall settings. Details: ${safeDetail}`;
+  if (category === "network_timeout")
+    return `Kiro network error (${category}): the Kiro request timed out before a response completed. Retry or check network stability. Details: ${safeDetail}`;
+  return `Kiro network error (${category}): request failed before Kiro returned a response. Details: ${safeDetail}`;
+}
+function errorMessage(error) {
+  return error instanceof Error ? error.message : String(error);
+}
+function bounded(value, limit = 2000) {
+  return value.length > limit ? `${value.slice(0, limit)}...[truncated]` : value;
+}
 
 // src/upstream/kiro/auth-source.ts
 var DEFAULT_KIRO_SOURCE_PATHS = [KIRO_AUTH_TOKEN_PATH, KIRO_AUTH_TOKEN_CLI_PATH];
@@ -42165,63 +40729,6 @@ function firstString2(...values) {
 }
 function isAwsRegion(value) {
   return typeof value === "string" && /^[a-z]{2}(?:-[a-z]+)+-\d+$/.test(value);
-}
-
-// src/upstream/kiro/errors.ts
-var REDACTED = "[redacted]";
-var SECRET_KEYS = /authorization|access[_-]?token|refresh[_-]?token|id[_-]?token|profile[_-]?arn|mcp[_-]?authorization|client[_-]?secret/i;
-var TOKEN_LIKE = /\b(?:Bearer\s+)?[A-Za-z0-9._~+/=-]{24,}\b/g;
-function classifyNetworkError(error) {
-  const detail = errorMessage(error);
-  const lower = detail.toLowerCase();
-  const category = error instanceof DOMException && error.name === "AbortError" || /timeout|timed out|abort/.test(lower) ? "network_timeout" : /enotfound|eai_again|getaddrinfo|dns|name resolution|could not resolve/.test(lower) ? "network_dns" : /econnrefused|econnreset|econnaborted|network down|connection|connect|fetch failed/.test(lower) ? "network_connect" : "unknown";
-  return { category, detail: redact(detail), message: networkMessage(category, detail) };
-}
-function classifyHttpError(status, body) {
-  const lower = body.toLowerCase();
-  if (status === 401 || status === 403)
-    return "auth";
-  if (status === 429)
-    return "quota";
-  if (status >= 500)
-    return "upstream_5xx";
-  if (/content length|too large|exceeds|context limit|payload|improperly formed request|malformed request/.test(lower))
-    return "payload_too_large";
-  return "unknown";
-}
-function publicHttpErrorBody(status, body, category = classifyHttpError(status, body)) {
-  const preview2 = bounded(redact(body));
-  if (category === "auth")
-    return `Kiro auth error (${status}). Reconnect or refresh the active Kiro account. Details: ${preview2}`;
-  if (category === "quota")
-    return `Kiro quota/rate limit error (${status}). Wait for quota reset or reduce request frequency. Details: ${preview2}`;
-  if (category === "payload_too_large")
-    return `Kiro payload/context error (${status}). Reduce or compact the request context before retrying. Details: ${preview2}`;
-  if (category === "upstream_5xx")
-    return `Kiro upstream service error (${status}). Retry later. Details: ${preview2}`;
-  return preview2;
-}
-function redact(value) {
-  let redacted = value.replace(TOKEN_LIKE, REDACTED);
-  redacted = redacted.replace(new RegExp(`("(?:${SECRET_KEYS.source})"\\s*:\\s*")([^"]+)(")`, "gi"), `$1${REDACTED}$3`);
-  redacted = redacted.replace(new RegExp(`((?:${SECRET_KEYS.source})\\s*[=:]\\s*)([^\\s,;]+)`, "gi"), `$1${REDACTED}`);
-  return redacted;
-}
-function networkMessage(category, detail) {
-  const safeDetail = bounded(redact(detail));
-  if (category === "network_dns")
-    return `Kiro network error (${category}): could not resolve the Kiro API host. Check DNS, VPN, proxy, or network settings. Details: ${safeDetail}`;
-  if (category === "network_connect")
-    return `Kiro network error (${category}): could not connect to Kiro. Check connectivity, proxy/VPN, and firewall settings. Details: ${safeDetail}`;
-  if (category === "network_timeout")
-    return `Kiro network error (${category}): the Kiro request timed out before a response completed. Retry or check network stability. Details: ${safeDetail}`;
-  return `Kiro network error (${category}): request failed before Kiro returned a response. Details: ${safeDetail}`;
-}
-function errorMessage(error) {
-  return error instanceof Error ? error.message : String(error);
-}
-function bounded(value, limit = 2000) {
-  return value.length > limit ? `${value.slice(0, limit)}...[truncated]` : value;
 }
 
 // src/upstream/kiro/auth.ts
@@ -44825,353 +43332,2058 @@ function dedupe(values) {
   return [...new Set(values.filter(Boolean))];
 }
 
-// src/upstream/copilot/parse.ts
-function buildCopilotResponsesBody(request) {
-  return {
-    model: request.model,
-    instructions: request.instructions ?? "You are a helpful assistant.",
-    input: canonicalInputToResponsesInput(request.input),
-    ...request.tools ? { tools: request.tools } : {},
-    ...request.toolChoice ? { tool_choice: request.toolChoice } : {},
-    ...request.include ? { include: request.include } : {},
-    ...request.textFormat ? { text: { format: request.textFormat } } : {},
-    ...request.reasoningEffort ? { reasoning: { effort: request.reasoningEffort } } : {},
-    stream: false,
-    store: false
-  };
+// src/app/provider-runtime.ts
+function resolveProviderAuthFile(mode, options) {
+  if (mode === "codex") {
+    return options?.authFile ? expandHome(options.authFile) : process.env.CODEX_AUTH_FILE ? resolveAuthFile(process.env.CODEX_AUTH_FILE) : providerStatePath();
+  }
+  if (mode === "kiro") {
+    return options?.authFile ? expandHome(options.authFile) : bunPath.join(appDataDir(), KIRO_STATE_FILE_NAME);
+  }
+  return options?.authFile ? expandHome(options.authFile) : process.env.COPILOT_AUTH_FILE ?? bunPath.join(appDataDir(), COPILOT_AUTH_FILE_NAME);
 }
-async function collectCopilotResponse(response, fallbackModel = "unknown") {
-  const body = await response.json().catch(() => {
-    return;
-  });
-  return responseBodyToCanonicalResponse(body, fallbackModel, response.status);
+function resolveProviderAuthAccount(mode, options) {
+  if (mode === "codex")
+    return options?.authAccount ?? process.env.CODEX_AUTH_ACCOUNT;
+  if (mode === "kiro")
+    return options?.authAccount ?? process.env.KIRO_AUTH_ACCOUNT;
+  return options?.authAccount ?? process.env.COPILOT_AUTH_ACCOUNT;
 }
-function streamCopilotResponse(response) {
-  return {
-    type: "canonical_stream",
-    status: 200,
-    id: response.id,
-    model: response.model,
-    events: {
-      async* [Symbol.asyncIterator]() {
-        yield { type: "message_start", id: response.id, model: response.model };
-        let index = 0;
-        for (const block of response.content) {
-          if (block.type === "text") {
-            if (block.text)
-              yield { type: "text_delta", delta: block.text };
-          } else if (block.type === "tool_call") {
-            yield { type: "tool_call_done", callId: block.callId, name: block.name, arguments: block.arguments };
-          } else if (block.type === "thinking") {
-            yield { type: "thinking_signature", signature: block.signature };
-            yield { type: "thinking_delta", text: block.thinking };
-          } else if (block.type === "server_tool") {
-            yield { type: "server_tool_block", blocks: block.blocks };
-          }
-          index += 1;
-        }
-        yield { type: "usage", usage: response.usage };
-        yield { type: "completion", usage: response.usage, stopReason: response.stopReason };
-        yield { type: "message_stop", stopReason: response.stopReason };
-      }
+async function createProviderRuntime(mode, options) {
+  const authAccount = resolveProviderAuthAccount(mode, options);
+  if (mode === "copilot") {
+    const authFile2 = resolveProviderAuthFile(mode, options);
+    const ensuredAuthFile = await ensureCopilotAuthFile(authFile2);
+    const upstream2 = await Copilot_Upstream_Provider.fromAuthFile(ensuredAuthFile, { authAccount });
+    return { authFile: ensuredAuthFile, authAccount, upstream: upstream2 };
+  }
+  if (mode === "kiro") {
+    const authFile2 = resolveProviderAuthFile(mode, options);
+    const ensuredAuthFile = await ensureKiroAuthFile(authFile2);
+    const upstream2 = await Kiro_Upstream_Provider.fromAuthFile(ensuredAuthFile, { authAccount });
+    return { authFile: ensuredAuthFile, authAccount, upstream: upstream2 };
+  }
+  const authFile = resolveProviderAuthFile(mode, options);
+  await ensureCodexAuthFile(authFile);
+  const upstream = await Codex_Upstream_Provider.fromAuthFile(authFile, { authAccount });
+  return { authFile, authAccount, upstream };
+}
+async function providerHasConnectedAccounts(mode, options) {
+  const authFile = resolveProviderAuthFile(mode, options);
+  try {
+    if (mode === "codex") {
+      const data2 = await readAuthFileData(authFile);
+      return Array.isArray(data2.data) ? data2.data.length > 0 : Boolean(data2.data);
     }
-  };
-}
-function responseBodyToCanonicalResponse(body, fallbackModel, status = 200) {
-  const output = Array.isArray(body?.output) ? body.output : [];
-  const content = output.flatMap((item) => canonicalContentFromOutputItem(item));
-  const usage = canonicalUsageFromWireUsage(body?.usage);
-  return {
-    type: "canonical_response",
-    id: typeof body?.id === "string" ? body.id : `resp_${crypto.randomUUID().replace(/-/g, "")}`,
-    model: typeof body?.model === "string" ? body.model : fallbackModel,
-    stopReason: status >= 400 ? "error" : responseStopReason(body),
-    content,
-    usage: {
-      inputTokens: usage.inputTokens ?? 0,
-      outputTokens: usage.outputTokens ?? 0,
-      ...usage.cacheCreationInputTokens !== undefined ? { cacheCreationInputTokens: usage.cacheCreationInputTokens } : {},
-      ...usage.cacheReadInputTokens !== undefined ? { cacheReadInputTokens: usage.cacheReadInputTokens } : {},
-      ...usage.outputReasoningTokens !== undefined ? { outputReasoningTokens: usage.outputReasoningTokens } : {},
-      ...usage.serverToolUse ? { serverToolUse: usage.serverToolUse } : {}
+    if (mode === "kiro") {
+      const data2 = await readKiroAuthFileData(authFile);
+      return kiroAuthEntries(data2).length > 0;
     }
-  };
+    const data = await readCopilotAuthFileData(authFile);
+    return copilotAuthEntries(data).length > 0;
+  } catch {
+    return false;
+  }
 }
-function canonicalInputToResponsesInput(input) {
-  return input.flatMap((message) => {
-    const content = message.content.flatMap((block) => canonicalBlockToResponsesContent(block));
-    if (!content.length)
-      return [];
-    return [{ role: message.role, content }];
-  });
-}
-function canonicalBlockToResponsesContent(block) {
-  if (block.type === "text" && typeof block.text === "string") {
-    return [{ type: "input_text", text: block.text }];
-  }
-  if (block.type === "tool_call" && typeof block.arguments === "string") {
-    return [{
-      type: "function_call",
-      id: typeof block.id === "string" ? block.id : `fc_${crypto.randomUUID().replace(/-/g, "")}`,
-      call_id: typeof block.callId === "string" ? block.callId : `call_${crypto.randomUUID().replace(/-/g, "")}`,
-      name: typeof block.name === "string" ? block.name : "unknown",
-      arguments: block.arguments
-    }];
-  }
-  return [block];
-}
-function canonicalContentFromOutputItem(item) {
-  if (!item || typeof item !== "object")
-    return [];
-  if (item.type === "message") {
-    const content = Array.isArray(item.content) ? item.content : [];
-    return content.flatMap((part) => {
-      if (!part || typeof part !== "object")
-        return [];
-      if (part.type === "output_text" && typeof part.text === "string")
-        return [{ type: "text", text: part.text }];
-      if (part.type === "text" && typeof part.text === "string")
-        return [{ type: "text", text: part.text }];
-      if (part.type === "refusal" && typeof part.refusal === "string")
-        return [{ type: "text", text: part.refusal }];
-      return [];
-    });
-  }
-  if (item.type === "function_call") {
-    return [{
-      type: "tool_call",
-      id: typeof item.id === "string" ? item.id : `fc_${crypto.randomUUID().replace(/-/g, "")}`,
-      callId: typeof item.call_id === "string" ? item.call_id : typeof item.id === "string" ? item.id : `call_${crypto.randomUUID().replace(/-/g, "")}`,
-      name: typeof item.name === "string" ? item.name : "unknown",
-      arguments: typeof item.arguments === "string" ? item.arguments : JSON.stringify(item.arguments ?? {})
-    }];
-  }
-  if (item.type === "reasoning") {
-    const summary = Array.isArray(item.summary) ? item.summary : [];
-    const thinking = summary.flatMap((part) => typeof part?.text === "string" ? [part.text] : []).join(`
+
+// src/inbound/openai/normalize.ts
+function normalizeCanonicalRequest(pathname, body, options = {}) {
+  const normalizedBody = normalizeReasoningBody(body);
+  const passthrough = false;
+  const defaultStream = false;
+  if (isChatPath(pathname)) {
+    const messages = Array.isArray(normalizedBody.messages) ? normalizedBody.messages : [];
+    const instructions = messages.map((message) => instructionFromMessage(message)).filter((instruction) => Boolean(instruction)).join(`
 
 `);
-    return thinking ? [{ type: "thinking", thinking, signature: `sig_${crypto.randomUUID().replace(/-/g, "").slice(0, 16)}` }] : [];
+    return {
+      model: typeof normalizedBody.model === "string" ? normalizedBody.model : "",
+      instructions: typeof normalizedBody.instructions === "string" ? normalizedBody.instructions : instructions || "You are a helpful assistant.",
+      input: messages.flatMap((message) => normalizeChatMessage(message)),
+      tools: normalizeTools(normalizedBody.tools, { passthrough }),
+      toolChoice: normalizeToolChoice(normalizedBody.tool_choice),
+      include: Array.isArray(normalizedBody.include) ? normalizedBody.include.filter((item) => typeof item === "string") : undefined,
+      textFormat: extractTextFormat(normalizedBody.text) ?? extractChatResponseFormat(normalizedBody.response_format),
+      reasoningEffort: extractReasoningEffort(normalizedBody),
+      stream: normalizedBody.stream !== undefined ? Boolean(normalizedBody.stream) : defaultStream,
+      passthrough,
+      metadata: { source: "openai", path: pathname }
+    };
+  }
+  if (pathname === "/v1/responses") {
+    const instructions = instructionsFromResponsesInput(normalizedBody.input);
+    return {
+      model: typeof normalizedBody.model === "string" ? normalizedBody.model : "",
+      instructions: typeof normalizedBody.instructions === "string" ? normalizedBody.instructions : instructions || "You are a helpful assistant.",
+      input: normalizeResponsesInput(normalizedBody.input),
+      tools: normalizeTools(normalizedBody.tools, { passthrough }),
+      toolChoice: normalizeToolChoice(normalizedBody.tool_choice),
+      include: Array.isArray(normalizedBody.include) ? normalizedBody.include.filter((item) => typeof item === "string") : undefined,
+      textFormat: extractTextFormat(normalizedBody.text),
+      reasoningEffort: extractReasoningEffort(normalizedBody),
+      stream: normalizedBody.stream !== undefined ? Boolean(normalizedBody.stream) : defaultStream,
+      passthrough,
+      metadata: { source: "openai", path: pathname }
+    };
+  }
+  return {
+    model: typeof normalizedBody.model === "string" ? normalizedBody.model : "",
+    instructions: typeof normalizedBody.instructions === "string" ? normalizedBody.instructions : undefined,
+    input: Array.isArray(normalizedBody.input) ? normalizedBody.input.filter(isCanonicalInputMessage) : [],
+    stream: normalizedBody.stream !== undefined ? Boolean(normalizedBody.stream) : defaultStream,
+    passthrough,
+    metadata: { source: "openai", path: pathname }
+  };
+}
+function normalizeRequestBody(pathname, body) {
+  const normalizedBody = normalizeReasoningBody(body);
+  if (pathname === "/v1/embeddings") {
+    const model = typeof normalizedBody.model === "string" ? normalizedBody.model.trim() : "";
+    const normalizedModel = model.startsWith("github_copilot/") ? model.replace(/^github_copilot\//, "") : model;
+    const normalizedInput = typeof normalizedBody.input === "string" ? [normalizedBody.input] : normalizedBody.input;
+    const embeddingsBody = {
+      ...normalizedBody,
+      model: normalizedModel,
+      input: normalizedInput
+    };
+    delete embeddingsBody.stream;
+    return embeddingsBody;
+  }
+  if (isChatPath(pathname)) {
+    const messages = Array.isArray(normalizedBody.messages) ? normalizedBody.messages : [];
+    const instructions = messages.map((message) => instructionFromMessage(message)).filter((instruction) => Boolean(instruction)).join(`
+
+`);
+    return {
+      ...normalizedBody,
+      instructions: normalizedBody.instructions ?? (instructions || "You are a helpful assistant."),
+      store: false,
+      stream: true,
+      messages: undefined,
+      input: messages.flatMap((message) => normalizeChatMessage(message)),
+      ...normalizedBody.response_format ? { text: { format: extractChatResponseFormat(normalizedBody.response_format) } } : {}
+    };
+  }
+  if (pathname === "/v1/responses" && typeof normalizedBody.input === "string") {
+    return {
+      ...normalizedBody,
+      instructions: normalizedBody.instructions ?? "You are a helpful assistant.",
+      store: false,
+      stream: true,
+      input: [
+        {
+          role: "user",
+          content: [{ type: "input_text", text: normalizedBody.input }]
+        }
+      ]
+    };
+  }
+  return { ...normalizedBody, store: normalizedBody.store ?? false, stream: normalizedBody.stream ?? true };
+}
+function extractTextFormat(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value))
+    return;
+  const item = value;
+  return item.format && typeof item.format === "object" && !Array.isArray(item.format) ? item.format : undefined;
+}
+function extractChatResponseFormat(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value))
+    return;
+  const item = value;
+  if (item.type === "json_schema") {
+    const jsonSchema = item.json_schema;
+    if (jsonSchema && typeof jsonSchema === "object" && !Array.isArray(jsonSchema)) {
+      return { type: "json_schema", ...jsonSchema };
+    }
+  }
+  if (item.type === "json_object")
+    return { type: "json_object" };
+}
+function extractReasoningEffort(body) {
+  const reasoning = body.reasoning;
+  if (reasoning && typeof reasoning === "object" && !Array.isArray(reasoning) && typeof reasoning.effort === "string") {
+    return reasoning.effort;
+  }
+  return typeof body.reasoning_effort === "string" ? body.reasoning_effort : undefined;
+}
+function isCanonicalInputMessage(message) {
+  if (!message || typeof message !== "object" || Array.isArray(message))
+    return false;
+  const item = message;
+  return (item.role === "user" || item.role === "assistant" || item.role === "tool") && Array.isArray(item.content);
+}
+function normalizeResponsesInput(value) {
+  if (typeof value === "string")
+    return [{ role: "user", content: [{ type: "input_text", text: value }] }];
+  if (!Array.isArray(value))
+    return [];
+  return value.flatMap((item) => normalizeResponsesInputItem(item));
+}
+function normalizeResponsesInputItem(value) {
+  if (!isJsonObject(value))
+    return [];
+  if (value.type === "message") {
+    const role2 = canonicalRole(value.role);
+    if (!role2)
+      return [];
+    const content = normalizeResponsesMessageContent(value.content, role2);
+    return content.length ? [{ role: role2, content }] : [];
+  }
+  if (isCanonicalInputMessage(value)) {
+    const content = normalizeResponsesMessageContent(value.content, value.role);
+    return content.length ? [{ role: value.role, content }] : [];
+  }
+  if (value.type === "function_call")
+    return [{ role: "assistant", content: [normalizeFunctionCallItem(value)] }];
+  if (value.type === "function_call_output")
+    return [{ role: "tool", content: [normalizeFunctionCallOutputItem(value)] }];
+  if (value.type === "reasoning")
+    return [{ role: "assistant", content: [value] }];
+  const role = canonicalRole(value.role);
+  if (role) {
+    const content = normalizeResponsesMessageContent(value.content, role);
+    return content.length ? [{ role, content }] : [];
   }
   return [];
 }
-function responseStopReason(body) {
-  if (!body)
-    return "end_turn";
-  if (body.status === "incomplete" && body.incomplete_details && typeof body.incomplete_details === "object" && body.incomplete_details.reason === "max_output_tokens")
-    return "max_tokens";
-  const output = Array.isArray(body.output) ? body.output : [];
-  if (output.some((item) => item?.type === "function_call"))
-    return "tool_use";
-  return "end_turn";
+function canonicalRole(value) {
+  return value === "user" || value === "assistant" || value === "tool" ? value : undefined;
 }
+function instructionsFromResponsesInput(value) {
+  if (!Array.isArray(value))
+    return "";
+  return value.flatMap((item) => {
+    if (!isJsonObject(item))
+      return [];
+    if (item.role !== "system" && item.role !== "developer")
+      return [];
+    return [contentToText(item.content)];
+  }).filter(Boolean).join(`
 
-// src/upstream/copilot/client.ts
-class Copilot_Client {
-  auth;
-  fetchFn;
-  constructor(options) {
-    this.auth = options.auth;
-    this.fetchFn = options.fetch ?? fetch;
+`);
+}
+function normalizeFunctionCallItem(item) {
+  const callId = typeof item.call_id === "string" ? item.call_id : typeof item.id === "string" ? item.id : `call_${crypto.randomUUID().replace(/-/g, "")}`;
+  return {
+    type: "function_call",
+    id: typeof item.id === "string" ? item.id : `fc_${crypto.randomUUID().replace(/-/g, "")}`,
+    call_id: callId,
+    name: typeof item.name === "string" ? item.name : "unknown",
+    arguments: typeof item.arguments === "string" ? item.arguments : JSON.stringify(item.arguments ?? {})
+  };
+}
+function normalizeFunctionCallOutputItem(item) {
+  return {
+    type: "function_call_output",
+    ...typeof item.id === "string" ? { id: item.id } : {},
+    call_id: typeof item.call_id === "string" ? item.call_id : "call_unknown",
+    output: contentToText(item.output)
+  };
+}
+function normalizeResponsesMessageContent(value, role) {
+  if (role === "tool") {
+    if (typeof value === "string")
+      return [{ type: "input_text", text: value }];
+    if (isJsonObject(value))
+      return [normalizeResponsesToolContentItem(value)];
+    if (Array.isArray(value)) {
+      return value.flatMap((item) => {
+        if (typeof item === "string")
+          return [{ type: "input_text", text: item }];
+        return isJsonObject(item) ? [normalizeResponsesToolContentItem(item)] : [];
+      });
+    }
+    return [];
   }
-  async proxy(request, options) {
-    const accessToken = await this.auth.getAccessToken();
-    const body = buildCopilotResponsesBody(request);
-    options?.onRequestBody?.(JSON.stringify(body));
-    return this.fetchJson("/responses", accessToken, body, options);
+  return normalizeMessageContent(value, role);
+}
+function normalizeResponsesToolContentItem(item) {
+  if (item.type === "function_call_output")
+    return normalizeFunctionCallOutputItem(item);
+  return item;
+}
+function instructionFromMessage(message) {
+  if (!message || typeof message !== "object")
+    return;
+  const item = message;
+  if (item.role !== "system" && item.role !== "developer")
+    return;
+  if (typeof item.content === "string")
+    return item.content;
+  return contentToText(item.content);
+}
+function normalizeChatMessage(message) {
+  if (!message || typeof message !== "object")
+    return [];
+  const item = message;
+  const role = item.role;
+  if (role === "system" || role === "developer")
+    return [];
+  if (role !== "user" && role !== "assistant" && role !== "tool")
+    return [];
+  if (role === "tool") {
+    const output = contentToText(item.content);
+    return [{
+      role,
+      content: typeof item.tool_call_id === "string" ? [{ type: "function_call_output", call_id: item.tool_call_id, output }] : [{ type: "input_text", text: output }]
+    }];
   }
-  async embeddingsRaw(body, options) {
-    options?.onRequestBody?.(JSON.stringify(body));
-    const accessToken = await this.auth.getAccessToken();
-    return this.fetchJson("/embeddings", accessToken, body, options);
+  const content = normalizeMessageContent(item.content, role);
+  if (role === "assistant" && Array.isArray(item.tool_calls)) {
+    content.push(...item.tool_calls.flatMap((toolCall) => normalizeChatToolCall(toolCall)));
   }
-  async modelsRaw(options) {
-    const accessToken = await this.auth.getAccessToken();
-    return this.fetchJson("/models", accessToken, undefined, options);
+  return [{ role, content }];
+}
+function normalizeChatToolCall(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value))
+    return [];
+  const item = value;
+  const fn = item.function && typeof item.function === "object" && !Array.isArray(item.function) ? item.function : undefined;
+  const callId = typeof item.id === "string" ? item.id : typeof item.call_id === "string" ? item.call_id : `call_${crypto.randomUUID().replace(/-/g, "")}`;
+  const name = typeof fn?.name === "string" ? fn.name : typeof item.name === "string" ? item.name : "unknown";
+  const rawArguments = fn?.arguments ?? item.arguments ?? {};
+  const args = typeof rawArguments === "string" ? rawArguments : JSON.stringify(rawArguments);
+  return [{ type: "function_call", id: typeof item.id === "string" ? item.id : `fc_${crypto.randomUUID().replace(/-/g, "")}`, call_id: callId, name, arguments: args }];
+}
+function normalizeMessageContent(value, role) {
+  if (typeof value === "string")
+    return [chatTextBlock(role, value)];
+  if (isJsonObject(value))
+    return normalizeMessageContentPart(value, role);
+  if (!Array.isArray(value))
+    return [];
+  return value.flatMap((item) => normalizeMessageContentPart(item, role));
+}
+function normalizeMessageContentPart(value, role) {
+  if (typeof value === "string")
+    return [chatTextBlock(role, value)];
+  if (!isJsonObject(value))
+    return [];
+  if (value.type === "text" && typeof value.text === "string")
+    return [chatTextBlock(role, value.text)];
+  if (value.type === "refusal" && typeof value.refusal === "string")
+    return [chatTextBlock(role, value.refusal)];
+  if (value.type === "image_url") {
+    const image = value.image_url;
+    const imageUrl = typeof image === "string" ? image : isJsonObject(image) && typeof image.url === "string" ? image.url : undefined;
+    if (!imageUrl)
+      return [];
+    return [{
+      type: "input_image",
+      image_url: imageUrl,
+      ...isJsonObject(image) && typeof image.detail === "string" ? { detail: image.detail } : {}
+    }];
   }
-  async usage(options) {
-    const response = await this.fetchFn(`${COPILOT_GITHUB_API_BASE_URL}/copilot_internal/user`, {
-      headers: githubHeaders2(await this.auth.getGitHubToken(), this.auth.getAccountType()),
-      signal: options?.signal
-    });
-    return response;
-  }
-  async checkHealth(timeoutMs) {
-    const controller = new AbortController;
-    const started = Date.now();
-    const timer = setTimeout(() => controller.abort("health timeout"), timeoutMs);
-    try {
-      const response = await this.modelsRaw({ signal: controller.signal });
-      return {
-        ok: response.ok,
-        status: response.status,
-        latencyMs: Date.now() - started,
-        checkedAt: new Date().toISOString()
-      };
-    } catch (error) {
-      return {
-        ok: false,
-        error: error instanceof Error ? error.message : String(error),
-        latencyMs: Date.now() - started,
-        checkedAt: new Date().toISOString()
-      };
-    } finally {
-      clearTimeout(timer);
+  return [value];
+}
+function chatTextBlock(role, text) {
+  return { type: role === "assistant" ? "output_text" : "input_text", text };
+}
+function normalizeTools(value, options) {
+  if (!Array.isArray(value))
+    return;
+  if (options.passthrough)
+    return value;
+  return value.flatMap((tool) => normalizeTool(tool));
+}
+function normalizeTool(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value))
+    return [];
+  const item = value;
+  if (item.type === "web_search" || item.type === "web_search_preview")
+    return [{ type: "web_search" }];
+  if (item.type === "function") {
+    const fn = item.function && typeof item.function === "object" && !Array.isArray(item.function) ? item.function : undefined;
+    if (fn) {
+      return [{
+        type: "function",
+        name: typeof fn.name === "string" ? fn.name : "unknown",
+        ...typeof fn.description === "string" ? { description: fn.description } : {},
+        parameters: isJsonObject(fn.parameters) ? fn.parameters : { type: "object", properties: {} },
+        ...typeof item.strict === "boolean" ? { strict: item.strict } : typeof fn.strict === "boolean" ? { strict: fn.strict } : {}
+      }];
     }
   }
-  async refresh() {
-    return this.auth.refreshAndPersist();
-  }
-  async fetchJson(path, accessToken, body, options) {
-    const response = await this.fetchFn(`${this.baseUrl()}${path}`, {
-      method: body === undefined ? "GET" : "POST",
-      headers: copilotHeaders(accessToken, this.auth.getAccountType(), this.auth.getGitHubToken()),
-      signal: options?.signal,
-      ...body === undefined ? {} : { body: JSON.stringify(body) }
-    });
-    return response;
-  }
-  baseUrl() {
-    const accountType = this.auth.getAccountType();
-    return accountType && accountType !== "individual" ? `https://api.${accountType}.githubcopilot.com` : "https://api.githubcopilot.com";
-  }
+  return [item];
 }
-function copilotHeaders(accessToken, accountType, githubToken) {
-  return {
-    "content-type": "application/json",
-    accept: "application/json",
-    authorization: `Bearer ${accessToken}`,
-    "copilot-integration-id": "vscode-chat",
-    "editor-version": "vscode/1.112.0",
-    "editor-plugin-version": COPILOT_EDITOR_PLUGIN_VERSION,
-    "user-agent": COPILOT_USER_AGENT,
-    "openai-intent": "conversation-panel",
-    "x-github-api-version": COPILOT_API_VERSION,
-    "x-vscode-user-agent-library-version": "electron-fetch",
-    "x-copilot-account-type": accountType,
-    "x-copilot-github-token": githubToken,
-    "x-copilot-version": COPILOT_GITHUB_VERSION,
-    "x-request-id": crypto.randomUUID()
-  };
+function normalizeToolChoice(value) {
+  if (typeof value === "string")
+    return value;
+  if (!isJsonObject(value))
+    return;
+  if (value.type === "auto" || value.type === "none" || value.type === "required")
+    return value.type;
+  if (value.type === "web_search_preview")
+    return { type: "web_search" };
+  if (value.type === "tool" && typeof value.name === "string")
+    return { type: "function", name: value.name };
+  return value;
 }
-function githubHeaders2(githubToken, accountType) {
-  return {
-    "content-type": "application/json",
-    accept: "application/json",
-    authorization: `token ${githubToken}`,
-    "editor-version": "vscode/1.112.0",
-    "editor-plugin-version": COPILOT_EDITOR_PLUGIN_VERSION,
-    "user-agent": COPILOT_USER_AGENT,
-    "x-github-api-version": COPILOT_API_VERSION,
-    "x-vscode-user-agent-library-version": "electron-fetch",
-    "x-copilot-account-type": accountType,
-    "x-request-id": crypto.randomUUID()
-  };
+function contentToText(value) {
+  if (typeof value === "string")
+    return value;
+  if (!Array.isArray(value)) {
+    if (value === undefined || value === null)
+      return "";
+    if (isJsonObject(value)) {
+      if (typeof value.text === "string")
+        return value.text;
+      if (typeof value.refusal === "string")
+        return value.refusal;
+      if (typeof value.output === "string")
+        return value.output;
+      if (typeof value.content === "string")
+        return value.content;
+      if (Array.isArray(value.content))
+        return contentToText(value.content);
+    }
+    return JSON.stringify(value);
+  }
+  return value.map((item) => {
+    if (typeof item === "string")
+      return item;
+    if (!isJsonObject(item))
+      return "";
+    if (typeof item.text === "string")
+      return item.text;
+    if (typeof item.refusal === "string")
+      return item.refusal;
+    if (typeof item.output === "string")
+      return item.output;
+    if (typeof item.content === "string")
+      return item.content;
+    if (Array.isArray(item.content))
+      return contentToText(item.content);
+    return JSON.stringify(item);
+  }).filter(Boolean).join(`
+`);
+}
+function isChatPath(pathname) {
+  return pathname === "/v1/chat/completions";
+}
+function isJsonObject(value) {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }
 
-// src/upstream/copilot/index.ts
-class Copilot_Upstream_Provider {
-  providerKind = "copilot";
-  auth;
-  client;
-  authFilePath;
-  modelCache;
-  constructor(options) {
-    this.auth = options.auth;
-    this.client = options.client ?? new Copilot_Client({ auth: this.auth });
-    this.authFilePath = options.authFilePath;
-  }
-  static async fromAuthFile(path, options) {
-    const auth = await Copilot_Auth_Manager.fromAuthFile(path, options);
-    return new Copilot_Upstream_Provider({
-      auth,
-      client: new Copilot_Client({ auth, fetch: options?.fetch }),
-      authFilePath: path
-    });
-  }
-  async proxy(request, options) {
-    const response = await this.client.proxy(request, options);
-    if (!response.ok)
-      return await toCanonicalError2(response);
-    const collected = await collectCopilotResponse(response, request.model);
-    return request.stream ? streamCopilotResponse(collected) : collected;
-  }
-  async checkHealth(timeoutMs) {
-    return this.client.checkHealth(timeoutMs);
-  }
-  async usage(options) {
-    return this.client.usage(options);
-  }
-  async modelsRaw(options) {
-    return this.client.modelsRaw(options);
-  }
-  async embeddingsRaw(body, options) {
-    return this.client.embeddingsRaw(body, options);
-  }
-  async listModels() {
-    if (this.modelCache && Date.now() - this.modelCache.cachedAt < COPILOT_MODEL_CACHE_TTL_SECONDS * 1000)
-      return this.modelCache.models;
-    const accountKey = this.accountKey();
-    if (this.authFilePath) {
-      const cached = await readCopilotModelCache(accountKey, cacheFilePath3(this.authFilePath));
-      if (cached && Date.now() - Date.parse(cached.fetchedAt) < COPILOT_MODEL_CACHE_TTL_SECONDS * 1000) {
-        this.modelCache = { models: cached.models, cachedAt: Date.parse(cached.fetchedAt) || Date.now() };
-        return cached.models;
+// src/inbound/openai/response.ts
+function openAICanonicalResponse(response, pathname, request) {
+  if (isChatPath2(pathname))
+    return Response.json(canonicalResponseToChatCompletion(response));
+  return Response.json(canonicalResponseToResponsesBody(response, request));
+}
+function openAICanonicalStreamResponse(response, pathname, request) {
+  if (isChatPath2(pathname))
+    return chatCompletionStreamResponse(response);
+  return responsesStreamResponse(response, request);
+}
+function canonicalResponseToResponsesBody(response, request) {
+  const output = canonicalContentToResponsesOutput(response.content);
+  const incompleteReason = response.stopReason === "max_tokens" ? "max_output_tokens" : undefined;
+  return responseObject({
+    id: response.id,
+    model: response.model,
+    status: incompleteReason ? "incomplete" : "completed",
+    request,
+    output,
+    usage: responsesUsage(response.usage),
+    incompleteReason
+  });
+}
+function canonicalResponseToChatCompletion(response) {
+  const toolCalls = response.content.filter((block) => block.type === "tool_call");
+  const text = response.content.flatMap((block) => block.type === "text" ? [block.text] : []).join("");
+  const thinking = response.content.flatMap((block) => block.type === "thinking" ? [block.thinking] : []).join("");
+  return {
+    id: response.id.replace(/^resp_/, "chatcmpl_"),
+    object: "chat.completion",
+    created: nowSeconds(),
+    model: response.model,
+    choices: [
+      {
+        index: 0,
+        message: {
+          role: "assistant",
+          content: toolCalls.length && !text ? null : text,
+          ...thinking ? { reasoning_content: thinking } : {},
+          ...toolCalls.length ? { tool_calls: toolCalls.map(chatToolCall) } : {}
+        },
+        finish_reason: chatFinishReason(response.stopReason, toolCalls.length > 0)
       }
-    }
-    try {
-      const response = await this.client.modelsRaw();
-      if (!response.ok)
-        return this.modelCache?.models ?? [];
-      const body = await response.json().catch(() => {
+    ],
+    usage: chatUsage(response.usage)
+  };
+}
+function responsesStreamResponse(response, request) {
+  const encoder = new TextEncoder;
+  const id = response.id;
+  const model = response.model || stringOr(request.model, "unknown");
+  const created = nowSeconds();
+  const output = [];
+  const toolStates = new Map;
+  let iterator;
+  let closed = false;
+  let messageId = `msg_${id.replace(/^resp_/, "")}`;
+  let messageStarted = false;
+  let messageDone = false;
+  let messageDoneItem;
+  let text = "";
+  let reasoningId = `rs_${crypto.randomUUID().replace(/-/g, "")}`;
+  let reasoningStarted = false;
+  let reasoningDone = false;
+  let reasoningText = "";
+  let usage = null;
+  let accumulatedUsage;
+  let stopReason = "end_turn";
+  let incompleteReason;
+  let completionOutputOverride;
+  return new Response(new ReadableStream({
+    async start(controller) {
+      function send(event, data) {
+        if (closed)
+          return;
+        controller.enqueue(encoder.encode(`event: ${event}
+data: ${JSON.stringify(data)}
+
+`));
+      }
+      async function sendTextDeltas(itemId, outputIndex, contentIndex, delta) {
+        const parts = textDeltaChunks(delta);
+        for (let index = 0;index < parts.length; index += 1) {
+          const part = parts[index];
+          send("response.output_text.delta", {
+            type: "response.output_text.delta",
+            item_id: itemId,
+            output_index: outputIndex,
+            content_index: contentIndex,
+            delta: part
+          });
+          if (index < parts.length - 1)
+            await streamFlushYield();
+        }
+      }
+      function hasOutputState() {
+        return messageStarted || reasoningStarted || toolStates.size > 0 || output.some(Boolean);
+      }
+      async function emitCompletedOutputItem(item) {
+        const outputIndex = output.length;
+        if (item.type === "message") {
+          const message = completedMessageOutputItem(item);
+          send("response.output_item.added", {
+            type: "response.output_item.added",
+            output_index: outputIndex,
+            item: { ...message, status: "in_progress", content: [] }
+          });
+          const content = Array.isArray(message.content) ? message.content : [];
+          for (const [contentIndex, part] of content.entries()) {
+            if (!isJsonObject2(part))
+              continue;
+            send("response.content_part.added", {
+              type: "response.content_part.added",
+              item_id: String(message.id),
+              output_index: outputIndex,
+              content_index: contentIndex,
+              part: part.type === "output_text" ? { ...part, text: "" } : part
+            });
+            if (part.type === "output_text" && typeof part.text === "string") {
+              await sendTextDeltas(String(message.id), outputIndex, contentIndex, part.text);
+              send("response.output_text.done", {
+                type: "response.output_text.done",
+                item_id: String(message.id),
+                output_index: outputIndex,
+                content_index: contentIndex,
+                text: part.text
+              });
+            }
+            send("response.content_part.done", {
+              type: "response.content_part.done",
+              item_id: String(message.id),
+              output_index: outputIndex,
+              content_index: contentIndex,
+              part
+            });
+          }
+          send("response.output_item.done", {
+            type: "response.output_item.done",
+            output_index: outputIndex,
+            item: message
+          });
+          output.push(message);
+          return;
+        }
+        if (item.type === "function_call") {
+          const tool = completedFunctionCallOutputItem(item);
+          send("response.output_item.added", {
+            type: "response.output_item.added",
+            output_index: outputIndex,
+            item: { ...tool, status: "in_progress" }
+          });
+          send("response.function_call_arguments.done", {
+            type: "response.function_call_arguments.done",
+            item_id: String(tool.id),
+            output_index: outputIndex,
+            arguments: String(tool.arguments ?? "")
+          });
+          send("response.output_item.done", {
+            type: "response.output_item.done",
+            output_index: outputIndex,
+            item: tool
+          });
+          output.push(tool);
+          stopReason = "tool_use";
+          return;
+        }
+        const outputItem = completedResponseOutputItem(item);
+        send("response.output_item.added", {
+          type: "response.output_item.added",
+          output_index: outputIndex,
+          item: { ...outputItem, status: "in_progress" }
+        });
+        send("response.output_item.done", {
+          type: "response.output_item.done",
+          output_index: outputIndex,
+          item: outputItem
+        });
+        output.push(outputItem);
+      }
+      function ensureMessageStarted() {
+        finishReasoning();
+        if (messageStarted && !messageDone)
+          return;
+        if (messageDone) {
+          messageId = `msg_${crypto.randomUUID().replace(/-/g, "")}`;
+          messageStarted = false;
+          messageDone = false;
+          messageDoneItem = undefined;
+          text = "";
+        }
+        messageStarted = true;
+        send("response.output_item.added", {
+          type: "response.output_item.added",
+          output_index: output.length,
+          item: { id: messageId, type: "message", status: "in_progress", role: "assistant", content: [] }
+        });
+        send("response.content_part.added", {
+          type: "response.content_part.added",
+          item_id: messageId,
+          output_index: output.length,
+          content_index: 0,
+          part: { type: "output_text", text: "", annotations: [] }
+        });
+      }
+      function finishMessage() {
+        if (!messageStarted || messageDone)
+          return;
+        const outputIndex = output.length;
+        const item = messageDoneItem ? completedStreamMessageOutputItem(messageId, text, messageDoneItem) : messageOutputItem(messageId, text);
+        send("response.output_text.done", {
+          type: "response.output_text.done",
+          item_id: messageId,
+          output_index: outputIndex,
+          content_index: 0,
+          text
+        });
+        send("response.content_part.done", {
+          type: "response.content_part.done",
+          item_id: messageId,
+          output_index: outputIndex,
+          content_index: 0,
+          part: Array.isArray(item.content) && isJsonObject2(item.content[0]) ? item.content[0] : { type: "output_text", text, annotations: [] }
+        });
+        send("response.output_item.done", {
+          type: "response.output_item.done",
+          output_index: outputIndex,
+          item
+        });
+        output.push(item);
+        messageDone = true;
+      }
+      function ensureReasoningStarted() {
+        if (reasoningStarted && !reasoningDone)
+          return;
+        if (reasoningDone) {
+          reasoningId = `rs_${crypto.randomUUID().replace(/-/g, "")}`;
+          reasoningStarted = false;
+          reasoningDone = false;
+          reasoningText = "";
+        }
+        finishMessage();
+        reasoningStarted = true;
+        send("response.output_item.added", {
+          type: "response.output_item.added",
+          output_index: output.length,
+          item: { id: reasoningId, type: "reasoning", status: "in_progress", summary: [] }
+        });
+      }
+      function finishReasoning() {
+        if (!reasoningStarted || reasoningDone)
+          return;
+        const outputIndex = output.length;
+        const item = { ...reasoningOutputItem(reasoningText), id: reasoningId };
+        send("response.output_item.done", {
+          type: "response.output_item.done",
+          output_index: outputIndex,
+          item
+        });
+        output.push(item);
+        reasoningDone = true;
+      }
+      function ensureToolStarted(callId, name) {
+        finishReasoning();
+        let state = toolStates.get(callId);
+        if (state) {
+          if (state.name === "unknown" && name !== "unknown")
+            state.name = name;
+          return state;
+        }
+        finishMessage();
+        const outputIndex = output.length;
+        output.push(undefined);
+        state = { id: `fc_${crypto.randomUUID().replace(/-/g, "")}`, callId, name, arguments: "", done: false, outputIndex };
+        toolStates.set(callId, state);
+        send("response.output_item.added", {
+          type: "response.output_item.added",
+          output_index: state.outputIndex,
+          item: functionCallOutputItem(state, "in_progress")
+        });
+        return state;
+      }
+      function finishTool(state) {
+        if (state.done)
+          return;
+        state.done = true;
+        send("response.function_call_arguments.done", {
+          type: "response.function_call_arguments.done",
+          item_id: state.id,
+          output_index: state.outputIndex,
+          arguments: state.arguments
+        });
+        const item = functionCallOutputItem(state);
+        send("response.output_item.done", {
+          type: "response.output_item.done",
+          output_index: state.outputIndex,
+          item
+        });
+        output[state.outputIndex] = item;
+      }
+      async function repairCurrentMessageFromItem(item) {
+        if (!messageStarted || messageDone || item.type !== "message")
+          return;
+        const message = completedMessageOutputItem(item);
+        const doneText = outputTextFromOutput([message]);
+        const delta = doneSuffix(text, doneText);
+        if (delta) {
+          text += delta;
+          await sendTextDeltas(messageId, output.length, 0, delta);
+        } else if (doneText && doneText !== text) {
+          text = doneText;
+        }
+        if (Array.isArray(message.content) && message.content.length)
+          messageDoneItem = message;
+      }
+      async function reconcileCompletionOutputItems(items) {
+        const emittedMessageCount = output.filter((item) => isJsonObject2(item) && item.type === "message").length;
+        let messageIndex = 0;
+        let repairedOpenMessage = false;
+        for (const item of items) {
+          if (item.type === "message") {
+            const shouldSkipCompletedMessage = messageIndex < emittedMessageCount;
+            messageIndex += 1;
+            if (shouldSkipCompletedMessage)
+              continue;
+            if (messageStarted && !messageDone && !repairedOpenMessage) {
+              await repairCurrentMessageFromItem(item);
+              finishMessage();
+              repairedOpenMessage = true;
+              continue;
+            }
+            if (!output.some((existing) => isJsonObject2(existing) && sameOutputItem(existing, completedMessageOutputItem(item)))) {
+              finishReasoning();
+              await emitCompletedOutputItem(item);
+            }
+            continue;
+          }
+          if (item.type === "function_call") {
+            await repairToolFromItem(item, true);
+            continue;
+          }
+          if (item.type === "reasoning" && reasoningStarted && !reasoningDone) {
+            finishReasoning();
+            continue;
+          }
+          const completed = completedResponseOutputItem(item);
+          if (output.some((existing) => isJsonObject2(existing) && sameOutputItem(existing, completed)))
+            continue;
+          finishMessage();
+          finishReasoning();
+          await emitCompletedOutputItem(completed);
+        }
+      }
+      async function emitMessageItemDone(item) {
+        const message = completedMessageOutputItem(item);
+        if (output.some((existing) => isJsonObject2(existing) && sameOutputItem(existing, message)))
+          return;
+        finishReasoning();
+        await emitCompletedOutputItem(message);
+      }
+      async function repairToolFromItem(item, finish) {
+        if (item.type !== "function_call")
+          return;
+        const tool = completedFunctionCallOutputItem(item);
+        const callId = typeof tool.call_id === "string" ? tool.call_id : String(tool.id);
+        const argumentsText = typeof tool.arguments === "string" ? tool.arguments : "";
+        const state = toolStates.get(callId);
+        if (state) {
+          if (typeof item.id === "string")
+            state.id = item.id;
+          if (state.name === "unknown" && typeof tool.name === "string" && tool.name !== "unknown")
+            state.name = tool.name;
+          const delta = doneSuffix(state.arguments, argumentsText);
+          if (delta && !state.done) {
+            state.arguments += delta;
+            send("response.function_call_arguments.delta", {
+              type: "response.function_call_arguments.delta",
+              item_id: state.id,
+              output_index: state.outputIndex,
+              delta
+            });
+          } else if (!state.done && argumentsText && argumentsText !== state.arguments) {
+            state.arguments = argumentsText;
+          } else if (state.done && argumentsText) {
+            state.arguments = argumentsText;
+          }
+          if (state.done)
+            output[state.outputIndex] = functionCallOutputItem(state);
+          if (finish)
+            finishTool(state);
+          stopReason = "tool_use";
+          return;
+        }
+        if (output.some((existing) => isJsonObject2(existing) && existing.type === "function_call" && existing.call_id === callId))
+          return;
+        finishMessage();
+        finishReasoning();
+        await emitCompletedOutputItem(tool);
+      }
+      send("response.created", {
+        type: "response.created",
+        response: responseObject({ id, model, status: "in_progress", created, request, output: [], usage: null })
+      });
+      send("response.in_progress", {
+        type: "response.in_progress",
+        response: responseObject({ id, model, status: "in_progress", created, request, output: [], usage: null })
+      });
+      try {
+        iterator = response.events[Symbol.asyncIterator]();
+        while (true) {
+          const chunk = await iterator.next();
+          if (chunk.done)
+            break;
+          const event = chunk.value;
+          if (event.type === "text_delta") {
+            ensureMessageStarted();
+            text += event.delta;
+            await sendTextDeltas(messageId, output.length, 0, event.delta);
+            continue;
+          }
+          if (event.type === "text_done") {
+            ensureMessageStarted();
+            const delta = doneSuffix(text, event.text);
+            if (delta) {
+              text += delta;
+              await sendTextDeltas(messageId, output.length, 0, delta);
+            } else if (event.text && event.text !== text) {
+              text = event.text;
+            }
+            continue;
+          }
+          if (event.type === "tool_call_delta") {
+            const state = ensureToolStarted(event.callId, event.name);
+            state.arguments += event.argumentsDelta;
+            send("response.function_call_arguments.delta", {
+              type: "response.function_call_arguments.delta",
+              item_id: state.id,
+              output_index: state.outputIndex,
+              delta: event.argumentsDelta
+            });
+            continue;
+          }
+          if (event.type === "tool_call_done") {
+            const state = ensureToolStarted(event.callId, event.name);
+            const delta = doneSuffix(state.arguments, event.arguments);
+            state.arguments = delta ? state.arguments + delta : event.arguments || state.arguments;
+            finishTool(state);
+            stopReason = "tool_use";
+            continue;
+          }
+          if (event.type === "server_tool_block") {
+            finishMessage();
+            finishReasoning();
+            for (const block of event.blocks) {
+              await emitCompletedOutputItem(block);
+            }
+            continue;
+          }
+          if (event.type === "thinking_delta") {
+            ensureReasoningStarted();
+            reasoningText += event.text ?? event.label ?? "";
+            continue;
+          }
+          if (event.type === "thinking_signature") {
+            continue;
+          }
+          if (event.type === "usage") {
+            accumulatedUsage = mergeStreamUsage(accumulatedUsage, event.usage);
+            usage = responsesUsage(accumulatedUsage);
+            continue;
+          }
+          if (event.type === "message_stop") {
+            stopReason = event.stopReason;
+            if (event.stopReason === "max_tokens")
+              incompleteReason = "max_output_tokens";
+            continue;
+          }
+          if (event.type === "completion") {
+            if (event.usage) {
+              accumulatedUsage = mergeStreamUsage(accumulatedUsage, event.usage);
+              usage = responsesUsage(accumulatedUsage);
+            }
+            if (event.stopReason)
+              stopReason = event.stopReason;
+            if (event.incompleteReason)
+              incompleteReason = event.incompleteReason;
+            const completionOutput = responseOutputItems(event.output);
+            if (completionOutput.length)
+              completionOutputOverride = completionOutput;
+            if (completionOutput.length && !hasOutputState()) {
+              for (const item of completionOutput)
+                await emitCompletedOutputItem(item);
+            } else if (completionOutput.length) {
+              await reconcileCompletionOutputItems(completionOutput);
+            }
+            continue;
+          }
+          if (event.type === "message_item_done") {
+            if (!hasOutputState()) {
+              await emitCompletedOutputItem(event.item);
+            } else if (event.item.type === "message") {
+              if (messageStarted && !messageDone) {
+                await repairCurrentMessageFromItem(event.item);
+                finishMessage();
+              } else {
+                await emitMessageItemDone(event.item);
+              }
+            } else if (event.item.type === "function_call") {
+              await repairToolFromItem(event.item, true);
+            }
+            continue;
+          }
+          if (event.type === "error") {
+            send("error", { type: "error", error: { message: event.message } });
+            closed = true;
+            controller.close();
+            return;
+          }
+        }
+        finishReasoning();
+        finishMessage();
+        for (const state of toolStates.values())
+          finishTool(state);
+        const streamedOutput = compactOutput(output);
+        const completedOutput = completionOutputOverride ? mergeCompletionOutput(streamedOutput, completionOutputOverride) : streamedOutput;
+        const finalIncompleteReason = incompleteReason ?? (stopReason === "max_tokens" ? "max_output_tokens" : undefined);
+        send("response.completed", {
+          type: "response.completed",
+          response: responseObject({
+            id,
+            model,
+            status: finalIncompleteReason ? "incomplete" : "completed",
+            created,
+            request,
+            output: completedOutput,
+            usage,
+            incompleteReason: finalIncompleteReason
+          })
+        });
+        closed = true;
+        controller.close();
+      } catch (error) {
+        if (!closed) {
+          send("error", { type: "error", error: { message: error instanceof Error ? error.message : String(error) } });
+          closed = true;
+          controller.close();
+        }
+      }
+    },
+    cancel(reason) {
+      closed = true;
+      const current = iterator;
+      iterator = undefined;
+      current?.return?.({ type: "lifecycle", label: String(reason ?? "client disconnected") }).catch(() => {
         return;
       });
-      const models = Array.isArray(body?.data) ? body.data.flatMap((item) => typeof item?.id === "string" && item.model_picker_enabled !== false ? [item.id] : []) : [];
-      this.modelCache = { models, cachedAt: Date.now() };
-      if (this.authFilePath) {
-        await writeCopilotModelCache(accountKey, { models, fetchedAt: new Date().toISOString() }, cacheFilePath3(this.authFilePath));
-      }
-      return models;
-    } catch {
-      return this.modelCache?.models ?? [];
     }
-  }
-  async refresh() {
-    await this.auth.refreshAndPersist();
-    return { copilotToken: this.auth.getCopilotToken() };
-  }
-  get tokens() {
-    return { copilotToken: this.auth.getCopilotToken() };
-  }
-  getAuthType() {
-    return this.auth.getAuthType();
-  }
-  getAccountType() {
-    return this.auth.getAccountType();
-  }
-  getEmail() {
-    return this.auth.getEmail();
-  }
-  getPlan() {
-    return this.auth.getPlan();
-  }
-  getAccountId() {
-    return this.auth.getAccountId();
-  }
-  accountKey() {
-    return this.getAccountId() ?? this.getEmail() ?? this.getPlan() ?? this.getAccountType() ?? "copilot-account";
-  }
+  }), streamHeaders());
 }
-async function toCanonicalError2(response) {
+function chatCompletionStreamResponse(response) {
+  const encoder = new TextEncoder;
+  const id = response.id.replace(/^resp_/, "chatcmpl_");
+  const created = nowSeconds();
+  const model = response.model;
+  const toolStates = new Map;
+  let iterator;
+  let closed = false;
+  let sentRole = false;
+  let text = "";
+  let currentChatMessageText = "";
+  let usage;
+  let accumulatedUsage;
+  let stopReason = "stop";
+  const completedChatMessageIds = new Set;
+  return new Response(new ReadableStream({
+    async start(controller) {
+      function send(data) {
+        if (closed)
+          return;
+        controller.enqueue(encoder.encode(`data: ${typeof data === "string" ? data : JSON.stringify(data)}
+
+`));
+      }
+      function chunk(delta, finishReason = null, chunkUsage = null) {
+        send({
+          id,
+          object: "chat.completion.chunk",
+          created,
+          model,
+          choices: [{ index: 0, delta, finish_reason: finishReason }],
+          ...chunkUsage ? { usage: chunkUsage } : {}
+        });
+      }
+      function roleDelta(delta) {
+        if (sentRole)
+          return delta;
+        sentRole = true;
+        return { role: "assistant", ...delta };
+      }
+      async function textChunk(delta) {
+        if (!delta)
+          return;
+        const parts = textDeltaChunks(delta);
+        for (let index = 0;index < parts.length; index += 1) {
+          const part = parts[index];
+          text += part;
+          currentChatMessageText += part;
+          chunk(roleDelta({ content: part }));
+          if (index < parts.length - 1)
+            await streamFlushYield();
+        }
+      }
+      async function reasoningChunk(delta) {
+        if (!delta)
+          return;
+        const parts = textDeltaChunks(delta);
+        for (let index = 0;index < parts.length; index += 1) {
+          chunk(roleDelta({ reasoning_content: parts[index] }));
+          if (index < parts.length - 1)
+            await streamFlushYield();
+        }
+      }
+      function toolState(callId, name) {
+        let state = toolStates.get(callId);
+        if (state) {
+          if (state.name === "unknown" && name !== "unknown")
+            state.name = name;
+          return state;
+        }
+        state = { index: toolStates.size, id: callId, callId, name, arguments: "" };
+        toolStates.set(callId, state);
+        return state;
+      }
+      async function emitChatOutputItems(items) {
+        for (const item of items) {
+          if (item.type === "message") {
+            await emitChatMessageItem(item);
+            continue;
+          }
+          if (item.type === "function_call") {
+            emitChatFunctionCallItem(item);
+          }
+        }
+      }
+      async function emitChatMessageItem(item) {
+        const message = completedMessageOutputItem(item);
+        if (typeof message.id === "string" && completedChatMessageIds.has(message.id))
+          return;
+        if (typeof message.id === "string")
+          completedChatMessageIds.add(message.id);
+        const doneText = outputTextFromOutput([message]);
+        if (doneText) {
+          const delta = doneSuffix(currentChatMessageText, doneText);
+          if (delta) {
+            await textChunk(delta);
+          } else if (!currentChatMessageText && !text.endsWith(doneText)) {
+            await textChunk(doneText);
+          }
+        }
+        currentChatMessageText = "";
+      }
+      async function reconcileChatOutputItems(items) {
+        for (const item of items) {
+          if (item.type === "message") {
+            await emitChatMessageItem(item);
+            continue;
+          }
+          if (item.type === "function_call")
+            emitChatFunctionCallItem(item);
+        }
+      }
+      function emitChatFunctionCallItem(item) {
+        currentChatMessageText = "";
+        const tool = completedFunctionCallOutputItem(item);
+        const callId = typeof tool.call_id === "string" ? tool.call_id : String(tool.id);
+        const name = typeof tool.name === "string" ? tool.name : "unknown";
+        const args = typeof tool.arguments === "string" ? tool.arguments : "{}";
+        const previous = toolStates.get(callId);
+        const nameChanged = Boolean(previous && previous.name === "unknown" && name !== "unknown");
+        const state = toolState(callId, name);
+        const delta = previous ? doneSuffix(state.arguments, args) : args;
+        if (!previous || delta || nameChanged) {
+          state.arguments += delta;
+          chunk(roleDelta({
+            tool_calls: [{
+              index: state.index,
+              id: state.id,
+              type: "function",
+              function: { name: state.name, ...!previous || delta ? { arguments: delta } : {} }
+            }]
+          }));
+        }
+        stopReason = "tool_calls";
+      }
+      try {
+        iterator = response.events[Symbol.asyncIterator]();
+        while (true) {
+          const next = await iterator.next();
+          if (next.done)
+            break;
+          const event = next.value;
+          if (event.type === "thinking_delta") {
+            await reasoningChunk(event.text ?? event.label ?? "");
+            continue;
+          }
+          if (event.type === "text_delta") {
+            await textChunk(event.delta);
+            continue;
+          }
+          if (event.type === "text_done") {
+            const delta = doneSuffix(currentChatMessageText, event.text);
+            if (delta) {
+              await textChunk(delta);
+            } else if (!currentChatMessageText && event.text && !text.endsWith(event.text)) {
+              await textChunk(event.text);
+            }
+            continue;
+          }
+          if (event.type === "tool_call_delta") {
+            currentChatMessageText = "";
+            const state = toolState(event.callId, event.name);
+            state.arguments += event.argumentsDelta;
+            chunk(roleDelta({
+              tool_calls: [{
+                index: state.index,
+                id: state.id,
+                type: "function",
+                function: { name: state.name, arguments: event.argumentsDelta }
+              }]
+            }));
+            stopReason = "tool_calls";
+            continue;
+          }
+          if (event.type === "tool_call_done") {
+            emitChatFunctionCallItem({ type: "function_call", call_id: event.callId, name: event.name, arguments: event.arguments });
+            continue;
+          }
+          if (event.type === "usage") {
+            accumulatedUsage = mergeStreamUsage(accumulatedUsage, event.usage);
+            usage = chatUsage(accumulatedUsage);
+            continue;
+          }
+          if (event.type === "message_stop") {
+            stopReason = chatFinishReason(event.stopReason, toolStates.size > 0);
+            continue;
+          }
+          if (event.type === "completion") {
+            const completionOutput = responseOutputItems(event.output);
+            if (completionOutput.length && !sentRole && !text && toolStates.size === 0) {
+              await emitChatOutputItems(completionOutput);
+            } else if (completionOutput.length) {
+              await reconcileChatOutputItems(completionOutput);
+            }
+            if (event.usage) {
+              accumulatedUsage = mergeStreamUsage(accumulatedUsage, event.usage);
+              usage = chatUsage(accumulatedUsage);
+            }
+            if (event.stopReason)
+              stopReason = chatFinishReason(event.stopReason, toolStates.size > 0);
+            else if (event.incompleteReason === "max_output_tokens")
+              stopReason = "length";
+            continue;
+          }
+          if (event.type === "message_item_done") {
+            if (!sentRole && !text && toolStates.size === 0) {
+              await emitChatOutputItems([event.item]);
+              continue;
+            }
+            if (event.item.type === "function_call") {
+              emitChatFunctionCallItem(event.item);
+              continue;
+            }
+            if (event.item.type === "message")
+              await emitChatMessageItem(event.item);
+            continue;
+          }
+          if (event.type === "error") {
+            send({ error: { message: event.message } });
+            send("[DONE]");
+            closed = true;
+            controller.close();
+            return;
+          }
+        }
+        if (!sentRole)
+          chunk({ role: "assistant" });
+        chunk({}, stopReason, usage ?? chatUsage({ inputTokens: 0, outputTokens: 0 }));
+        send("[DONE]");
+        closed = true;
+        controller.close();
+      } catch (error) {
+        if (!closed) {
+          send({ error: { message: error instanceof Error ? error.message : String(error) } });
+          send("[DONE]");
+          closed = true;
+          controller.close();
+        }
+      }
+    },
+    cancel(reason) {
+      closed = true;
+      const current = iterator;
+      iterator = undefined;
+      current?.return?.({ type: "lifecycle", label: String(reason ?? "client disconnected") }).catch(() => {
+        return;
+      });
+    }
+  }), streamHeaders());
+}
+function canonicalContentToResponsesOutput(content) {
+  const output = [];
+  let pendingText = [];
+  const flushText = () => {
+    if (!pendingText.length)
+      return;
+    output.push(messageOutputItemFromParts(`msg_${crypto.randomUUID().replace(/-/g, "")}`, pendingText));
+    pendingText = [];
+  };
+  for (const block of content) {
+    if (block.type === "text") {
+      pendingText.push({ text: block.text, annotations: block.annotations });
+      continue;
+    }
+    flushText();
+    if (block.type === "tool_call")
+      output.push(functionCallOutputItem(block));
+    else if (block.type === "thinking")
+      output.push(reasoningOutputItem(block.thinking));
+    else if (block.type === "server_tool")
+      output.push(...block.blocks.map((item) => ({ ...item, status: "completed" })));
+  }
+  flushText();
+  return output;
+}
+function messageOutputItem(id, text) {
+  return messageOutputItemFromParts(id, [{ text }]);
+}
+function messageOutputItemFromParts(id, parts) {
   return {
-    type: "canonical_error",
-    status: response.status,
-    headers: responseHeaders(response.headers),
-    body: await response.text().catch(() => "")
+    id,
+    type: "message",
+    status: "completed",
+    role: "assistant",
+    content: parts.map((part) => ({
+      type: "output_text",
+      text: part.text,
+      annotations: Array.isArray(part.annotations) ? part.annotations : []
+    }))
   };
 }
-function cacheFilePath3(authFile) {
-  return bunPath.join(bunPath.dirname(expandHome(authFile)), COPILOT_CACHE_FILE_NAME);
+function functionCallOutputItem(block, status = "completed") {
+  return {
+    id: block.id,
+    type: "function_call",
+    call_id: block.callId,
+    name: block.name,
+    arguments: block.arguments,
+    status
+  };
+}
+function compactOutput(output) {
+  return output.filter((item) => Boolean(item));
+}
+function mergeCompletionOutput(streamedOutput, completionOutput) {
+  const usedCompletionIndexes = new Set;
+  const merged = [];
+  const flushCompletionBefore = (targetIndex) => {
+    for (let index = 0;index < targetIndex; index += 1) {
+      if (usedCompletionIndexes.has(index))
+        continue;
+      usedCompletionIndexes.add(index);
+      merged.push(completionOutput[index]);
+    }
+  };
+  for (const streamedItem of streamedOutput) {
+    const replacementIndex = completionOutput.findIndex((candidate, index) => !usedCompletionIndexes.has(index) && replacementMatchesStreamedItem(candidate, streamedItem));
+    if (replacementIndex >= 0) {
+      flushCompletionBefore(replacementIndex);
+      usedCompletionIndexes.add(replacementIndex);
+      merged.push(completionOutput[replacementIndex]);
+      continue;
+    }
+    if (streamedItem.type !== "message" && streamedItem.type !== "function_call")
+      merged.push(streamedItem);
+  }
+  completionOutput.forEach((item, index) => {
+    if (!usedCompletionIndexes.has(index))
+      merged.push(item);
+  });
+  return merged;
+}
+function replacementMatchesStreamedItem(candidate, streamedItem) {
+  if (sameOutputItem(candidate, streamedItem))
+    return true;
+  if (streamedItem.type === "message")
+    return candidate.type === "message";
+  if (streamedItem.type === "function_call")
+    return candidate.type === "function_call";
+  return false;
+}
+function sameOutputItem(left, right) {
+  if (typeof left.id === "string" && typeof right.id === "string" && left.id === right.id)
+    return true;
+  if (left.type === "function_call" && right.type === "function_call" && typeof left.call_id === "string" && left.call_id === right.call_id)
+    return true;
+  if (left.type === "reasoning" && right.type === "reasoning")
+    return true;
+  return false;
+}
+function responseOutputItems(output) {
+  if (!Array.isArray(output))
+    return [];
+  const items = output.filter(isJsonObject2);
+  const normalized = [];
+  let pendingCanonical = [];
+  const flushCanonical = () => {
+    if (!pendingCanonical.length)
+      return;
+    normalized.push(...canonicalContentToResponsesOutput(pendingCanonical));
+    pendingCanonical = [];
+  };
+  for (const item of items) {
+    if (isCanonicalContentOutputItem(item)) {
+      pendingCanonical.push(item);
+      continue;
+    }
+    flushCanonical();
+    normalized.push(completedResponseOutputItem(item));
+  }
+  flushCanonical();
+  return normalized;
+}
+function isCanonicalContentOutputItem(item) {
+  return item.type === "text" || item.type === "tool_call" || item.type === "server_tool" || item.type === "thinking";
+}
+function completedResponseOutputItem(item) {
+  if (item.type === "message")
+    return completedMessageOutputItem(item);
+  if (item.type === "function_call")
+    return completedFunctionCallOutputItem(item);
+  return { ...item, status: "completed" };
+}
+function completedMessageOutputItem(item) {
+  return {
+    id: typeof item.id === "string" ? item.id : `msg_${crypto.randomUUID().replace(/-/g, "")}`,
+    type: "message",
+    status: "completed",
+    role: typeof item.role === "string" ? item.role : "assistant",
+    content: outputContent(item.content)
+  };
+}
+function completedStreamMessageOutputItem(id, text, item) {
+  return messageOutputItemFromParts(id, [{ text, annotations: outputAnnotations(item) }]);
+}
+function outputAnnotations(item) {
+  return outputContent(item.content).flatMap((part) => {
+    if (!Array.isArray(part.annotations))
+      return [];
+    return part.annotations.filter(isJsonObject2);
+  });
+}
+function outputContent(value) {
+  if (Array.isArray(value))
+    return value.flatMap(outputContentPart);
+  return outputContentPart(value);
+}
+function outputContentPart(part) {
+  if (typeof part === "string")
+    return [{ type: "output_text", text: part, annotations: [] }];
+  if (!isJsonObject2(part))
+    return [];
+  if (part.type === "output_text") {
+    return [{
+      ...part,
+      text: typeof part.text === "string" ? part.text : "",
+      annotations: Array.isArray(part.annotations) ? part.annotations : []
+    }];
+  }
+  if (part.type === "text" && typeof part.text === "string")
+    return [{ type: "output_text", text: part.text, annotations: [] }];
+  if (part.type === "refusal" && typeof part.refusal === "string")
+    return [{ type: "output_text", text: part.refusal, annotations: [] }];
+  return [part];
+}
+function completedFunctionCallOutputItem(item) {
+  const callId = typeof item.call_id === "string" ? item.call_id : typeof item.id === "string" ? item.id : `call_${crypto.randomUUID().replace(/-/g, "")}`;
+  const rawArguments = item.arguments ?? {};
+  return {
+    id: typeof item.id === "string" ? item.id : `fc_${crypto.randomUUID().replace(/-/g, "")}`,
+    type: "function_call",
+    call_id: callId,
+    name: typeof item.name === "string" ? item.name : "unknown",
+    arguments: typeof rawArguments === "string" ? rawArguments : JSON.stringify(rawArguments),
+    status: "completed"
+  };
+}
+function reasoningOutputItem(text) {
+  return {
+    id: `rs_${crypto.randomUUID().replace(/-/g, "")}`,
+    type: "reasoning",
+    status: "completed",
+    summary: [{ type: "summary_text", text }]
+  };
+}
+function chatToolCall(block) {
+  return {
+    id: block.callId,
+    type: "function",
+    function: {
+      name: block.name,
+      arguments: block.arguments
+    }
+  };
+}
+function responseObject(options) {
+  const created = options.created ?? nowSeconds();
+  return {
+    id: options.id,
+    object: "response",
+    created_at: created,
+    status: options.status,
+    ...options.status === "completed" ? { completed_at: nowSeconds() } : {},
+    error: null,
+    incomplete_details: options.incompleteReason ? { reason: options.incompleteReason } : null,
+    instructions: typeof options.request.instructions === "string" ? options.request.instructions : null,
+    max_output_tokens: numberOrNull(options.request.max_output_tokens ?? options.request.max_completion_tokens),
+    model: options.model,
+    output: options.output,
+    parallel_tool_calls: options.request.parallel_tool_calls ?? true,
+    previous_response_id: options.request.previous_response_id ?? null,
+    reasoning: requestReasoning(options.request),
+    store: options.request.store ?? true,
+    temperature: options.request.temperature ?? 1,
+    text: requestText(options.request),
+    tool_choice: options.request.tool_choice ?? "auto",
+    tools: Array.isArray(options.request.tools) ? options.request.tools : [],
+    top_p: options.request.top_p ?? 1,
+    truncation: options.request.truncation ?? "disabled",
+    usage: options.usage,
+    user: options.request.user ?? null,
+    metadata: isJsonObject2(options.request.metadata) ? options.request.metadata : {}
+  };
+}
+function responsesUsage(usage) {
+  const inputTokens = canonicalInputTokenTotal(usage);
+  const outputTokens = usage?.outputTokens ?? 0;
+  const cachedTokens = usage?.cacheReadInputTokens ?? 0;
+  return {
+    input_tokens: inputTokens,
+    input_tokens_details: { cached_tokens: cachedTokens },
+    output_tokens: outputTokens,
+    output_tokens_details: { reasoning_tokens: usage?.outputReasoningTokens ?? 0 },
+    total_tokens: inputTokens + outputTokens
+  };
+}
+function chatUsage(usage) {
+  const inputTokens = canonicalInputTokenTotal(usage);
+  const outputTokens = usage?.outputTokens ?? 0;
+  const cachedTokens = usage?.cacheReadInputTokens ?? 0;
+  return {
+    prompt_tokens: inputTokens,
+    completion_tokens: outputTokens,
+    total_tokens: inputTokens + outputTokens,
+    prompt_tokens_details: { cached_tokens: cachedTokens },
+    completion_tokens_details: { reasoning_tokens: usage?.outputReasoningTokens ?? 0 }
+  };
+}
+function mergeStreamUsage(current, next) {
+  const merged = current ?? { inputTokens: 0, outputTokens: 0 };
+  mergeCanonicalUsage(merged, next);
+  return merged;
+}
+function outputTextFromOutput(output) {
+  return output.flatMap((item) => {
+    const content = Array.isArray(item.content) ? item.content : [];
+    return content.flatMap((block) => isJsonObject2(block) && block.type === "output_text" && typeof block.text === "string" ? [block.text] : []);
+  }).join("");
+}
+function chatFinishReason(stopReason, hasToolCalls) {
+  if (hasToolCalls || stopReason === "tool_use")
+    return "tool_calls";
+  if (stopReason === "max_tokens")
+    return "length";
+  return "stop";
+}
+function doneSuffix(current, done) {
+  if (!done)
+    return "";
+  if (!current)
+    return done;
+  return done.startsWith(current) ? done.slice(current.length) : "";
+}
+var STREAM_TEXT_DELTA_TARGET_LENGTH = 64;
+function textDeltaChunks(text) {
+  const chars = Array.from(text);
+  if (!chars.length)
+    return [];
+  if (chars.length <= STREAM_TEXT_DELTA_TARGET_LENGTH)
+    return [text];
+  const chunks = [];
+  let start = 0;
+  while (start < chars.length) {
+    let end = Math.min(start + STREAM_TEXT_DELTA_TARGET_LENGTH, chars.length);
+    if (end < chars.length) {
+      for (let index = end - 1;index > start + STREAM_TEXT_DELTA_TARGET_LENGTH / 2; index -= 1) {
+        if (/\s/.test(chars[index])) {
+          end = index + 1;
+          break;
+        }
+      }
+    }
+    chunks.push(chars.slice(start, end).join(""));
+    start = end;
+  }
+  return chunks;
+}
+function streamFlushYield() {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
+function requestText(request) {
+  if (isJsonObject2(request.text))
+    return request.text;
+  if (isJsonObject2(request.response_format))
+    return { format: request.response_format };
+  return { format: { type: "text" } };
+}
+function requestReasoning(request) {
+  if (isJsonObject2(request.reasoning))
+    return { effort: request.reasoning.effort ?? null, summary: request.reasoning.summary ?? null };
+  return { effort: typeof request.reasoning_effort === "string" ? request.reasoning_effort : null, summary: null };
+}
+function numberOrNull(value) {
+  return typeof value === "number" ? value : null;
+}
+function stringOr(value, fallback) {
+  return typeof value === "string" ? value : fallback;
+}
+function isChatPath2(pathname) {
+  return pathname === "/v1/chat/completions";
+}
+function isJsonObject2(value) {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+function nowSeconds() {
+  return Math.floor(Date.now() / 1000);
+}
+function streamHeaders() {
+  return {
+    headers: {
+      "content-type": "text/event-stream",
+      "cache-control": "no-cache"
+    }
+  };
+}
+
+// src/inbound/openai/routes.ts
+var OPENAI_PROXY_ROUTES = [
+  { family: "openai", endpoint: "responses", label: "Responses", path: "/v1/responses", method: "POST", routes: [{ path: "/v1/responses", method: "POST" }] },
+  { family: "openai", endpoint: "chat_completions", label: "Chat completions", path: "/v1/chat/completions", method: "POST", routes: [{ path: "/v1/chat/completions", method: "POST" }] },
+  { family: "openai", endpoint: "embeddings", label: "Embeddings", path: "/v1/embeddings", method: "POST", routes: [{ path: "/v1/embeddings", method: "POST" }] }
+];
+var OPENAI_NON_EMBEDDINGS_ROUTES = OPENAI_PROXY_ROUTES.filter((route) => route.endpoint !== "embeddings");
+function openAIProxyRouteDescriptor(route) {
+  return { path: route.path, method: route.method };
+}
+
+// src/inbound/openai/index.ts
+class OpenAI_Inbound_Provider {
+  name;
+  routeDescriptors;
+  passthrough;
+  upstreamLogLabel;
+  upstreamTarget;
+  expectedUpstreamKind;
+  constructor(options = {}) {
+    this.name = options.name ?? "openai";
+    this.routeDescriptors = options.routes ?? OPENAI_NON_EMBEDDINGS_ROUTES.map(openAIProxyRouteDescriptor);
+    this.passthrough = options.passthrough ?? true;
+    this.upstreamLogLabel = options.upstreamLogLabel ?? "Codex responses";
+    this.upstreamTarget = options.upstreamTarget ?? "/v1/responses";
+    this.expectedUpstreamKind = options.expectedUpstreamKind;
+  }
+  routes() {
+    return this.routeDescriptors;
+  }
+  async handle(request, route, upstream, context) {
+    const upstreamMismatch = this.upstreamMismatch(upstream);
+    if (upstreamMismatch)
+      return openAIErrorResponse(upstreamMismatch, 500, "server_error");
+    let body;
+    try {
+      body = await request.json();
+    } catch (error) {
+      if (!this.passthrough) {
+        return openAIErrorResponse(`Invalid JSON: ${error instanceof Error ? error.message : String(error)}`, 400, "invalid_request_error");
+      }
+      return Response.json({
+        error: {
+          message: `Invalid JSON: ${error instanceof Error ? error.message : String(error)}`
+        }
+      }, { status: 500 });
+    }
+    if (!isJsonObject3(body)) {
+      return openAIErrorResponse("Request body must be a JSON object", 400, "invalid_request_error");
+    }
+    const wireBody = body;
+    if (!this.passthrough) {
+      const validationError = validateOpenAIRequestShape(route.path, wireBody);
+      if (validationError)
+        return openAIErrorResponse(validationError, 400, "invalid_request_error");
+    }
+    const shouldCaptureProxyBody = context.logBody && context.onProxy !== undefined;
+    const requestBody = shouldCaptureProxyBody ? previewText2(JSON.stringify(normalizeRequestBody(route.path, wireBody))) : undefined;
+    const upstreamRequestPreview = shouldCaptureProxyBody ? createLogPreview() : undefined;
+    const upstreamResponsePreview = shouldCaptureProxyBody ? createLogPreview() : undefined;
+    const started = Date.now();
+    if (route.path === "/v1/embeddings") {
+      if (!upstream.embeddingsRaw)
+        return openAIErrorResponse("Embeddings are not supported by this upstream provider.", 501, "server_error");
+      const embeddingsBody = normalizeRequestBody(route.path, wireBody);
+      const response = await upstream.embeddingsRaw(embeddingsBody, {
+        headers: request.headers,
+        signal: request.signal,
+        ...upstreamRequestPreview ? {
+          onRequestBody: (nextBody) => upstreamRequestPreview.append(nextBody)
+        } : {}
+      });
+      const durationMs2 = Date.now() - started;
+      const proxyRequestBody2 = upstreamRequestPreview?.text() || requestBody;
+      const proxyLog = context.onProxy ? {
+        label: this.upstreamLogLabel,
+        method: "POST",
+        target: this.upstreamTarget,
+        status: response.status,
+        durationMs: durationMs2,
+        error: response.ok ? "-" : response.statusText || `HTTP ${response.status}`,
+        requestBody: proxyRequestBody2,
+        responseBody: undefined
+      } : undefined;
+      if (proxyLog)
+        context.onProxy?.(proxyLog);
+      if (!response.body || !shouldCaptureProxyBody || !proxyLog)
+        return response;
+      return interceptResponseStream(response, {
+        onComplete: (responseBody) => {
+          proxyLog.responseBody = responseBody;
+          if (response.status >= 400) {
+            proxyLog.error = responseBody ? previewText2(responseBody) || proxyLog.error : proxyLog.error;
+          }
+        }
+      });
+    }
+    const result = await upstream.proxy(normalizeCanonicalRequest(route.path, wireBody, { passthrough: this.passthrough }), {
+      headers: request.headers,
+      signal: request.signal,
+      ...upstreamRequestPreview && upstreamResponsePreview ? {
+        onRequestBody: (nextBody) => upstreamRequestPreview.append(nextBody),
+        onResponseBodyChunk: (chunk) => upstreamResponsePreview.append(chunk)
+      } : {}
+    });
+    const durationMs = Date.now() - started;
+    const proxyRequestBody = upstreamRequestPreview?.text() || requestBody;
+    if (isCanonicalPassthrough2(result)) {
+      const proxyLog = context.onProxy ? {
+        label: this.upstreamLogLabel,
+        method: "POST",
+        target: this.upstreamTarget,
+        status: result.status,
+        durationMs,
+        error: "-",
+        requestBody: proxyRequestBody
+      } : undefined;
+      if (proxyLog)
+        context.onProxy?.(proxyLog);
+      const response = new Response(passthroughBodyInit(result.body), {
+        status: result.status,
+        statusText: result.statusText,
+        headers: responseHeaders(result.headers)
+      });
+      if (!response.body || !shouldCaptureProxyBody || !proxyLog)
+        return response;
+      return interceptResponseStream(response, {
+        onComplete: (responseBody) => {
+          proxyLog.responseBody = responseBody;
+        }
+      });
+    }
+    if (isCanonicalError2(result)) {
+      const proxyLog = context.onProxy ? {
+        label: this.upstreamLogLabel,
+        method: "POST",
+        target: this.upstreamTarget,
+        status: result.status,
+        durationMs,
+        error: previewText2(result.body) || "-",
+        requestBody: proxyRequestBody,
+        responseBody: shouldCaptureProxyBody ? previewText2(result.body) || undefined : undefined
+      } : undefined;
+      if (proxyLog && this.expectedUpstreamKind === "kiro" && kiroDebugOnErrorEnabled()) {
+        proxyLog.debug = createKiroDebugBundle({
+          route: route.path,
+          status: result.status,
+          model: wireBody.model,
+          error: result.body,
+          requestBody,
+          upstreamRequestBody: proxyRequestBody,
+          upstreamResponseBody: upstreamResponsePreview?.text(),
+          transformedResponseBody: result.body
+        });
+      }
+      if (proxyLog)
+        context.onProxy?.(proxyLog);
+      if (!this.passthrough) {
+        return openAIErrorResponse(result.body, result.status, "upstream_error", result.headers);
+      }
+      return new Response(result.body, {
+        status: result.status,
+        headers: responseHeaders(result.headers)
+      });
+    }
+    if (isCanonicalResponse2(result)) {
+      backfillInputTokens2(result, wireBody);
+      const response = openAICanonicalResponse(result, route.path, wireBody);
+      if (context.onProxy) {
+        context.onProxy({
+          label: this.upstreamLogLabel,
+          method: "POST",
+          target: this.upstreamTarget,
+          status: 200,
+          durationMs,
+          error: "-",
+          requestBody: proxyRequestBody,
+          responseBody: shouldCaptureProxyBody ? upstreamResponsePreview?.text() || undefined : undefined
+        });
+      }
+      return response;
+    }
+    if (isCanonicalStream2(result)) {
+      const clientWantsStream = wireBody.stream === true || wireBody.stream === "true";
+      if (!clientWantsStream) {
+        const accumulated = await accumulateCanonicalStream(result);
+        backfillInputTokens2(accumulated, wireBody);
+        const response2 = openAICanonicalResponse(accumulated, route.path, wireBody);
+        if (context.onProxy) {
+          context.onProxy({
+            label: this.upstreamLogLabel,
+            method: "POST",
+            target: this.upstreamTarget,
+            status: 200,
+            durationMs,
+            error: "-",
+            requestBody: proxyRequestBody,
+            responseBody: shouldCaptureProxyBody ? upstreamResponsePreview?.text() || undefined : undefined
+          });
+        }
+        return response2;
+      }
+      const proxyLog = context.onProxy ? {
+        label: this.upstreamLogLabel,
+        method: "POST",
+        target: this.upstreamTarget,
+        status: result.status,
+        durationMs,
+        error: "-",
+        requestBody: proxyRequestBody,
+        responseBody: shouldCaptureProxyBody ? upstreamResponsePreview?.text() || undefined : undefined
+      } : undefined;
+      if (proxyLog)
+        context.onProxy?.(proxyLog);
+      const response = openAICanonicalStreamResponse(result, route.path, wireBody);
+      if (!response.body || !shouldCaptureProxyBody || !proxyLog)
+        return response;
+      return interceptResponseStream(response, {
+        onComplete: (responseBody) => {
+          proxyLog.responseBody = upstreamResponsePreview?.text() || responseBody;
+        }
+      });
+    }
+    return unexpectedNonPassthroughResponse();
+  }
+  upstreamMismatch(upstream) {
+    if (!this.expectedUpstreamKind || upstream.providerKind === this.expectedUpstreamKind)
+      return;
+    return `OpenAI inbound provider '${this.name}' expected ${this.expectedUpstreamKind} upstream, received ${upstream.providerKind}`;
+  }
+}
+function unexpectedNonPassthroughResponse() {
+  return Response.json({
+    error: {
+      message: "Unexpected non-passthrough response for OpenAI inbound provider"
+    }
+  }, { status: 500 });
+}
+function isCanonicalPassthrough2(result) {
+  return result.type === "canonical_passthrough";
+}
+function isCanonicalError2(result) {
+  return result.type === "canonical_error";
+}
+function isCanonicalResponse2(result) {
+  return result.type === "canonical_response";
+}
+function isCanonicalStream2(result) {
+  return result.type === "canonical_stream";
+}
+function backfillInputTokens2(response, wireBody) {
+  if (response.usage.inputTokens === 0) {
+    response.usage.inputTokens = countTokens(JSON.stringify(wireBody));
+  }
+}
+function previewText2(text) {
+  return redactSensitiveText(text).slice(0, LOG_BODY_PREVIEW_LIMIT);
+}
+function openAIErrorResponse(message, status, type, sourceHeaders = new Headers) {
+  const headers = responseHeaders(sourceHeaders);
+  headers.set("content-type", "application/json; charset=utf-8");
+  return Response.json({
+    error: {
+      message,
+      type,
+      param: null,
+      code: null
+    }
+  }, { status, headers });
+}
+function validateOpenAIRequestShape(pathname, body) {
+  if (!hasRequiredModel(body))
+    return "Missing required parameter: 'model'.";
+  if (pathname === "/v1/embeddings") {
+    if (typeof body.input !== "string" && !Array.isArray(body.input))
+      return "Embeddings request requires `input` (string or array).";
+    return;
+  }
+  if (pathname === "/v1/responses") {
+    if ("messages" in body)
+      return "Unsupported parameter: 'messages'. Use 'input' with /v1/responses.";
+    if ("response_format" in body)
+      return "Unsupported parameter: 'response_format'. Use 'text.format' with /v1/responses.";
+    if (!hasResponsesInput(body.input))
+      return "Missing required parameter: 'input'.";
+    return;
+  }
+  if (pathname === "/v1/chat/completions") {
+    if ("input" in body)
+      return "Unsupported parameter: 'input'. Use 'messages' with /v1/chat/completions.";
+    if ("text" in body)
+      return "Unsupported parameter: 'text'. Use 'response_format' with /v1/chat/completions.";
+    if (!Array.isArray(body.messages) || body.messages.length === 0)
+      return "Missing required parameter: 'messages'.";
+  }
+}
+function hasRequiredModel(body) {
+  return typeof body.model === "string" && body.model.trim().length > 0;
+}
+function hasResponsesInput(value) {
+  if (typeof value === "string")
+    return value.length > 0;
+  return Array.isArray(value) && value.length > 0;
+}
+function isJsonObject3(value) {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+function passthroughBodyInit(body) {
+  if (body instanceof Uint8Array)
+    return body.buffer.slice(body.byteOffset, body.byteOffset + body.byteLength);
+  return body;
+}
+
+// src/app/endpoint-share.ts
+var ENDPOINT_PROXY_ROUTES = [
+  ...CLAUDE_PROXY_ROUTES,
+  ...OPENAI_PROXY_ROUTES
+];
+function endpointProxyRoute(endpoint) {
+  return ENDPOINT_PROXY_ROUTES.find((route) => route.endpoint === endpoint) ?? ENDPOINT_PROXY_ROUTES[0];
+}
+function endpointProxyProviderName(mode) {
+  return mode === "codex" ? "openai" : `openai-${mode}`;
+}
+function endpointProxyProviderLabel(mode) {
+  return mode === "codex" ? "Codex" : mode === "kiro" ? "Kiro" : "Copilot";
+}
+function resolveEndpointProxyStoredTarget(mode, endpoint, proxy) {
+  return proxy?.[endpoint] ?? "self";
+}
+function normalizeEndpointProxyTarget(mode, endpoint, target) {
+  if (!target)
+    return;
+  if (endpoint === "embeddings") {
+    if (target === "self")
+      return mode === "copilot" ? "self" : undefined;
+    if (target === "copilot")
+      return mode === "copilot" ? "self" : "copilot";
+    return;
+  }
+  if (target === "self" || target === mode)
+    return "self";
+  if (target === "codex" || target === "kiro" || target === "copilot")
+    return target;
+  return;
+}
+function normalizeEndpointProxyMap(mode, proxy) {
+  const next = {};
+  for (const route of ENDPOINT_PROXY_ROUTES) {
+    const normalized = normalizeEndpointProxyTarget(mode, route.endpoint, proxy?.[route.endpoint]);
+    if (normalized && normalized !== "self")
+      next[route.endpoint] = normalized;
+  }
+  return next;
+}
+async function readEndpointProxyMap(mode, filePath) {
+  const section = await readProviderSection(mode, filePath);
+  return normalizeStoredEndpointProxyMap(section?.endpointProxy);
+}
+async function writeEndpointProxyMap(mode, filePath, proxy) {
+  await updateProviderSection(mode, filePath, async (section) => {
+    const normalized = normalizeEndpointProxyMap(mode, proxy);
+    return {
+      ...section ?? {},
+      endpointProxy: Object.keys(normalized).length ? normalized : undefined
+    };
+  });
+}
+function resolveEndpointProxySourceMode(mode, endpoint, proxy) {
+  const target = normalizeEndpointProxyTarget(mode, endpoint, resolveEndpointProxyStoredTarget(mode, endpoint, proxy));
+  if (!target)
+    return;
+  if (target === "self")
+    return mode;
+  return target;
+}
+function resolveEndpointProxyDisplayValue(mode, endpoint, proxy) {
+  const sourceMode = resolveEndpointProxySourceMode(mode, endpoint, proxy);
+  if (!sourceMode)
+    return "Unavailable";
+  return sourceMode === mode ? "self" : endpointProxyProviderLabel(sourceMode);
+}
+function endpointProxyRouteProvider(sourceMode, endpoint, upstream) {
+  const route = endpointProxyRoute(endpoint);
+  const upstreamLabels = {
+    codex: {
+      messages: "Codex messages",
+      count_tokens: "Codex input tokens",
+      openai: "Codex responses"
+    },
+    kiro: {
+      messages: "Kiro messages",
+      count_tokens: "Kiro input tokens",
+      openai: "Kiro OpenAI"
+    },
+    copilot: {
+      messages: "Copilot messages",
+      count_tokens: "Copilot input tokens",
+      openai: "Copilot OpenAI"
+    }
+  }[sourceMode];
+  if (route.family === "claude") {
+    const upstreamWithModels = upstream;
+    return new Claude_Inbound_Provider({
+      name: `claude-${sourceMode}`,
+      modelResolver: () => upstreamWithModels.listModels(),
+      upstreamLogLabel: route.endpoint === "messages" ? upstreamLabels.messages : upstreamLabels.count_tokens,
+      inputTokensLogLabel: upstreamLabels.count_tokens,
+      expectedUpstreamKind: sourceMode,
+      localCountTokens: sourceMode === "kiro",
+      countTokens: sourceMode === "kiro" ? countKiroClaudeInputTokens : undefined,
+      routes: route.routes
+    });
+  }
+  return new OpenAI_Inbound_Provider({
+    name: endpointProxyProviderName(sourceMode),
+    passthrough: sourceMode === "codex",
+    upstreamLogLabel: upstreamLabels.openai,
+    upstreamTarget: "upstream",
+    expectedUpstreamKind: sourceMode,
+    routes: route.routes
+  });
+}
+function bindInboundProvider(provider, upstream) {
+  return new BoundInboundProvider(provider, upstream);
+}
+function buildEndpointProxyProvider(sourceMode, endpoint, upstream) {
+  return bindInboundProvider(endpointProxyRouteProvider(sourceMode, endpoint, upstream), upstream);
+}
+async function canUseEndpointProxySource(mode, endpoint, proxy) {
+  const sourceMode = resolveEndpointProxySourceMode(mode, endpoint, proxy);
+  if (!sourceMode)
+    return false;
+  if (endpoint === "embeddings" && sourceMode !== "copilot")
+    return false;
+  return providerHasConnectedAccounts(sourceMode);
+}
+function normalizeStoredEndpointProxyMap(proxy) {
+  if (!proxy)
+    return {};
+  const next = {};
+  for (const route of ENDPOINT_PROXY_ROUTES) {
+    const value = proxy[route.endpoint];
+    if (value === "self" || value === "codex" || value === "kiro" || value === "copilot")
+      next[route.endpoint] = value;
+  }
+  return next;
+}
+
+class BoundInboundProvider {
+  provider;
+  upstream;
+  name;
+  constructor(provider, upstream) {
+    this.provider = provider;
+    this.upstream = upstream;
+    this.name = provider.name;
+  }
+  routes() {
+    return this.provider.routes();
+  }
+  handle(request, route, _upstream, context) {
+    return this.provider.handle(request, route, this.upstream, context);
+  }
 }
 
 // src/app/provider-config.ts
@@ -45285,52 +45497,57 @@ function errorMessage2(error) {
 async function bootstrapRuntime(options) {
   const configMode = options?.providerMode ? undefined : await readProviderConfig(options?.providerConfigPath);
   const providerMode = options?.providerMode ?? resolveProviderMode(process.env.UPSTREAM_PROVIDER, configMode);
-  const isCopilot = providerMode === "copilot";
-  const isKiro = providerMode === "kiro";
-  if (isCopilot) {
-    const authFile2 = options?.authFile ?? process.env.COPILOT_AUTH_FILE ?? bunPath.join(appDataDir(), COPILOT_AUTH_FILE_NAME);
-    const authAccount2 = options?.authAccount ?? process.env.COPILOT_AUTH_ACCOUNT;
-    const ensuredAuthFile = await ensureCopilotAuthFile(authFile2);
-    const upstream2 = await Copilot_Upstream_Provider.fromAuthFile(ensuredAuthFile, { authAccount: authAccount2 });
-    const registry2 = new Provider_Registry;
-    registry2.register(new Claude_Copilot_Inbound_Adapter(() => upstream2.listModels()));
-    registry2.register(new OpenAI_Copilot_Inbound_Adapter);
-    return {
-      authFile: ensuredAuthFile,
-      authAccount: authAccount2,
-      registry: registry2,
-      upstream: upstream2
-    };
-  }
-  if (isKiro) {
-    const authAccount2 = options?.authAccount ?? process.env.KIRO_AUTH_ACCOUNT;
-    const requestedAuthFile = expandHome(options?.authFile ?? process.env.KIRO_AUTH_FILE ?? KIRO_AUTH_TOKEN_PATH);
-    const runtimeAuthFile = options?.authFile ? requestedAuthFile : bunPath.join(appDataDir(), KIRO_STATE_FILE_NAME);
-    const ensuredAuthFile = await ensureKiroAuthFile(runtimeAuthFile);
-    const upstream2 = await Kiro_Upstream_Provider.fromAuthFile(ensuredAuthFile, { authAccount: authAccount2 });
-    const registry2 = new Provider_Registry;
-    registry2.register(new Claude_Kiro_Inbound_Adapter(() => upstream2.listModels()));
-    registry2.register(new OpenAI_Kiro_Inbound_Adapter);
-    return {
-      authFile: ensuredAuthFile,
-      authAccount: authAccount2,
-      registry: registry2,
-      upstream: upstream2
-    };
-  }
-  const authFile = options?.authFile ?? (process.env.CODEX_AUTH_FILE ? resolveAuthFile(process.env.CODEX_AUTH_FILE) : providerStatePath());
-  const authAccount = options?.authAccount ?? process.env.CODEX_AUTH_ACCOUNT;
-  await ensureCodexAuthFile(authFile);
-  const upstream = await Codex_Upstream_Provider.fromAuthFile(authFile, { authAccount });
+  const activeRuntime = await createProviderRuntime(providerMode, options);
   const registry = new Provider_Registry;
-  registry.register(new Claude_Codex_Inbound_Adapter(() => upstream.listModels()));
-  registry.register(new OpenAI_Inbound_Provider({ expectedUpstreamKind: "codex" }));
+  registerClaudeProvider(providerMode, activeRuntime.upstream, registry);
+  await registerEndpointProxyProviders(providerMode, activeRuntime, registry);
   return {
-    authFile,
-    authAccount,
+    authFile: activeRuntime.authFile,
+    authAccount: activeRuntime.authAccount,
     registry,
-    upstream
+    upstream: activeRuntime.upstream
   };
+}
+function registerClaudeProvider(mode, upstream, registry) {
+  const upstreamWithModels = upstream;
+  if (mode === "copilot") {
+    registry.register(new Claude_Copilot_Inbound_Adapter(() => upstreamWithModels.listModels(), CLAUDE_MODEL_ROUTES));
+    return;
+  }
+  if (mode === "kiro") {
+    registry.register(new Claude_Kiro_Inbound_Adapter(() => upstreamWithModels.listModels(), CLAUDE_MODEL_ROUTES));
+    return;
+  }
+  registry.register(new Claude_Codex_Inbound_Adapter(() => upstreamWithModels.listModels(), CLAUDE_MODEL_ROUTES));
+}
+async function registerEndpointProxyProviders(mode, activeRuntime, registry) {
+  const endpointProxy = await readEndpointProxyMap(mode);
+  const sourceRuntimeCache = new Map;
+  for (const route of ENDPOINT_PROXY_ROUTES) {
+    const sourceMode = resolveEndpointProxySourceMode(mode, route.endpoint, endpointProxy);
+    if (!sourceMode)
+      continue;
+    if (route.endpoint === "embeddings" && sourceMode !== "copilot")
+      continue;
+    const sourceRuntime = sourceMode === mode ? activeRuntime : await loadSourceRuntime(sourceMode, sourceRuntimeCache);
+    if (!sourceRuntime)
+      continue;
+    registry.register(buildEndpointProxyProvider(sourceMode, route.endpoint, sourceRuntime.upstream));
+  }
+}
+async function loadSourceRuntime(mode, cache) {
+  const cached = cache.get(mode);
+  if (cached)
+    return cached;
+  if (!await providerHasConnectedAccounts(mode))
+    return;
+  try {
+    const runtime = await createProviderRuntime(mode);
+    cache.set(mode, runtime);
+    return runtime;
+  } catch {
+    return;
+  }
 }
 
 // src/core/auth-guard.ts
@@ -45857,12 +46074,10 @@ async function startRuntimeWithBootstrap(options, bootstrap) {
       console.log(`Claude tokens:    ${localUrl}/v1/messages/count_tokens`);
     if (hasRoute(routes, "GET", "/v1/models"))
       console.log(`Models:           ${localUrl}/v1/models`);
-    if (hasRoute(routes, "POST", "/v1/responses"))
-      console.log(`Responses:        ${localUrl}/v1/responses`);
-    if (hasRoute(routes, "POST", "/v1/chat/completions"))
-      console.log(`Chat completions: ${localUrl}/v1/chat/completions`);
-    if (hasRoute(routes, "POST", "/v1/embeddings"))
-      console.log(`Embeddings:       ${localUrl}/v1/embeddings`);
+    for (const route of OPENAI_PROXY_ROUTES) {
+      if (hasRoute(routes, route.method, route.path))
+        console.log(`${route.label}: ${localUrl}${route.path}`);
+    }
     if (upstream.usage)
       console.log(`Usage:            ${localUrl}/usage`);
     if (upstream.environments)
@@ -45905,13 +46120,12 @@ function isPortInUseError(error) {
   return message.includes("EADDRINUSE") || message.toLowerCase().includes("address already in use");
 }
 function runtimeEndpoints(routes, upstream) {
+  const openAIEndpoints = Object.fromEntries(OPENAI_PROXY_ROUTES.filter((route) => hasRoute(routes, route.method, route.path)).map((route) => [route.endpoint, route.path]));
   return {
     ...hasRoute(routes, "POST", "/v1/messages") ? { messages: "/v1/messages" } : {},
     ...hasRoute(routes, "POST", "/v1/messages/count_tokens") ? { count_tokens: "/v1/messages/count_tokens" } : {},
     ...hasRoute(routes, "GET", "/v1/models") ? { models: "/v1/models" } : {},
-    ...hasRoute(routes, "POST", "/v1/responses") ? { responses: "/v1/responses" } : {},
-    ...hasRoute(routes, "POST", "/v1/chat/completions") ? { chat_completions: "/v1/chat/completions" } : {},
-    ...hasRoute(routes, "POST", "/v1/embeddings") ? { embeddings: "/v1/embeddings" } : {},
+    ...openAIEndpoints,
     ...upstream.usage ? { usage: "/usage" } : {},
     ...upstream.environments ? { environments: "/environments" } : {},
     health: "/health",
@@ -55333,6 +55547,7 @@ var SHARED_COMMANDS_BEFORE = [
   { name: "/logs", description: "Show recent runtime request logs" }
 ];
 var SHARED_COMMANDS_AFTER = [
+  { name: "/endpoint-share", description: "Share an endpoint to another provider" },
   { name: "/set-claude-env", description: "Edit and apply Claude Code environment exports" },
   { name: "/unset-claude-env", description: "Unset Claude Code environment variables" }
 ];
@@ -56310,27 +56525,214 @@ function ConnectSourceSelector(props) {
   }, undefined, true, undefined, this);
 }
 
-// src/ui/components/account-info-panel.tsx
+// src/ui/components/endpoint-share-wizard.tsx
 var jsx_dev_runtime11 = __toESM(require_jsx_dev_runtime(), 1);
+function EndpointShareWizard(props) {
+  const selectedEndpoint = props.endpointOptions[props.selectedEndpoint];
+  const selectedSource = props.sourceOptions[props.selectedSource];
+  return /* @__PURE__ */ jsx_dev_runtime11.jsxDEV(Box_default, {
+    flexDirection: "column",
+    marginTop: 1,
+    children: [
+      /* @__PURE__ */ jsx_dev_runtime11.jsxDEV(Text, {
+        color: "#aab3cf",
+        children: "\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500"
+      }, undefined, false, undefined, this),
+      /* @__PURE__ */ jsx_dev_runtime11.jsxDEV(Box_default, {
+        marginTop: 1,
+        children: [
+          /* @__PURE__ */ jsx_dev_runtime11.jsxDEV(Text, {
+            bold: true,
+            color: "#c7d2fe",
+            children: "Endpoint share"
+          }, undefined, false, undefined, this),
+          /* @__PURE__ */ jsx_dev_runtime11.jsxDEV(Text, {
+            color: "gray",
+            children: "  \u2191/\u2193 choose \xB7 Enter continue \xB7 Esc cancel"
+          }, undefined, false, undefined, this)
+        ]
+      }, undefined, true, undefined, this),
+      /* @__PURE__ */ jsx_dev_runtime11.jsxDEV(Box_default, {
+        marginTop: 1,
+        children: [
+          /* @__PURE__ */ jsx_dev_runtime11.jsxDEV(Text, {
+            color: "gray",
+            children: "Current provider: "
+          }, undefined, false, undefined, this),
+          /* @__PURE__ */ jsx_dev_runtime11.jsxDEV(Text, {
+            bold: true,
+            color: "#f8fafc",
+            children: providerLabel(props.providerMode)
+          }, undefined, false, undefined, this)
+        ]
+      }, undefined, true, undefined, this),
+      props.step === 0 && /* @__PURE__ */ jsx_dev_runtime11.jsxDEV(Box_default, {
+        marginTop: 1,
+        flexDirection: "column",
+        children: [
+          /* @__PURE__ */ jsx_dev_runtime11.jsxDEV(Text, {
+            color: "gray",
+            children: "Select the endpoint to proxy."
+          }, undefined, false, undefined, this),
+          props.endpointOptions.map((option, index) => /* @__PURE__ */ jsx_dev_runtime11.jsxDEV(Box_default, {
+            children: [
+              /* @__PURE__ */ jsx_dev_runtime11.jsxDEV(Box_default, {
+                width: 4,
+                children: /* @__PURE__ */ jsx_dev_runtime11.jsxDEV(Text, {
+                  color: index === props.selectedEndpoint ? "#d97757" : "gray",
+                  children: [
+                    index === props.selectedEndpoint ? "\u203A" : " ",
+                    index + 1,
+                    "."
+                  ]
+                }, undefined, true, undefined, this)
+              }, undefined, false, undefined, this),
+              /* @__PURE__ */ jsx_dev_runtime11.jsxDEV(Box_default, {
+                width: 24,
+                children: /* @__PURE__ */ jsx_dev_runtime11.jsxDEV(Text, {
+                  color: index === props.selectedEndpoint ? "white" : "#aab3cf",
+                  children: option.label
+                }, undefined, false, undefined, this)
+              }, undefined, false, undefined, this),
+              /* @__PURE__ */ jsx_dev_runtime11.jsxDEV(Text, {
+                color: option.value === "Unavailable" ? "red" : "gray",
+                children: option.value
+              }, undefined, false, undefined, this)
+            ]
+          }, option.endpoint, true, undefined, this))
+        ]
+      }, undefined, true, undefined, this),
+      props.step === 1 && /* @__PURE__ */ jsx_dev_runtime11.jsxDEV(Box_default, {
+        marginTop: 1,
+        flexDirection: "column",
+        children: [
+          /* @__PURE__ */ jsx_dev_runtime11.jsxDEV(Text, {
+            color: "gray",
+            children: [
+              "Select the source provider for ",
+              selectedEndpoint?.label ?? "this endpoint",
+              "."
+            ]
+          }, undefined, true, undefined, this),
+          props.sourceOptions.map((option, index) => /* @__PURE__ */ jsx_dev_runtime11.jsxDEV(Box_default, {
+            children: [
+              /* @__PURE__ */ jsx_dev_runtime11.jsxDEV(Box_default, {
+                width: 4,
+                children: /* @__PURE__ */ jsx_dev_runtime11.jsxDEV(Text, {
+                  color: index === props.selectedSource ? "#d97757" : "gray",
+                  children: [
+                    index === props.selectedSource ? "\u203A" : " ",
+                    index + 1,
+                    "."
+                  ]
+                }, undefined, true, undefined, this)
+              }, undefined, false, undefined, this),
+              /* @__PURE__ */ jsx_dev_runtime11.jsxDEV(Box_default, {
+                width: 16,
+                children: /* @__PURE__ */ jsx_dev_runtime11.jsxDEV(Text, {
+                  color: index === props.selectedSource ? "white" : option.available ? "#aab3cf" : "gray",
+                  children: [
+                    option.label,
+                    option.current ? " (current)" : "",
+                    index === props.selectedSource ? " \u2713" : ""
+                  ]
+                }, undefined, true, undefined, this)
+              }, undefined, false, undefined, this),
+              /* @__PURE__ */ jsx_dev_runtime11.jsxDEV(Text, {
+                color: option.available ? "gray" : "red",
+                children: option.description
+              }, undefined, false, undefined, this)
+            ]
+          }, `${option.target}-${index}`, true, undefined, this))
+        ]
+      }, undefined, true, undefined, this),
+      props.step === 2 && /* @__PURE__ */ jsx_dev_runtime11.jsxDEV(Box_default, {
+        marginTop: 1,
+        flexDirection: "column",
+        borderStyle: "round",
+        borderColor: "#7f4f45",
+        paddingX: 1,
+        paddingY: 1,
+        children: [
+          /* @__PURE__ */ jsx_dev_runtime11.jsxDEV(Text, {
+            bold: true,
+            color: "#d97757",
+            children: "Confirm route proxy"
+          }, undefined, false, undefined, this),
+          /* @__PURE__ */ jsx_dev_runtime11.jsxDEV(Box_default, {
+            marginTop: 1,
+            children: [
+              /* @__PURE__ */ jsx_dev_runtime11.jsxDEV(Text, {
+                color: "gray",
+                children: "Endpoint: "
+              }, undefined, false, undefined, this),
+              /* @__PURE__ */ jsx_dev_runtime11.jsxDEV(Text, {
+                bold: true,
+                color: "#f8fafc",
+                children: selectedEndpoint?.label ?? "Unknown"
+              }, undefined, false, undefined, this),
+              /* @__PURE__ */ jsx_dev_runtime11.jsxDEV(Text, {
+                color: "gray",
+                children: " \u2192 "
+              }, undefined, false, undefined, this),
+              /* @__PURE__ */ jsx_dev_runtime11.jsxDEV(Text, {
+                bold: true,
+                color: "#f8fafc",
+                children: selectedSource?.label ?? "Unknown"
+              }, undefined, false, undefined, this)
+            ]
+          }, undefined, true, undefined, this),
+          /* @__PURE__ */ jsx_dev_runtime11.jsxDEV(Box_default, {
+            marginTop: 1,
+            flexDirection: "column",
+            children: [
+              /* @__PURE__ */ jsx_dev_runtime11.jsxDEV(Text, {
+                color: "yellow",
+                children: "This will update provider-state.json and restart the runtime."
+              }, undefined, false, undefined, this),
+              /* @__PURE__ */ jsx_dev_runtime11.jsxDEV(Text, {
+                color: "gray",
+                children: "Only OpenAI-compatible routes are affected."
+              }, undefined, false, undefined, this)
+            ]
+          }, undefined, true, undefined, this)
+        ]
+      }, undefined, true, undefined, this),
+      props.status && /* @__PURE__ */ jsx_dev_runtime11.jsxDEV(Box_default, {
+        marginTop: 1,
+        children: /* @__PURE__ */ jsx_dev_runtime11.jsxDEV(Text, {
+          color: props.saving ? "gray" : props.status.startsWith("Failed") ? "red" : "gray",
+          children: props.status
+        }, undefined, false, undefined, this)
+      }, undefined, false, undefined, this)
+    ]
+  }, undefined, true, undefined, this);
+}
+function providerLabel(mode) {
+  return mode === "codex" ? "Codex" : mode === "kiro" ? "Kiro" : "Copilot";
+}
+
+// src/ui/components/account-info-panel.tsx
+var jsx_dev_runtime12 = __toESM(require_jsx_dev_runtime(), 1);
 function AccountInfoPanel(props) {
   const mode = props.providerMode ?? "codex";
   if (mode === "kiro") {
     const info = props.kiroInfo;
     const tierLabel = info?.subscriptionTier ? formatTier(info.subscriptionTier) : undefined;
-    return /* @__PURE__ */ jsx_dev_runtime11.jsxDEV(Box_default, {
+    return /* @__PURE__ */ jsx_dev_runtime12.jsxDEV(Box_default, {
       flexDirection: "column",
       children: [
-        /* @__PURE__ */ jsx_dev_runtime11.jsxDEV(Text, {
+        /* @__PURE__ */ jsx_dev_runtime12.jsxDEV(Text, {
           bold: true,
           color: "#a58a86",
           children: "Account info"
         }, undefined, false, undefined, this),
-        /* @__PURE__ */ jsx_dev_runtime11.jsxDEV(Text, {
+        /* @__PURE__ */ jsx_dev_runtime12.jsxDEV(Text, {
           color: "#aab3cf",
           wrap: "truncate-end",
           children: info?.email ?? props.account?.name ?? "unknown"
         }, undefined, false, undefined, this),
-        /* @__PURE__ */ jsx_dev_runtime11.jsxDEV(Text, {
+        /* @__PURE__ */ jsx_dev_runtime12.jsxDEV(Text, {
           color: "#aab3cf",
           wrap: "truncate-end",
           children: [
@@ -56338,7 +56740,7 @@ function AccountInfoPanel(props) {
             tierLabel ? ` \xB7 ${tierLabel}` : ""
           ]
         }, undefined, true, undefined, this),
-        /* @__PURE__ */ jsx_dev_runtime11.jsxDEV(Text, {
+        /* @__PURE__ */ jsx_dev_runtime12.jsxDEV(Text, {
           color: "#aab3cf",
           wrap: "truncate-end",
           children: [
@@ -56346,7 +56748,7 @@ function AccountInfoPanel(props) {
             info?.region ?? "unknown"
           ]
         }, undefined, true, undefined, this),
-        info?.profileArn && /* @__PURE__ */ jsx_dev_runtime11.jsxDEV(Text, {
+        info?.profileArn && /* @__PURE__ */ jsx_dev_runtime12.jsxDEV(Text, {
           color: "#aab3cf",
           wrap: "truncate-end",
           children: [
@@ -56359,20 +56761,20 @@ function AccountInfoPanel(props) {
   }
   if (mode === "copilot") {
     const info = props.copilotInfo;
-    return /* @__PURE__ */ jsx_dev_runtime11.jsxDEV(Box_default, {
+    return /* @__PURE__ */ jsx_dev_runtime12.jsxDEV(Box_default, {
       flexDirection: "column",
       children: [
-        /* @__PURE__ */ jsx_dev_runtime11.jsxDEV(Text, {
+        /* @__PURE__ */ jsx_dev_runtime12.jsxDEV(Text, {
           bold: true,
           color: "#a58a86",
           children: "Account info"
         }, undefined, false, undefined, this),
-        /* @__PURE__ */ jsx_dev_runtime11.jsxDEV(Text, {
+        /* @__PURE__ */ jsx_dev_runtime12.jsxDEV(Text, {
           color: "#aab3cf",
           wrap: "truncate-end",
           children: info?.email ?? props.account?.name ?? "unknown"
         }, undefined, false, undefined, this),
-        /* @__PURE__ */ jsx_dev_runtime11.jsxDEV(Text, {
+        /* @__PURE__ */ jsx_dev_runtime12.jsxDEV(Text, {
           color: "#aab3cf",
           wrap: "truncate-end",
           children: [
@@ -56380,7 +56782,7 @@ function AccountInfoPanel(props) {
             info?.plan ? ` \xB7 ${formatPlan(info.plan)}` : ""
           ]
         }, undefined, true, undefined, this),
-        /* @__PURE__ */ jsx_dev_runtime11.jsxDEV(Text, {
+        /* @__PURE__ */ jsx_dev_runtime12.jsxDEV(Text, {
           color: "#aab3cf",
           wrap: "truncate-end",
           children: [
@@ -56388,7 +56790,7 @@ function AccountInfoPanel(props) {
             info?.accountType ?? "individual"
           ]
         }, undefined, true, undefined, this),
-        info?.authFilePath && /* @__PURE__ */ jsx_dev_runtime11.jsxDEV(Text, {
+        info?.authFilePath && /* @__PURE__ */ jsx_dev_runtime12.jsxDEV(Text, {
           color: "#aab3cf",
           wrap: "truncate-end",
           children: [
@@ -56399,15 +56801,15 @@ function AccountInfoPanel(props) {
       ]
     }, undefined, true, undefined, this);
   }
-  return /* @__PURE__ */ jsx_dev_runtime11.jsxDEV(Box_default, {
+  return /* @__PURE__ */ jsx_dev_runtime12.jsxDEV(Box_default, {
     flexDirection: "column",
     children: [
-      /* @__PURE__ */ jsx_dev_runtime11.jsxDEV(Text, {
+      /* @__PURE__ */ jsx_dev_runtime12.jsxDEV(Text, {
         bold: true,
         color: "#a58a86",
         children: "Account info"
       }, undefined, false, undefined, this),
-      /* @__PURE__ */ jsx_dev_runtime11.jsxDEV(Text, {
+      /* @__PURE__ */ jsx_dev_runtime12.jsxDEV(Text, {
         color: "#aab3cf",
         wrap: "truncate-end",
         children: accountInfo(props.account, props.info)
@@ -56432,47 +56834,47 @@ function formatPlan(raw) {
 
 // src/ui/components/limits-panel.tsx
 var import_react34 = __toESM(require_react(), 1);
-var jsx_dev_runtime12 = __toESM(require_jsx_dev_runtime(), 1);
+var jsx_dev_runtime13 = __toESM(require_jsx_dev_runtime(), 1);
 function LimitsPanel(props) {
   const mode = props.providerMode ?? "codex";
   const spinner = useSpinner(props.loading);
   if (mode === "kiro") {
     const hasLimits = props.limitGroups.length > 0;
-    return /* @__PURE__ */ jsx_dev_runtime12.jsxDEV(Box_default, {
+    return /* @__PURE__ */ jsx_dev_runtime13.jsxDEV(Box_default, {
       flexDirection: "column",
       marginTop: 1,
       children: [
-        /* @__PURE__ */ jsx_dev_runtime12.jsxDEV(Box_default, {
+        /* @__PURE__ */ jsx_dev_runtime13.jsxDEV(Box_default, {
           children: [
-            /* @__PURE__ */ jsx_dev_runtime12.jsxDEV(Text, {
+            /* @__PURE__ */ jsx_dev_runtime13.jsxDEV(Text, {
               bold: true,
               color: "#a58a86",
               children: "Limits"
             }, undefined, false, undefined, this),
-            /* @__PURE__ */ jsx_dev_runtime12.jsxDEV(Box_default, {
+            /* @__PURE__ */ jsx_dev_runtime13.jsxDEV(Box_default, {
               marginLeft: 1,
-              children: /* @__PURE__ */ jsx_dev_runtime12.jsxDEV(Text, {
+              children: /* @__PURE__ */ jsx_dev_runtime13.jsxDEV(Text, {
                 color: "#aab3cf",
                 children: spinner
               }, undefined, false, undefined, this)
             }, undefined, false, undefined, this)
           ]
         }, undefined, true, undefined, this),
-        props.error && /* @__PURE__ */ jsx_dev_runtime12.jsxDEV(Text, {
+        props.error && /* @__PURE__ */ jsx_dev_runtime13.jsxDEV(Text, {
           color: "yellow",
           wrap: "truncate-end",
           children: props.error
         }, undefined, false, undefined, this),
-        hasLimits && props.limitGroups.map((group, groupIndex) => /* @__PURE__ */ jsx_dev_runtime12.jsxDEV(Box_default, {
+        hasLimits && props.limitGroups.map((group, groupIndex) => /* @__PURE__ */ jsx_dev_runtime13.jsxDEV(Box_default, {
           flexDirection: "column",
           marginTop: group.title && groupIndex > 0 ? 1 : 0,
           children: [
-            group.title && /* @__PURE__ */ jsx_dev_runtime12.jsxDEV(Text, {
+            group.title && /* @__PURE__ */ jsx_dev_runtime13.jsxDEV(Text, {
               color: "gray",
               wrap: "truncate-end",
               children: group.title
             }, undefined, false, undefined, this),
-            group.rows.map((row) => /* @__PURE__ */ jsx_dev_runtime12.jsxDEV(LimitRow, {
+            group.rows.map((row) => /* @__PURE__ */ jsx_dev_runtime13.jsxDEV(LimitRow, {
               label: row.label,
               used: row.used,
               left: row.left,
@@ -56482,7 +56884,7 @@ function LimitsPanel(props) {
             }, `kiro-${group.title ?? "default"}-${row.label}`, false, undefined, this))
           ]
         }, `kiro-${group.title ?? "default"}-${groupIndex}`, true, undefined, this)),
-        !props.loading && !hasLimits && !props.error && /* @__PURE__ */ jsx_dev_runtime12.jsxDEV(Text, {
+        !props.loading && !hasLimits && !props.error && /* @__PURE__ */ jsx_dev_runtime13.jsxDEV(Text, {
           color: "gray",
           wrap: "truncate-end",
           children: "No account credit limits available"
@@ -56490,44 +56892,44 @@ function LimitsPanel(props) {
       ]
     }, undefined, true, undefined, this);
   }
-  return /* @__PURE__ */ jsx_dev_runtime12.jsxDEV(Box_default, {
+  return /* @__PURE__ */ jsx_dev_runtime13.jsxDEV(Box_default, {
     flexDirection: "column",
     marginTop: 1,
     children: [
-      /* @__PURE__ */ jsx_dev_runtime12.jsxDEV(Box_default, {
+      /* @__PURE__ */ jsx_dev_runtime13.jsxDEV(Box_default, {
         children: [
-          /* @__PURE__ */ jsx_dev_runtime12.jsxDEV(Text, {
+          /* @__PURE__ */ jsx_dev_runtime13.jsxDEV(Text, {
             bold: true,
             color: "#a58a86",
             children: "Limits"
           }, undefined, false, undefined, this),
-          /* @__PURE__ */ jsx_dev_runtime12.jsxDEV(Box_default, {
+          /* @__PURE__ */ jsx_dev_runtime13.jsxDEV(Box_default, {
             marginLeft: 1,
-            children: /* @__PURE__ */ jsx_dev_runtime12.jsxDEV(Text, {
+            children: /* @__PURE__ */ jsx_dev_runtime13.jsxDEV(Text, {
               color: "#aab3cf",
               children: spinner
             }, undefined, false, undefined, this)
           }, undefined, false, undefined, this)
         ]
       }, undefined, true, undefined, this),
-      props.error && /* @__PURE__ */ jsx_dev_runtime12.jsxDEV(Text, {
+      props.error && /* @__PURE__ */ jsx_dev_runtime13.jsxDEV(Text, {
         color: "red",
         children: props.error
       }, undefined, false, undefined, this),
-      !props.loading && !props.error && !props.limitGroups.length && /* @__PURE__ */ jsx_dev_runtime12.jsxDEV(Text, {
+      !props.loading && !props.error && !props.limitGroups.length && /* @__PURE__ */ jsx_dev_runtime13.jsxDEV(Text, {
         color: "gray",
         children: "No limits available"
       }, undefined, false, undefined, this),
-      props.limitGroups.map((group, groupIndex) => /* @__PURE__ */ jsx_dev_runtime12.jsxDEV(Box_default, {
+      props.limitGroups.map((group, groupIndex) => /* @__PURE__ */ jsx_dev_runtime13.jsxDEV(Box_default, {
         flexDirection: "column",
         marginTop: group.title && groupIndex > 0 ? 1 : 0,
         children: [
-          group.title && /* @__PURE__ */ jsx_dev_runtime12.jsxDEV(Text, {
+          group.title && /* @__PURE__ */ jsx_dev_runtime13.jsxDEV(Text, {
             color: "gray",
             wrap: "truncate-end",
             children: group.title
           }, undefined, false, undefined, this),
-          group.rows.map((row) => /* @__PURE__ */ jsx_dev_runtime12.jsxDEV(LimitRow, {
+          group.rows.map((row) => /* @__PURE__ */ jsx_dev_runtime13.jsxDEV(LimitRow, {
             label: row.label,
             used: row.used,
             left: row.left,
@@ -56544,22 +56946,22 @@ function LimitRow(props) {
   const labelWidth = props.compact ? Math.max(12, Math.min(18, Math.floor((props.width ?? 48) * 0.35))) : 21;
   const leftWidth = props.compact ? Math.max(10, Math.min(18, Math.floor((props.width ?? 48) * 0.35))) : 16;
   if (props.compact) {
-    return /* @__PURE__ */ jsx_dev_runtime12.jsxDEV(Box_default, {
+    return /* @__PURE__ */ jsx_dev_runtime13.jsxDEV(Box_default, {
       flexDirection: "column",
       children: [
-        /* @__PURE__ */ jsx_dev_runtime12.jsxDEV(Box_default, {
+        /* @__PURE__ */ jsx_dev_runtime13.jsxDEV(Box_default, {
           children: [
-            /* @__PURE__ */ jsx_dev_runtime12.jsxDEV(Box_default, {
+            /* @__PURE__ */ jsx_dev_runtime13.jsxDEV(Box_default, {
               width: labelWidth,
-              children: /* @__PURE__ */ jsx_dev_runtime12.jsxDEV(Text, {
+              children: /* @__PURE__ */ jsx_dev_runtime13.jsxDEV(Text, {
                 color: "gray",
                 wrap: "truncate-end",
                 children: props.label
               }, undefined, false, undefined, this)
             }, undefined, false, undefined, this),
-            /* @__PURE__ */ jsx_dev_runtime12.jsxDEV(Box_default, {
+            /* @__PURE__ */ jsx_dev_runtime13.jsxDEV(Box_default, {
               width: leftWidth,
-              children: /* @__PURE__ */ jsx_dev_runtime12.jsxDEV(Text, {
+              children: /* @__PURE__ */ jsx_dev_runtime13.jsxDEV(Text, {
                 bold: true,
                 wrap: "truncate-end",
                 children: props.left
@@ -56567,7 +56969,7 @@ function LimitRow(props) {
             }, undefined, false, undefined, this)
           ]
         }, undefined, true, undefined, this),
-        /* @__PURE__ */ jsx_dev_runtime12.jsxDEV(Text, {
+        /* @__PURE__ */ jsx_dev_runtime13.jsxDEV(Text, {
           color: "gray",
           wrap: "truncate-end",
           children: [
@@ -56579,22 +56981,22 @@ function LimitRow(props) {
       ]
     }, undefined, true, undefined, this);
   }
-  return /* @__PURE__ */ jsx_dev_runtime12.jsxDEV(Box_default, {
+  return /* @__PURE__ */ jsx_dev_runtime13.jsxDEV(Box_default, {
     flexDirection: "column",
     children: [
-      /* @__PURE__ */ jsx_dev_runtime12.jsxDEV(Box_default, {
+      /* @__PURE__ */ jsx_dev_runtime13.jsxDEV(Box_default, {
         children: [
-          /* @__PURE__ */ jsx_dev_runtime12.jsxDEV(Box_default, {
+          /* @__PURE__ */ jsx_dev_runtime13.jsxDEV(Box_default, {
             width: labelWidth,
-            children: /* @__PURE__ */ jsx_dev_runtime12.jsxDEV(Text, {
+            children: /* @__PURE__ */ jsx_dev_runtime13.jsxDEV(Text, {
               color: "gray",
               wrap: "truncate-end",
               children: props.label
             }, undefined, false, undefined, this)
           }, undefined, false, undefined, this),
-          /* @__PURE__ */ jsx_dev_runtime12.jsxDEV(Box_default, {
+          /* @__PURE__ */ jsx_dev_runtime13.jsxDEV(Box_default, {
             width: leftWidth,
-            children: /* @__PURE__ */ jsx_dev_runtime12.jsxDEV(Text, {
+            children: /* @__PURE__ */ jsx_dev_runtime13.jsxDEV(Text, {
               bold: true,
               wrap: "truncate-end",
               children: props.left
@@ -56602,7 +57004,7 @@ function LimitRow(props) {
           }, undefined, false, undefined, this)
         ]
       }, undefined, true, undefined, this),
-      /* @__PURE__ */ jsx_dev_runtime12.jsxDEV(Text, {
+      /* @__PURE__ */ jsx_dev_runtime13.jsxDEV(Text, {
         color: "gray",
         wrap: "truncate-end",
         children: [
@@ -56631,62 +57033,112 @@ function useSpinner(active) {
 }
 
 // src/ui/components/welcome-panel.tsx
-var jsx_dev_runtime13 = __toESM(require_jsx_dev_runtime(), 1);
+var jsx_dev_runtime14 = __toESM(require_jsx_dev_runtime(), 1);
 function WelcomePanel(props) {
   const width = props.width ?? 42;
   const mode = props.providerMode ?? "codex";
   const title = `Codex2ClaudeCode - ${mode === "kiro" ? "Kiro" : mode === "copilot" ? "Copilot" : "Codex"} Mode`;
   const endpoints = welcomeEndpointLines(mode);
+  const endpointProxyLines = props.endpointProxyLines ?? [];
   const displayHostname = props.hostname === "0.0.0.0" || props.hostname === "::" ? "127.0.0.1" : props.hostname;
   const localUrl = `http://${displayHostname}:${props.port}`;
   const networkIp = getLocalNetworkIp();
   const networkUrl = networkIp ? `http://${networkIp}:${props.port}` : undefined;
-  return /* @__PURE__ */ jsx_dev_runtime13.jsxDEV(Box_default, {
+  return /* @__PURE__ */ jsx_dev_runtime14.jsxDEV(Box_default, {
     width,
     flexDirection: "column",
     paddingX: 1,
     children: [
-      /* @__PURE__ */ jsx_dev_runtime13.jsxDEV(Text, {
+      /* @__PURE__ */ jsx_dev_runtime14.jsxDEV(Text, {
         bold: true,
         wrap: "truncate-end",
         children: title
       }, undefined, false, undefined, this),
-      /* @__PURE__ */ jsx_dev_runtime13.jsxDEV(Box_default, {
+      /* @__PURE__ */ jsx_dev_runtime14.jsxDEV(Box_default, {
         marginTop: 1,
         flexDirection: "column",
         children: [
-          /* @__PURE__ */ jsx_dev_runtime13.jsxDEV(Text, {
+          /* @__PURE__ */ jsx_dev_runtime14.jsxDEV(Text, {
             bold: true,
             color: "#a58a86",
             children: "Connect"
           }, undefined, false, undefined, this),
-          /* @__PURE__ */ jsx_dev_runtime13.jsxDEV(InfoLine, {
+          /* @__PURE__ */ jsx_dev_runtime14.jsxDEV(InfoLine, {
             label: "Local",
             value: localUrl
           }, undefined, false, undefined, this),
-          networkUrl && /* @__PURE__ */ jsx_dev_runtime13.jsxDEV(InfoLine, {
+          networkUrl && /* @__PURE__ */ jsx_dev_runtime14.jsxDEV(InfoLine, {
             label: "Network",
             value: networkUrl
           }, undefined, false, undefined, this),
-          /* @__PURE__ */ jsx_dev_runtime13.jsxDEV(InfoLine, {
+          /* @__PURE__ */ jsx_dev_runtime14.jsxDEV(InfoLine, {
             label: "Auth",
             value: props.apiPassword ? "enabled" : "none"
           }, undefined, false, undefined, this)
         ]
       }, undefined, true, undefined, this),
-      /* @__PURE__ */ jsx_dev_runtime13.jsxDEV(Box_default, {
+      /* @__PURE__ */ jsx_dev_runtime14.jsxDEV(Box_default, {
         marginTop: 1,
         flexDirection: "column",
         children: [
-          /* @__PURE__ */ jsx_dev_runtime13.jsxDEV(Text, {
+          /* @__PURE__ */ jsx_dev_runtime14.jsxDEV(Text, {
             bold: true,
             color: "#a58a86",
             children: "Supported endpoints"
           }, undefined, false, undefined, this),
-          endpoints.map((endpoint, index) => /* @__PURE__ */ jsx_dev_runtime13.jsxDEV(InfoLine, {
+          endpoints.map((endpoint, index) => /* @__PURE__ */ jsx_dev_runtime14.jsxDEV(InfoLine, {
             label: endpoint.label,
             value: endpoint.value
           }, `${endpoint.label}-${endpoint.value}-${index}`, false, undefined, this))
+        ]
+      }, undefined, true, undefined, this),
+      !!endpointProxyLines.length && /* @__PURE__ */ jsx_dev_runtime14.jsxDEV(Box_default, {
+        marginTop: 1,
+        flexDirection: "column",
+        children: [
+          /* @__PURE__ */ jsx_dev_runtime14.jsxDEV(Text, {
+            bold: true,
+            color: "#a58a86",
+            children: "Endpoint proxy"
+          }, undefined, false, undefined, this),
+          endpointProxyLines.map((endpoint, index) => /* @__PURE__ */ jsx_dev_runtime14.jsxDEV(Box_default, {
+            flexDirection: "column",
+            marginTop: index === 0 ? 0 : 1,
+            children: [
+              /* @__PURE__ */ jsx_dev_runtime14.jsxDEV(Box_default, {
+                children: [
+                  /* @__PURE__ */ jsx_dev_runtime14.jsxDEV(Box_default, {
+                    width: 14,
+                    children: /* @__PURE__ */ jsx_dev_runtime14.jsxDEV(Text, {
+                      color: "gray",
+                      children: `${endpoint.label}:`
+                    }, undefined, false, undefined, this)
+                  }, undefined, false, undefined, this),
+                  /* @__PURE__ */ jsx_dev_runtime14.jsxDEV(Text, {
+                    color: endpoint.available ? "#aab3cf" : "gray",
+                    wrap: "truncate-end",
+                    children: endpoint.available ? `\u2192 ${endpoint.source}` : endpoint.source
+                  }, undefined, false, undefined, this)
+                ]
+              }, undefined, true, undefined, this),
+              endpoint.available && /* @__PURE__ */ jsx_dev_runtime14.jsxDEV(Box_default, {
+                children: [
+                  /* @__PURE__ */ jsx_dev_runtime14.jsxDEV(Box_default, {
+                    width: 14,
+                    children: /* @__PURE__ */ jsx_dev_runtime14.jsxDEV(Text, {
+                      color: "gray",
+                      children: "Path:"
+                    }, undefined, false, undefined, this)
+                  }, undefined, false, undefined, this),
+                  /* @__PURE__ */ jsx_dev_runtime14.jsxDEV(Text, {
+                    color: "#aab3cf",
+                    wrap: "truncate-end",
+                    children: endpoint.path
+                  }, undefined, false, undefined, this)
+                ]
+              }, undefined, true, undefined, this)
+            ]
+          }, `${endpoint.label}-${endpoint.source}-${endpoint.path}-${index}`, true, undefined, this))
         ]
       }, undefined, true, undefined, this)
     ]
@@ -56726,16 +57178,16 @@ function welcomeEndpointLines(mode) {
   ];
 }
 function InfoLine(props) {
-  return /* @__PURE__ */ jsx_dev_runtime13.jsxDEV(Box_default, {
+  return /* @__PURE__ */ jsx_dev_runtime14.jsxDEV(Box_default, {
     children: [
-      /* @__PURE__ */ jsx_dev_runtime13.jsxDEV(Box_default, {
+      /* @__PURE__ */ jsx_dev_runtime14.jsxDEV(Box_default, {
         width: 10,
-        children: /* @__PURE__ */ jsx_dev_runtime13.jsxDEV(Text, {
+        children: /* @__PURE__ */ jsx_dev_runtime14.jsxDEV(Text, {
           color: "gray",
           children: props.label ? `${props.label}:` : ""
         }, undefined, false, undefined, this)
       }, undefined, false, undefined, this),
-      /* @__PURE__ */ jsx_dev_runtime13.jsxDEV(Text, {
+      /* @__PURE__ */ jsx_dev_runtime14.jsxDEV(Text, {
         color: "#aab3cf",
         wrap: "truncate-end",
         children: props.value
@@ -56745,11 +57197,11 @@ function InfoLine(props) {
 }
 
 // src/ui/components/provider-dashboard.tsx
-var jsx_dev_runtime14 = __toESM(require_jsx_dev_runtime(), 1);
+var jsx_dev_runtime15 = __toESM(require_jsx_dev_runtime(), 1);
 function ProviderDashboard(props) {
   const leftWidth = props.compact ? props.innerWidth : 42;
   const detailsWidth = props.compact ? props.innerWidth : Math.min(58, Math.max(42, props.contentWidth - 48));
-  return /* @__PURE__ */ jsx_dev_runtime14.jsxDEV(Box_default, {
+  return /* @__PURE__ */ jsx_dev_runtime15.jsxDEV(Box_default, {
     borderStyle: "round",
     borderColor: "#d97757",
     minHeight: props.compact ? undefined : 13,
@@ -56757,39 +57209,40 @@ function ProviderDashboard(props) {
     alignSelf: props.compact ? undefined : "flex-start",
     flexDirection: props.compact ? "column" : "row",
     children: [
-      /* @__PURE__ */ jsx_dev_runtime14.jsxDEV(WelcomePanel, {
+      /* @__PURE__ */ jsx_dev_runtime15.jsxDEV(WelcomePanel, {
         hostname: props.hostname,
         port: props.port,
         compact: props.compact,
         width: leftWidth,
         providerMode: props.providerMode,
-        apiPassword: props.apiPassword
+        apiPassword: props.apiPassword,
+        endpointProxyLines: props.endpointProxyLines
       }, undefined, false, undefined, this),
-      props.compact ? /* @__PURE__ */ jsx_dev_runtime14.jsxDEV(Text, {
+      props.compact ? /* @__PURE__ */ jsx_dev_runtime15.jsxDEV(Text, {
         color: "#7f4f45",
         children: "\u2500".repeat(props.innerWidth)
-      }, undefined, false, undefined, this) : /* @__PURE__ */ jsx_dev_runtime14.jsxDEV(Box_default, {
+      }, undefined, false, undefined, this) : /* @__PURE__ */ jsx_dev_runtime15.jsxDEV(Box_default, {
         width: 1,
         borderStyle: "single",
         borderColor: "#7f4f45"
       }, undefined, false, undefined, this),
-      /* @__PURE__ */ jsx_dev_runtime14.jsxDEV(Box_default, {
+      /* @__PURE__ */ jsx_dev_runtime15.jsxDEV(Box_default, {
         flexDirection: "column",
         paddingX: props.compact ? 1 : 2,
         marginTop: props.compact ? 1 : 0,
         width: detailsWidth,
         children: [
-          /* @__PURE__ */ jsx_dev_runtime14.jsxDEV(AccountInfoPanel, {
+          /* @__PURE__ */ jsx_dev_runtime15.jsxDEV(AccountInfoPanel, {
             account: props.account,
             info: props.activeAccountInfo,
             providerMode: props.providerMode,
             kiroInfo: props.providerInfo.mode === "kiro" ? props.providerInfo : undefined,
             copilotInfo: props.providerInfo.mode === "copilot" ? props.providerInfo : undefined
           }, undefined, false, undefined, this),
-          props.providerMode === "codex" && /* @__PURE__ */ jsx_dev_runtime14.jsxDEV(CodexFastModeStatus, {
+          props.providerMode === "codex" && /* @__PURE__ */ jsx_dev_runtime15.jsxDEV(CodexFastModeStatus, {
             enabled: props.codexFastMode
           }, undefined, false, undefined, this),
-          /* @__PURE__ */ jsx_dev_runtime14.jsxDEV(LimitsPanel, {
+          /* @__PURE__ */ jsx_dev_runtime15.jsxDEV(LimitsPanel, {
             limitGroups: props.limitGroups,
             loading: props.limitsLoading,
             error: props.limitsError,
@@ -56805,7 +57258,7 @@ function ProviderDashboard(props) {
 
 // src/ui/components/request-logs-panel.tsx
 var import_react35 = __toESM(require_react(), 1);
-var jsx_dev_runtime15 = __toESM(require_jsx_dev_runtime(), 1);
+var jsx_dev_runtime16 = __toESM(require_jsx_dev_runtime(), 1);
 var LOG_HEIGHT = 15;
 var REQUEST_LOG_DETAIL_HEIGHT = 16;
 var REQUEST_LOG_DETAIL_SCROLL_STEP = 1;
@@ -56840,41 +57293,41 @@ function RequestLogsPanel(props) {
   const errorCount = props.logs.filter((l) => l.error !== "-" || l.proxy?.error !== undefined && l.proxy.error !== "-").length;
   const loadingFrame = useSpinner2(pendingCount > 0);
   const now2 = useNow(pendingCount > 0);
-  return /* @__PURE__ */ jsx_dev_runtime15.jsxDEV(Box_default, {
+  return /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Box_default, {
     flexDirection: "column",
     marginTop: 1,
     children: [
-      /* @__PURE__ */ jsx_dev_runtime15.jsxDEV(Text, {
+      /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Text, {
         color: "#aab3cf",
         children: "\u2500".repeat(table.width)
       }, undefined, false, undefined, this),
-      /* @__PURE__ */ jsx_dev_runtime15.jsxDEV(Box_default, {
+      /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Box_default, {
         width: table.width,
         flexDirection: "column",
         alignItems: "center",
         marginTop: 1,
         children: [
-          /* @__PURE__ */ jsx_dev_runtime15.jsxDEV(Text, {
+          /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Text, {
             bold: true,
             color: "#c7d2fe",
             children: "Request logs"
           }, undefined, false, undefined, this),
-          /* @__PURE__ */ jsx_dev_runtime15.jsxDEV(Box_default, {
+          /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Box_default, {
             width: table.width,
             justifyContent: "center",
-            children: /* @__PURE__ */ jsx_dev_runtime15.jsxDEV(Text, {
+            children: /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Text, {
               color: "gray",
               wrap: "truncate-end",
               children: table.shortcuts
             }, undefined, false, undefined, this)
           }, undefined, false, undefined, this),
-          /* @__PURE__ */ jsx_dev_runtime15.jsxDEV(Box_default, {
+          /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Box_default, {
             children: [
-              props.autoFollow && /* @__PURE__ */ jsx_dev_runtime15.jsxDEV(Text, {
+              props.autoFollow && /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Text, {
                 color: "#22c55e",
                 children: " \u25CF FOLLOW"
               }, undefined, false, undefined, this),
-              props.requestLogMode && /* @__PURE__ */ jsx_dev_runtime15.jsxDEV(Text, {
+              props.requestLogMode && /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Text, {
                 color: props.requestLogMode === "sync" ? "#facc15" : "#22c55e",
                 children: [
                   " \u25CF ",
@@ -56885,34 +57338,34 @@ function RequestLogsPanel(props) {
           }, undefined, true, undefined, this)
         ]
       }, undefined, true, undefined, this),
-      props.clearConfirm && /* @__PURE__ */ jsx_dev_runtime15.jsxDEV(Text, {
+      props.clearConfirm && /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Text, {
         color: "yellow",
         children: "Clear all request logs? y confirm \xB7 n/Esc cancel"
       }, undefined, false, undefined, this),
-      props.fileError && /* @__PURE__ */ jsx_dev_runtime15.jsxDEV(Text, {
+      props.fileError && /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Text, {
         color: "red",
         children: [
           "\u26A0 ",
           props.fileError
         ]
       }, undefined, true, undefined, this),
-      props.copyStatus && /* @__PURE__ */ jsx_dev_runtime15.jsxDEV(Text, {
+      props.copyStatus && /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Text, {
         color: props.copyStatus.type === "success" ? "green" : "red",
         children: props.copyStatus.message
       }, undefined, false, undefined, this),
-      /* @__PURE__ */ jsx_dev_runtime15.jsxDEV(Box_default, {
+      /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Box_default, {
         marginTop: 1,
-        children: /* @__PURE__ */ jsx_dev_runtime15.jsxDEV(Text, {
+        children: /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Text, {
           color: "#6b7280",
           wrap: "truncate-end",
           children: tableHeader(table)
         }, undefined, false, undefined, this)
       }, undefined, false, undefined, this),
-      /* @__PURE__ */ jsx_dev_runtime15.jsxDEV(Text, {
+      /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Text, {
         color: "#374151",
         children: "\u2500".repeat(table.width)
       }, undefined, false, undefined, this),
-      hasMoreAbove && /* @__PURE__ */ jsx_dev_runtime15.jsxDEV(Text, {
+      hasMoreAbove && /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Text, {
         color: "gray",
         children: [
           "   \u2191 ",
@@ -56922,18 +57375,18 @@ function RequestLogsPanel(props) {
       }, undefined, true, undefined, this),
       rows.length ? rows.map((log, index) => {
         const globalIndex = start + index;
-        return /* @__PURE__ */ jsx_dev_runtime15.jsxDEV(LogRow, {
+        return /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(LogRow, {
           log,
           selected: globalIndex === selected,
           table,
           loadingFrame,
           now: now2
         }, `${log.id}-${log.at}`, false, undefined, this);
-      }) : /* @__PURE__ */ jsx_dev_runtime15.jsxDEV(Text, {
+      }) : /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Text, {
         color: "gray",
         children: "  No requests yet"
       }, undefined, false, undefined, this),
-      hasMoreBelow && /* @__PURE__ */ jsx_dev_runtime15.jsxDEV(Text, {
+      hasMoreBelow && /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Text, {
         color: "gray",
         children: [
           "   \u2193 ",
@@ -56941,23 +57394,23 @@ function RequestLogsPanel(props) {
           " more below"
         ]
       }, undefined, true, undefined, this),
-      /* @__PURE__ */ jsx_dev_runtime15.jsxDEV(Text, {
+      /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Text, {
         color: "#374151",
         children: "\u2500".repeat(table.width)
       }, undefined, false, undefined, this),
-      /* @__PURE__ */ jsx_dev_runtime15.jsxDEV(Box_default, {
+      /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Box_default, {
         children: [
-          /* @__PURE__ */ jsx_dev_runtime15.jsxDEV(Text, {
+          /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Text, {
             color: "#6b7280",
             children: "Total: "
           }, undefined, false, undefined, this),
-          /* @__PURE__ */ jsx_dev_runtime15.jsxDEV(Text, {
+          /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Text, {
             color: "#aab3cf",
             children: props.logs.length
           }, undefined, false, undefined, this),
-          pendingCount > 0 && /* @__PURE__ */ jsx_dev_runtime15.jsxDEV(jsx_dev_runtime15.Fragment, {
+          pendingCount > 0 && /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(jsx_dev_runtime16.Fragment, {
             children: [
-              /* @__PURE__ */ jsx_dev_runtime15.jsxDEV(Text, {
+              /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Text, {
                 color: "#6b7280",
                 children: [
                   "  ",
@@ -56965,31 +57418,31 @@ function RequestLogsPanel(props) {
                   " Pending: "
                 ]
               }, undefined, true, undefined, this),
-              /* @__PURE__ */ jsx_dev_runtime15.jsxDEV(Text, {
+              /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Text, {
                 color: "yellow",
                 children: pendingCount
               }, undefined, false, undefined, this)
             ]
           }, undefined, true, undefined, this),
-          errorCount > 0 && /* @__PURE__ */ jsx_dev_runtime15.jsxDEV(jsx_dev_runtime15.Fragment, {
+          errorCount > 0 && /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(jsx_dev_runtime16.Fragment, {
             children: [
-              /* @__PURE__ */ jsx_dev_runtime15.jsxDEV(Text, {
+              /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Text, {
                 color: "#6b7280",
                 children: "  \u2717 Errors: "
               }, undefined, false, undefined, this),
-              /* @__PURE__ */ jsx_dev_runtime15.jsxDEV(Text, {
+              /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Text, {
                 color: "red",
                 children: errorCount
               }, undefined, false, undefined, this)
             ]
           }, undefined, true, undefined, this),
-          pendingCount === 0 && errorCount === 0 && props.logs.length > 0 && /* @__PURE__ */ jsx_dev_runtime15.jsxDEV(jsx_dev_runtime15.Fragment, {
+          pendingCount === 0 && errorCount === 0 && props.logs.length > 0 && /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(jsx_dev_runtime16.Fragment, {
             children: [
-              /* @__PURE__ */ jsx_dev_runtime15.jsxDEV(Text, {
+              /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Text, {
                 color: "#6b7280",
                 children: "  "
               }, undefined, false, undefined, this),
-              /* @__PURE__ */ jsx_dev_runtime15.jsxDEV(Text, {
+              /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Text, {
                 color: "green",
                 children: "\u2713 All OK"
               }, undefined, false, undefined, this)
@@ -56997,7 +57450,7 @@ function RequestLogsPanel(props) {
           }, undefined, true, undefined, this)
         ]
       }, undefined, true, undefined, this),
-      props.detailOpen && detail && /* @__PURE__ */ jsx_dev_runtime15.jsxDEV(LogDetailDialog, {
+      props.detailOpen && detail && /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(LogDetailDialog, {
         log: detail,
         scroll: props.detailScroll ?? 0,
         width: table.width
@@ -57020,55 +57473,55 @@ function LogRow(props) {
   const durationStr = formatDuration(durationMs);
   const summaryStr = summaryText(props.log, props.loadingFrame);
   const summaryTruncated = truncate3(summaryStr, props.table.summaryWidth);
-  return /* @__PURE__ */ jsx_dev_runtime15.jsxDEV(Box_default, {
+  return /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Box_default, {
     width: props.table.width,
     children: [
-      /* @__PURE__ */ jsx_dev_runtime15.jsxDEV(Text, {
+      /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Text, {
         color: props.selected ? "#d97757" : isNew ? "#facc15" : "gray",
         wrap: "truncate-end",
         children: col(iconStr, COL_ICON)
       }, undefined, false, undefined, this),
-      props.table.showId && /* @__PURE__ */ jsx_dev_runtime15.jsxDEV(Text, {
+      props.table.showId && /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Text, {
         color: props.selected ? "#d97757" : isNew ? "#facc15" : "gray",
         wrap: "truncate-end",
         children: col(idStr, COL_ID)
       }, undefined, false, undefined, this),
-      props.table.showTime && /* @__PURE__ */ jsx_dev_runtime15.jsxDEV(Text, {
+      props.table.showTime && /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Text, {
         color: isNew ? "#facc15" : "#aab3cf",
         wrap: "truncate-end",
         children: col(timeStr, COL_TIME)
       }, undefined, false, undefined, this),
-      /* @__PURE__ */ jsx_dev_runtime15.jsxDEV(Text, {
+      /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Text, {
         color: isNew ? "#facc15" : undefined,
         wrap: "truncate-end",
         children: col(methodStr, COL_METHOD)
       }, undefined, false, undefined, this),
-      /* @__PURE__ */ jsx_dev_runtime15.jsxDEV(Text, {
+      /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Text, {
         color: isNew ? "#facc15" : "#aab3cf",
         wrap: "truncate-end",
         children: col(pathStr, props.table.pathWidth)
       }, undefined, false, undefined, this),
-      props.table.showModel && /* @__PURE__ */ jsx_dev_runtime15.jsxDEV(Text, {
+      props.table.showModel && /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Text, {
         color: modelStr === "-" ? "gray" : "#aab3cf",
         wrap: "truncate-end",
         children: col(modelStr, COL_MODEL)
       }, undefined, false, undefined, this),
-      /* @__PURE__ */ jsx_dev_runtime15.jsxDEV(Text, {
+      /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Text, {
         color: pending ? "yellow" : statusColor(props.log.status),
         wrap: "truncate-end",
         children: col(clientStr, COL_CLIENT)
       }, undefined, false, undefined, this),
-      props.table.showProxy && /* @__PURE__ */ jsx_dev_runtime15.jsxDEV(Text, {
+      props.table.showProxy && /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Text, {
         color: props.log.proxy ? statusColor(props.log.proxy.status) : "gray",
         wrap: "truncate-end",
         children: col(proxyStr, COL_PROXY)
       }, undefined, false, undefined, this),
-      props.table.showDuration && /* @__PURE__ */ jsx_dev_runtime15.jsxDEV(Text, {
+      props.table.showDuration && /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Text, {
         color: durationColor(durationMs),
         wrap: "truncate-end",
         children: col(durationStr, COL_DURATION)
       }, undefined, false, undefined, this),
-      /* @__PURE__ */ jsx_dev_runtime15.jsxDEV(Text, {
+      /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Text, {
         color: summaryColor(props.log),
         wrap: "truncate-end",
         children: col(summaryTruncated, props.table.summaryWidth)
@@ -57082,7 +57535,7 @@ function LogDetailDialog(props) {
   const maxScroll = Math.max(0, lines.length - REQUEST_LOG_DETAIL_HEIGHT);
   const scroll = Math.max(0, Math.min(props.scroll, maxScroll));
   const visibleLines = lines.slice(scroll, scroll + REQUEST_LOG_DETAIL_HEIGHT);
-  return /* @__PURE__ */ jsx_dev_runtime15.jsxDEV(Box_default, {
+  return /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Box_default, {
     width: props.width,
     flexDirection: "column",
     marginTop: 1,
@@ -57091,50 +57544,50 @@ function LogDetailDialog(props) {
     paddingX: 1,
     paddingY: 1,
     children: [
-      /* @__PURE__ */ jsx_dev_runtime15.jsxDEV(Box_default, {
+      /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Box_default, {
         children: [
-          /* @__PURE__ */ jsx_dev_runtime15.jsxDEV(Text, {
+          /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Text, {
             bold: true,
             color: "#c7d2fe",
             children: "Request detail"
           }, undefined, false, undefined, this),
-          /* @__PURE__ */ jsx_dev_runtime15.jsxDEV(Text, {
+          /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Text, {
             color: "gray",
             wrap: "truncate-end",
             children: "  \u2191/\u2193 scroll \xB7 PgUp/PgDn fast \xB7 Home/End \xB7 Enter/Esc close"
           }, undefined, false, undefined, this)
         ]
       }, undefined, true, undefined, this),
-      /* @__PURE__ */ jsx_dev_runtime15.jsxDEV(Box_default, {
+      /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Box_default, {
         marginTop: 1,
         children: [
-          /* @__PURE__ */ jsx_dev_runtime15.jsxDEV(Text, {
+          /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Text, {
             color: "#d97757",
             children: "[c]"
           }, undefined, false, undefined, this),
-          /* @__PURE__ */ jsx_dev_runtime15.jsxDEV(Text, {
+          /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Text, {
             color: "gray",
             children: " copy request"
           }, undefined, false, undefined, this),
-          /* @__PURE__ */ jsx_dev_runtime15.jsxDEV(Text, {
+          /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Text, {
             color: "#d97757",
             children: "  [l]"
           }, undefined, false, undefined, this),
-          /* @__PURE__ */ jsx_dev_runtime15.jsxDEV(Text, {
+          /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Text, {
             color: "gray",
             children: " copy all logs"
           }, undefined, false, undefined, this),
-          /* @__PURE__ */ jsx_dev_runtime15.jsxDEV(Text, {
+          /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Text, {
             color: "#d97757",
             children: "  [x]"
           }, undefined, false, undefined, this),
-          /* @__PURE__ */ jsx_dev_runtime15.jsxDEV(Text, {
+          /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Text, {
             color: "gray",
             children: " clear logs"
           }, undefined, false, undefined, this)
         ]
       }, undefined, true, undefined, this),
-      /* @__PURE__ */ jsx_dev_runtime15.jsxDEV(Text, {
+      /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Text, {
         color: "gray",
         children: [
           "Rows ",
@@ -57145,7 +57598,7 @@ function LogDetailDialog(props) {
           lines.length
         ]
       }, undefined, true, undefined, this),
-      visibleLines.map((line, index) => /* @__PURE__ */ jsx_dev_runtime15.jsxDEV(Text, {
+      visibleLines.map((line, index) => /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Text, {
         color: line.color,
         wrap: "truncate-end",
         children: line.text
@@ -57439,7 +57892,7 @@ function formatResourceUsageHeader(usage) {
 }
 
 // src/ui/components/resource-usage-header.tsx
-var jsx_dev_runtime16 = __toESM(require_jsx_dev_runtime(), 1);
+var jsx_dev_runtime17 = __toESM(require_jsx_dev_runtime(), 1);
 var RESOURCE_REFRESH_INTERVAL_MS = 2000;
 var MIN_RULE_WIDTH = 6;
 function StatusHeader(props) {
@@ -57460,36 +57913,36 @@ function StatusHeader(props) {
     }, props.intervalMs ?? RESOURCE_REFRESH_INTERVAL_MS);
     return () => clearInterval(timer);
   }, [props.intervalMs]);
-  return /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Box_default, {
+  return /* @__PURE__ */ jsx_dev_runtime17.jsxDEV(Box_default, {
     width: props.width,
     children: [
-      /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Text, {
+      /* @__PURE__ */ jsx_dev_runtime17.jsxDEV(Text, {
         color: "#d97757",
         children: "\u2500".repeat(leftRuleWidth)
       }, undefined, false, undefined, this),
-      /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Text, {
+      /* @__PURE__ */ jsx_dev_runtime17.jsxDEV(Text, {
         children: " "
       }, undefined, false, undefined, this),
-      /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Box_default, {
+      /* @__PURE__ */ jsx_dev_runtime17.jsxDEV(Box_default, {
         width: textWidth,
-        children: /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Text, {
+        children: /* @__PURE__ */ jsx_dev_runtime17.jsxDEV(Text, {
           color: "#aab3cf",
           wrap: "truncate-end",
           children: props.text
         }, undefined, false, undefined, this)
       }, undefined, false, undefined, this),
-      resourceWidth > 0 && /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Box_default, {
+      resourceWidth > 0 && /* @__PURE__ */ jsx_dev_runtime17.jsxDEV(Box_default, {
         width: resourceWidth,
-        children: /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Text, {
+        children: /* @__PURE__ */ jsx_dev_runtime17.jsxDEV(Text, {
           color: "#8f817e",
           wrap: "truncate-end",
           children: resourceText
         }, undefined, false, undefined, this)
       }, undefined, false, undefined, this),
-      /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Text, {
+      /* @__PURE__ */ jsx_dev_runtime17.jsxDEV(Text, {
         children: " "
       }, undefined, false, undefined, this),
-      /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Text, {
+      /* @__PURE__ */ jsx_dev_runtime17.jsxDEV(Text, {
         color: "#d97757",
         children: "\u2500".repeat(rightRuleWidth)
       }, undefined, false, undefined, this)
@@ -57498,86 +57951,86 @@ function StatusHeader(props) {
 }
 
 // src/ui/components/switch-provider-confirm.tsx
-var jsx_dev_runtime17 = __toESM(require_jsx_dev_runtime(), 1);
+var jsx_dev_runtime18 = __toESM(require_jsx_dev_runtime(), 1);
 function SwitchProviderConfirm(props) {
-  return /* @__PURE__ */ jsx_dev_runtime17.jsxDEV(Box_default, {
+  return /* @__PURE__ */ jsx_dev_runtime18.jsxDEV(Box_default, {
     borderStyle: "round",
     borderColor: "#7f4f45",
     flexDirection: "column",
     paddingX: 2,
     paddingY: 1,
     children: [
-      /* @__PURE__ */ jsx_dev_runtime17.jsxDEV(Text, {
+      /* @__PURE__ */ jsx_dev_runtime18.jsxDEV(Text, {
         bold: true,
         color: "#d97757",
         children: "Switch upstream provider"
       }, undefined, false, undefined, this),
-      /* @__PURE__ */ jsx_dev_runtime17.jsxDEV(Box_default, {
+      /* @__PURE__ */ jsx_dev_runtime18.jsxDEV(Box_default, {
         marginTop: 1,
-        children: /* @__PURE__ */ jsx_dev_runtime17.jsxDEV(Text, {
+        children: /* @__PURE__ */ jsx_dev_runtime18.jsxDEV(Text, {
           color: "#aab3cf",
           children: [
             "Current: ",
-            /* @__PURE__ */ jsx_dev_runtime17.jsxDEV(Text, {
+            /* @__PURE__ */ jsx_dev_runtime18.jsxDEV(Text, {
               bold: true,
               children: props.currentLabel
             }, undefined, false, undefined, this)
           ]
         }, undefined, true, undefined, this)
       }, undefined, false, undefined, this),
-      /* @__PURE__ */ jsx_dev_runtime17.jsxDEV(Box_default, {
+      /* @__PURE__ */ jsx_dev_runtime18.jsxDEV(Box_default, {
         marginTop: 1,
         flexDirection: "column",
-        children: props.options.map((option, index) => /* @__PURE__ */ jsx_dev_runtime17.jsxDEV(Box_default, {
+        children: props.options.map((option, index) => /* @__PURE__ */ jsx_dev_runtime18.jsxDEV(Box_default, {
           children: [
-            /* @__PURE__ */ jsx_dev_runtime17.jsxDEV(Box_default, {
+            /* @__PURE__ */ jsx_dev_runtime18.jsxDEV(Box_default, {
               width: 4,
-              children: /* @__PURE__ */ jsx_dev_runtime17.jsxDEV(Text, {
+              children: /* @__PURE__ */ jsx_dev_runtime18.jsxDEV(Text, {
                 color: props.selected === index ? "#d97757" : "gray",
                 children: props.selected === index ? "\u203A" : " "
               }, undefined, false, undefined, this)
             }, undefined, false, undefined, this),
-            /* @__PURE__ */ jsx_dev_runtime17.jsxDEV(Box_default, {
+            /* @__PURE__ */ jsx_dev_runtime18.jsxDEV(Box_default, {
               width: 14,
-              children: /* @__PURE__ */ jsx_dev_runtime17.jsxDEV(Text, {
+              children: /* @__PURE__ */ jsx_dev_runtime18.jsxDEV(Text, {
                 bold: props.selected === index,
                 children: option.label
               }, undefined, false, undefined, this)
             }, undefined, false, undefined, this),
-            /* @__PURE__ */ jsx_dev_runtime17.jsxDEV(Text, {
+            /* @__PURE__ */ jsx_dev_runtime18.jsxDEV(Text, {
               color: option.current ? "#aab3cf" : "gray",
               children: option.current ? "current" : "switch target"
             }, undefined, false, undefined, this)
           ]
         }, option.label, true, undefined, this))
       }, undefined, false, undefined, this),
-      /* @__PURE__ */ jsx_dev_runtime17.jsxDEV(Box_default, {
+      /* @__PURE__ */ jsx_dev_runtime18.jsxDEV(Box_default, {
         marginTop: 1,
-        children: /* @__PURE__ */ jsx_dev_runtime17.jsxDEV(Text, {
+        children: /* @__PURE__ */ jsx_dev_runtime18.jsxDEV(Text, {
           color: "yellow",
           children: "\u26A0 The runtime will restart and active connections will be interrupted."
         }, undefined, false, undefined, this)
       }, undefined, false, undefined, this),
-      /* @__PURE__ */ jsx_dev_runtime17.jsxDEV(Box_default, {
+      /* @__PURE__ */ jsx_dev_runtime18.jsxDEV(Box_default, {
         marginTop: 1,
         children: [
-          /* @__PURE__ */ jsx_dev_runtime17.jsxDEV(Text, {
+          /* @__PURE__ */ jsx_dev_runtime18.jsxDEV(Text, {
             color: "gray",
             children: "\u2191/\u2193 choose \xB7 "
           }, undefined, false, undefined, this),
-          /* @__PURE__ */ jsx_dev_runtime17.jsxDEV(Text, {
+          /* @__PURE__ */ jsx_dev_runtime18.jsxDEV(Text, {
             bold: true,
             children: "Enter"
           }, undefined, false, undefined, this),
-          /* @__PURE__ */ jsx_dev_runtime17.jsxDEV(Text, {
+          /* @__PURE__ */ jsx_dev_runtime18.jsxDEV(Text, {
             color: "gray",
             children: " switch \xB7 "
           }, undefined, false, undefined, this),
-          /* @__PURE__ */ jsx_dev_runtime17.jsxDEV(Text, {
+          /* @__PURE__ */ jsx_dev_runtime18.jsxDEV(Text, {
             bold: true,
             children: "Escape"
           }, undefined, false, undefined, this),
-          /* @__PURE__ */ jsx_dev_runtime17.jsxDEV(Text, {
+          /* @__PURE__ */ jsx_dev_runtime18.jsxDEV(Text, {
             color: "gray",
             children: " cancel"
           }, undefined, false, undefined, this)
@@ -57873,7 +58326,7 @@ var copilotProviderDefinition = {
     authFile: context.authFile,
     authAccount: context.accountKey
   }),
-  runtimeSignature: (context) => `copilot:${context.authFile}:${context.accountKey ?? ""}:${context.authRevision}`,
+  runtimeSignature: (context) => `copilot:${context.authFile}:${context.accountKey ?? ""}:${context.authRevision}:${context.routingRevision}`,
   validate: async () => {
     await ensureCopilotAuthFile();
   },
@@ -57945,7 +58398,7 @@ async function loadCopilotAccountState(authFile) {
 }
 function selectedCopilotAccountIndex(data, account) {
   try {
-    return selectCopilotAuthEntry2(data, account).index;
+    return selectCopilotAuthEntry(data, account).index;
   } catch {
     return 0;
   }
@@ -58113,7 +58566,7 @@ var codexProviderDefinition = {
     authFile: context.authFile,
     authAccount: context.accountKey
   }),
-  runtimeSignature: (context) => `codex:${context.authFile}:${context.accountKey ?? ""}:${context.authRevision}`,
+  runtimeSignature: (context) => `codex:${context.authFile}:${context.accountKey ?? ""}:${context.authRevision}:${context.routingRevision}`,
   validate: async () => {
     const authFile = process.env.CODEX_AUTH_FILE ? resolveAuthFile(process.env.CODEX_AUTH_FILE) : providerStatePath();
     await ensureCodexAuthFile(authFile);
@@ -58196,7 +58649,7 @@ var kiroProviderDefinition = {
     authFile: context.authFile,
     authAccount: context.accountKey
   }),
-  runtimeSignature: (context) => `kiro:${context.authFile}:${context.accountKey ?? ""}:${context.authRevision}`,
+  runtimeSignature: (context) => `kiro:${context.authFile}:${context.accountKey ?? ""}:${context.authRevision}:${context.routingRevision}`,
   validate: async () => {
     await ensureKiroAuthFile();
   },
@@ -58326,6 +58779,94 @@ async function resolveInitialProviderMode() {
 function fallbackProviderInfo(mode) {
   const provider = providerDefinition(mode);
   return buildProviderInfo(mode, {}, provider.authFile());
+}
+
+// src/ui/endpoint-share.ts
+async function loadEndpointShareAvailability() {
+  const entries = await Promise.all(["codex", "kiro", "copilot"].map(async (mode) => {
+    const provider = providerDefinition(mode);
+    const authFile = resolveProviderAuthFile(mode);
+    if (!provider.accounts) {
+      return [mode, { connected: true, message: provider.label }];
+    }
+    try {
+      const state = await provider.accounts.loadState(authFile);
+      const accounts = provider.accounts.toAccounts(state.data);
+      return [mode, { connected: accounts.length > 0, message: accounts.length > 0 ? `${provider.label} connected` : `${provider.label} needs an account` }];
+    } catch (error) {
+      return [mode, { connected: false, message: error instanceof Error ? error.message : String(error) }];
+    }
+  }));
+  return Object.fromEntries(entries);
+}
+function endpointShareEndpointOptions(mode, proxy) {
+  return ENDPOINT_PROXY_ROUTES.map((route) => ({
+    endpoint: route.endpoint,
+    label: route.label,
+    value: resolveEndpointProxyDisplayValue(mode, route.endpoint, proxy)
+  }));
+}
+function endpointShareSourceOptions(mode, endpoint, availability, proxy) {
+  const currentTarget = resolveEndpointProxyStoredTarget(mode, endpoint, proxy);
+  const currentSource = endpoint === "embeddings" && currentTarget === "self" && mode !== "copilot" ? undefined : currentTarget === "self" ? "self" : currentTarget;
+  if (endpoint === "embeddings") {
+    if (mode === "copilot") {
+      return [sourceOption(mode, endpoint, "self", availability, currentSource)];
+    }
+    return [sourceOption(mode, endpoint, "copilot", availability, currentSource)];
+  }
+  return [
+    sourceOption(mode, endpoint, "self", availability, currentSource),
+    ...["codex", "kiro", "copilot"].filter((candidate) => candidate !== mode).map((candidate) => sourceOption(mode, endpoint, candidate, availability, currentSource))
+  ];
+}
+function endpointShareSummaryLines(mode, proxy) {
+  return ENDPOINT_PROXY_ROUTES.flatMap((route) => {
+    const summary = resolveEndpointProxySummaryValue(mode, route.endpoint, proxy);
+    if (!summary.available || summary.source === "self")
+      return [];
+    return [{
+      label: route.label,
+      ...summary
+    }];
+  });
+}
+function endpointShareTargetLabel(target, mode) {
+  if (target === "self")
+    return "self";
+  return endpointProxyProviderLabel(target === mode ? mode : target);
+}
+function sourceOption(mode, endpoint, target, availability, currentTarget) {
+  const sourceAvailability = target === "self" ? undefined : availability[target];
+  const connected = target === "self" ? true : sourceAvailability?.connected ?? false;
+  return {
+    target,
+    label: endpointShareTargetLabel(target, mode),
+    description: connected ? descriptionForTarget(target, mode) : sourceAvailability?.message ?? "Unavailable",
+    available: connected,
+    current: currentTarget === target
+  };
+}
+function descriptionForTarget(target, mode) {
+  if (target === "self")
+    return `Use the selected ${endpointProxyProviderLabel(mode)} account`;
+  return `Use the ${endpointProxyProviderLabel(target)} account`;
+}
+function resolveEndpointProxySummaryValue(mode, endpoint, proxy) {
+  const endpointPath = ENDPOINT_PROXY_ROUTES.find((route) => route.endpoint === endpoint)?.path ?? "";
+  const sourceMode = resolveEndpointProxySourceMode(mode, endpoint, proxy);
+  if (!sourceMode) {
+    return {
+      source: "Unavailable",
+      path: endpointPath,
+      available: false
+    };
+  }
+  return {
+    source: sourceMode === mode ? "self" : endpointProxyProviderLabel(sourceMode),
+    path: endpointPath,
+    available: true
+  };
 }
 
 // src/ui/providers/use-codex-fast-mode.ts
@@ -58532,6 +59073,7 @@ function useProviderRuntime(options) {
     apiPassword,
     accountKey,
     authRevision,
+    routingRevision,
     loadError,
     onMessage,
     requestLogMode,
@@ -58582,7 +59124,7 @@ function useProviderRuntime(options) {
       return;
     }
     const provider = providerDefinition(providerMode);
-    const context = { authFile, accountKey, authRevision };
+    const context = { authFile, accountKey, authRevision, routingRevision };
     const runtimeSignature = provider.runtimeSignature(context);
     if (!pendingProviderSwitch.current && runtime2.status === "running" && lastRuntimeSignature.current === runtimeSignature)
       return;
@@ -58655,6 +59197,7 @@ function useProviderRuntime(options) {
     authFile,
     accountKey,
     authRevision,
+    routingRevision,
     hostname,
     loadError,
     onMessage,
@@ -58713,7 +59256,7 @@ function useProviderRuntime(options) {
 }
 
 // src/ui/app.tsx
-var jsx_dev_runtime18 = __toESM(require_jsx_dev_runtime(), 1);
+var jsx_dev_runtime19 = __toESM(require_jsx_dev_runtime(), 1);
 function CodexCodeApp(props) {
   const app = use_app_default();
   const { stdout } = use_stdout_default();
@@ -58754,7 +59297,15 @@ function CodexCodeApp(props) {
   const [connectStatus, setConnectStatus] = import_react40.useState();
   const [connectProgress, setConnectProgress] = import_react40.useState();
   const [authRevision, setAuthRevision] = import_react40.useState(0);
+  const [routingRevision, setRoutingRevision] = import_react40.useState(0);
   const [accountKey, setAccountKey] = import_react40.useState();
+  const [endpointProxyConfig, setEndpointProxyConfig] = import_react40.useState({});
+  const [endpointProxyAvailability, setEndpointProxyAvailability] = import_react40.useState();
+  const [endpointShareStep, setEndpointShareStep] = import_react40.useState(0);
+  const [endpointShareEndpointIndex, setEndpointShareEndpointIndex] = import_react40.useState(0);
+  const [endpointShareSourceIndex, setEndpointShareSourceIndex] = import_react40.useState(0);
+  const [endpointShareSaving, setEndpointShareSaving] = import_react40.useState(false);
+  const [endpointShareStatus, setEndpointShareStatus] = import_react40.useState();
   const connectOperationId = import_react40.useRef(0);
   const resetRuntimeLogs = import_react40.useCallback(() => {
     setRequestLogs([]);
@@ -58791,6 +59342,7 @@ function CodexCodeApp(props) {
     apiPassword,
     accountKey,
     authRevision,
+    routingRevision,
     loadError,
     onMessage: setInputMessage,
     requestLogMode: resolveRequestLogMode,
@@ -58844,6 +59396,13 @@ function CodexCodeApp(props) {
     setConnectSaving(false);
     setConnectStatus(undefined);
     setConnectProgress(undefined);
+    setEndpointProxyConfig({});
+    setEndpointProxyAvailability(undefined);
+    setEndpointShareStep(0);
+    setEndpointShareEndpointIndex(0);
+    setEndpointShareSourceIndex(0);
+    setEndpointShareSaving(false);
+    setEndpointShareStatus(undefined);
     setAuthRevision((value) => value + 1);
   }, [clearCommandOutput, resetLimits, resetRuntimeLogs]);
   const pkg = import_react40.useMemo(() => packageInfo(), []);
@@ -58863,6 +59422,12 @@ function CodexCodeApp(props) {
   const dashboardWidth = dashboardCompact ? contentWidth : 2 + 42 + 1 + Math.min(58, Math.max(42, contentWidth - 48));
   const headerResourceWidth = contentWidth >= 104 ? 44 : contentWidth >= 88 ? 34 : 0;
   const visibleRequestLogs = import_react40.useMemo(() => requestLogs.map((log) => requestLogDetails[log.id] ?? log), [requestLogDetails, requestLogs]);
+  const endpointShareEndpointOptionsList = import_react40.useMemo(() => endpointShareEndpointOptions(providerMode, endpointProxyConfig), [endpointProxyConfig, providerMode]);
+  const selectedEndpointOption = endpointShareEndpointOptionsList[endpointShareEndpointIndex] ?? endpointShareEndpointOptionsList[0];
+  const selectedEndpoint = selectedEndpointOption?.endpoint ?? endpointShareEndpointOptionsList[0]?.endpoint ?? "responses";
+  const endpointShareSourceOptionsList = import_react40.useMemo(() => endpointProxyAvailability ? endpointShareSourceOptions(providerMode, selectedEndpoint, endpointProxyAvailability, endpointProxyConfig) : [], [endpointProxyAvailability, endpointProxyConfig, providerMode, selectedEndpoint]);
+  const selectedSourceOption = endpointShareSourceOptionsList[endpointShareSourceIndex] ?? endpointShareSourceOptionsList[0];
+  const endpointProxySummaryLines = import_react40.useMemo(() => endpointShareSummaryLines(providerMode, endpointProxyConfig), [endpointProxyConfig, providerMode]);
   const claudeEnvScopes = ["user", "project", "local"];
   const claudeEnvScope = claudeEnvScopes[claudeEnvScopeIndex] ?? "user";
   const claudeSettingsFile = claudeSettingsPathForScope(claudeEnvScope);
@@ -58912,6 +59477,25 @@ function CodexCodeApp(props) {
       active = false;
     };
   }, [accountCapability, authFile, authRevision, providerReady, setRuntimeError]);
+  import_react40.useEffect(() => {
+    if (!providerReady) {
+      setEndpointProxyConfig({});
+      return;
+    }
+    let active = true;
+    readEndpointProxyMap(providerMode).then((proxy) => {
+      if (!active)
+        return;
+      setEndpointProxyConfig(proxy);
+    }).catch(() => {
+      if (!active)
+        return;
+      setEndpointProxyConfig({});
+    });
+    return () => {
+      active = false;
+    };
+  }, [providerMode, providerReady, routingRevision]);
   import_react40.useEffect(() => {
     if (mode !== "logs")
       return;
@@ -58968,6 +59552,33 @@ function CodexCodeApp(props) {
       active = false;
     };
   }, [authFile, logsDetailOpen, logsSelected, mode, requestLogDetails, requestLogs]);
+  import_react40.useEffect(() => {
+    setEndpointShareEndpointIndex((value) => Math.min(value, Math.max(0, endpointShareEndpointOptionsList.length - 1)));
+  }, [endpointShareEndpointOptionsList.length]);
+  import_react40.useEffect(() => {
+    setEndpointShareSourceIndex((value) => Math.min(value, Math.max(0, endpointShareSourceOptionsList.length - 1)));
+  }, [endpointShareSourceOptionsList.length]);
+  import_react40.useEffect(() => {
+    if (mode !== "endpoint-share")
+      return;
+    let active = true;
+    const loadingMessage = "Loading provider availability...";
+    setEndpointShareStatus(loadingMessage);
+    loadEndpointShareAvailability().then((availability) => {
+      if (!active)
+        return;
+      setEndpointProxyAvailability(availability);
+      setEndpointShareStatus((current) => current === loadingMessage ? undefined : current);
+    }).catch((error) => {
+      if (!active)
+        return;
+      setEndpointProxyAvailability(undefined);
+      setEndpointShareStatus(`Failed to load provider availability: ${error instanceof Error ? error.message : String(error)}`);
+    });
+    return () => {
+      active = false;
+    };
+  }, [authRevision, mode]);
   use_input_default((input, key) => {
     if (key.ctrl && input === "c") {
       if (runtime2.status === "running")
@@ -58977,6 +59588,8 @@ function CodexCodeApp(props) {
       return;
     }
     if (switchingProvider)
+      return;
+    if (mode === "endpoint-share" && endpointShareSaving)
       return;
     if (mode === "logs") {
       if (logsClearConfirm) {
@@ -59085,6 +59698,20 @@ function CodexCodeApp(props) {
         setInputMessage("Provider switch cancelled");
         return;
       }
+      if (mode === "endpoint-share") {
+        if (endpointShareStep > 0) {
+          setEndpointShareStep((value) => Math.max(0, value - 1));
+          setEndpointShareStatus(undefined);
+          setInputMessage("Endpoint share step back");
+          return;
+        }
+        setMode("home");
+        setCommandIndex(0);
+        setEndpointProxyAvailability(undefined);
+        setEndpointShareStatus(undefined);
+        setInputMessage("Endpoint share cancelled");
+        return;
+      }
       if (mode === "connect-source" || mode === "connect-account") {
         connectOperationId.current += 1;
         setConnectSaving(false);
@@ -59164,6 +59791,82 @@ function CodexCodeApp(props) {
         }
         switchProvider(target.mode, { onBeforeApply: resetForProviderSwitch });
         return;
+      }
+      if (mode === "endpoint-share") {
+        const endpointOption = selectedEndpointOption ?? endpointShareEndpointOptionsList[0];
+        if (!endpointOption) {
+          setEndpointShareStatus("No endpoint is available to proxy");
+          return;
+        }
+        if (endpointShareStep === 0) {
+          if (!endpointProxyAvailability) {
+            setEndpointShareStatus("Loading provider availability...");
+            return;
+          }
+          const currentTarget = resolveEndpointProxyStoredTarget(providerMode, endpointOption.endpoint, endpointProxyConfig);
+          const nextSourceIndex = endpointShareSourceOptionsList.findIndex((option) => option.target === currentTarget);
+          setEndpointShareSourceIndex(nextSourceIndex >= 0 ? nextSourceIndex : 0);
+          setEndpointShareStep(1);
+          setEndpointShareStatus(undefined);
+          return;
+        }
+        if (endpointShareStep === 1) {
+          const sourceOption2 = selectedSourceOption ?? endpointShareSourceOptionsList[0];
+          if (!sourceOption2) {
+            setEndpointShareStatus("No source provider is available");
+            return;
+          }
+          if (!sourceOption2.available) {
+            setEndpointShareStatus(sourceOption2.description);
+            return;
+          }
+          setEndpointShareStep(2);
+          setEndpointShareStatus(undefined);
+          return;
+        }
+        if (endpointShareStep === 2) {
+          const sourceOption2 = selectedSourceOption ?? endpointShareSourceOptionsList[0];
+          if (!sourceOption2) {
+            setEndpointShareStatus("No source provider is available");
+            return;
+          }
+          if (!sourceOption2.available) {
+            setEndpointShareStatus(sourceOption2.description);
+            return;
+          }
+          const nextProxy = { ...endpointProxyConfig };
+          if (sourceOption2.target === "self") {
+            delete nextProxy[endpointOption.endpoint];
+          } else {
+            nextProxy[endpointOption.endpoint] = sourceOption2.target;
+          }
+          const normalizedProxy = normalizeEndpointProxyMap(providerMode, nextProxy);
+          setEndpointShareSaving(true);
+          setEndpointShareStatus(`Saving ${endpointOption.label} -> ${sourceOption2.label}...`);
+          (async () => {
+            try {
+              const allowed = await canUseEndpointProxySource(providerMode, endpointOption.endpoint, normalizedProxy);
+              if (!allowed) {
+                throw new Error(sourceOption2.description);
+              }
+              await writeEndpointProxyMap(providerMode, undefined, normalizedProxy);
+              setEndpointProxyConfig(normalizedProxy);
+              setRoutingRevision((value) => value + 1);
+              setMode("home");
+              setCommandIndex(0);
+              setEndpointShareStep(0);
+              setEndpointShareEndpointIndex(0);
+              setEndpointShareSourceIndex(0);
+              setEndpointShareStatus(undefined);
+              setInputMessage(`Endpoint proxy saved: ${endpointOption.label} -> ${sourceOption2.label}`);
+            } catch (error) {
+              setEndpointShareStatus(`Failed to save endpoint proxy: ${error instanceof Error ? error.message : String(error)}`);
+            } finally {
+              setEndpointShareSaving(false);
+            }
+          })();
+          return;
+        }
       }
       if (mode === "connect-source") {
         if (!connectCapability) {
@@ -59387,6 +60090,18 @@ function CodexCodeApp(props) {
           setInputMessage("Showing request logs");
           return;
         }
+        if (command.name === "/endpoint-share") {
+          setEndpointShareStep(0);
+          setEndpointShareEndpointIndex(0);
+          setEndpointShareSourceIndex(0);
+          setEndpointShareSaving(false);
+          setEndpointShareStatus(undefined);
+          setEndpointProxyAvailability(undefined);
+          setMode("endpoint-share");
+          setCommandIndex(0);
+          setInputMessage("Select endpoint to proxy");
+          return;
+        }
         if (command.name === "/codex-fast-mode") {
           codexFastMode.resetSelection();
           setMode("codex-fast-mode");
@@ -59570,6 +60285,27 @@ function CodexCodeApp(props) {
       }
       return;
     }
+    if (mode === "endpoint-share") {
+      if (endpointShareStep === 0) {
+        if (key.upArrow && endpointShareEndpointOptionsList.length) {
+          setEndpointShareEndpointIndex((value) => (value - 1 + endpointShareEndpointOptionsList.length) % endpointShareEndpointOptionsList.length);
+        }
+        if (key.downArrow && endpointShareEndpointOptionsList.length) {
+          setEndpointShareEndpointIndex((value) => (value + 1) % endpointShareEndpointOptionsList.length);
+        }
+        return;
+      }
+      if (endpointShareStep === 1) {
+        if (key.upArrow && endpointShareSourceOptionsList.length) {
+          setEndpointShareSourceIndex((value) => (value - 1 + endpointShareSourceOptionsList.length) % endpointShareSourceOptionsList.length);
+        }
+        if (key.downArrow && endpointShareSourceOptionsList.length) {
+          setEndpointShareSourceIndex((value) => (value + 1) % endpointShareSourceOptionsList.length);
+        }
+        return;
+      }
+      return;
+    }
     if (mode === "home") {
       if (key.upArrow) {
         clearCommandOutput();
@@ -59583,17 +60319,17 @@ function CodexCodeApp(props) {
       }
     }
   });
-  return /* @__PURE__ */ jsx_dev_runtime18.jsxDEV(Box_default, {
+  return /* @__PURE__ */ jsx_dev_runtime19.jsxDEV(Box_default, {
     flexDirection: "column",
     paddingX: 1,
     paddingY: 1,
     children: [
-      /* @__PURE__ */ jsx_dev_runtime18.jsxDEV(StatusHeader, {
+      /* @__PURE__ */ jsx_dev_runtime19.jsxDEV(StatusHeader, {
         width: dashboardWidth,
         text: headerText,
         resourceWidth: headerResourceWidth
       }, undefined, false, undefined, this),
-      /* @__PURE__ */ jsx_dev_runtime18.jsxDEV(ProviderDashboard, {
+      /* @__PURE__ */ jsx_dev_runtime19.jsxDEV(ProviderDashboard, {
         hostname,
         port: activePort,
         contentWidth,
@@ -59607,31 +60343,32 @@ function CodexCodeApp(props) {
         limitGroups,
         limitsLoading,
         limitsError,
-        apiPassword
+        apiPassword,
+        endpointProxyLines: endpointProxySummaryLines
       }, undefined, false, undefined, this),
-      mode === "home" && /* @__PURE__ */ jsx_dev_runtime18.jsxDEV(CommandInput, {
+      mode === "home" && /* @__PURE__ */ jsx_dev_runtime19.jsxDEV(CommandInput, {
         selected: commandIndex,
         message: inputMessage,
         commands
       }, undefined, false, undefined, this),
-      mode === "account-selector" && accountCapability && /* @__PURE__ */ jsx_dev_runtime18.jsxDEV(AccountSelector, {
+      mode === "account-selector" && accountCapability && /* @__PURE__ */ jsx_dev_runtime19.jsxDEV(AccountSelector, {
         accounts,
         selected: selectorIndex,
         title: accountCapability.selectorTitle,
         description: accountCapability.selectorDescription
       }, undefined, false, undefined, this),
-      mode === "codex-fast-mode" && providerMode === "codex" && /* @__PURE__ */ jsx_dev_runtime18.jsxDEV(CodexFastModeSelector, {
+      mode === "codex-fast-mode" && providerMode === "codex" && /* @__PURE__ */ jsx_dev_runtime19.jsxDEV(CodexFastModeSelector, {
         selected: codexFastMode.selected,
         current: codexFastMode.enabled
       }, undefined, false, undefined, this),
-      mode === "connect-source" && connectCapability && /* @__PURE__ */ jsx_dev_runtime18.jsxDEV(ConnectSourceSelector, {
+      mode === "connect-source" && connectCapability && /* @__PURE__ */ jsx_dev_runtime19.jsxDEV(ConnectSourceSelector, {
         connect: connectCapability,
         selected: connectSourceIndex,
         saving: connectSaving,
         status: connectStatus,
         progress: connectProgress
       }, undefined, false, undefined, this),
-      mode === "connect-account" && connectCapability && /* @__PURE__ */ jsx_dev_runtime18.jsxDEV(ConnectAccountWizard, {
+      mode === "connect-account" && connectCapability && /* @__PURE__ */ jsx_dev_runtime19.jsxDEV(ConnectAccountWizard, {
         title: connectCapability.title,
         description: connectCapability.manualDescription,
         draft: connectDraft,
@@ -59639,7 +60376,17 @@ function CodexCodeApp(props) {
         step: connectStep,
         saving: connectSaving
       }, undefined, false, undefined, this),
-      mode === "switch-provider" && /* @__PURE__ */ jsx_dev_runtime18.jsxDEV(SwitchProviderConfirm, {
+      mode === "endpoint-share" && /* @__PURE__ */ jsx_dev_runtime19.jsxDEV(EndpointShareWizard, {
+        providerMode,
+        step: endpointShareStep,
+        endpointOptions: endpointShareEndpointOptionsList,
+        sourceOptions: endpointShareSourceOptionsList,
+        selectedEndpoint: endpointShareEndpointIndex,
+        selectedSource: endpointShareSourceIndex,
+        saving: endpointShareSaving,
+        status: endpointShareStatus
+      }, undefined, false, undefined, this),
+      mode === "switch-provider" && /* @__PURE__ */ jsx_dev_runtime19.jsxDEV(SwitchProviderConfirm, {
         currentLabel: providerInfo.label,
         selected: switchProviderIndex,
         options: switchProviderOptions.map((provider2) => ({
@@ -59647,7 +60394,7 @@ function CodexCodeApp(props) {
           current: provider2.mode === providerMode
         }))
       }, undefined, false, undefined, this),
-      mode === "logs" && /* @__PURE__ */ jsx_dev_runtime18.jsxDEV(RequestLogsPanel, {
+      mode === "logs" && /* @__PURE__ */ jsx_dev_runtime19.jsxDEV(RequestLogsPanel, {
         logs: visibleRequestLogs,
         selected: logsSelected,
         autoFollow: logsAutoFollow,
@@ -59658,15 +60405,15 @@ function CodexCodeApp(props) {
         fileError: logsFileError,
         requestLogMode: logsCaptureMode
       }, undefined, false, undefined, this),
-      mode === "claude-env-scope" && /* @__PURE__ */ jsx_dev_runtime18.jsxDEV(ClaudeEnvironmentScopeSelector, {
+      mode === "claude-env-scope" && /* @__PURE__ */ jsx_dev_runtime19.jsxDEV(ClaudeEnvironmentScopeSelector, {
         selected: claudeEnvScopeIndex,
         action: claudeEnvAction
       }, undefined, false, undefined, this),
-      mode === "claude-env-preset" && /* @__PURE__ */ jsx_dev_runtime18.jsxDEV(ClaudeEnvironmentPresetSelector, {
+      mode === "claude-env-preset" && /* @__PURE__ */ jsx_dev_runtime19.jsxDEV(ClaudeEnvironmentPresetSelector, {
         selected: claudeEnvPresetIndex,
         settingsTarget: claudeSettingsTarget
       }, undefined, false, undefined, this),
-      (mode === "claude-env-editor" || mode === "claude-env-confirm") && /* @__PURE__ */ jsx_dev_runtime18.jsxDEV(ClaudeEnvironmentEditor, {
+      (mode === "claude-env-editor" || mode === "claude-env-confirm") && /* @__PURE__ */ jsx_dev_runtime19.jsxDEV(ClaudeEnvironmentEditor, {
         draft: claudeEnvDraft,
         selected: claudeEnvIndex,
         baseUrl: baseUrl(hostname, activePort),
@@ -59675,12 +60422,12 @@ function CodexCodeApp(props) {
         settingsTarget: claudeSettingsTarget,
         apiPassword
       }, undefined, false, undefined, this),
-      mode === "claude-env-unset-confirm" && /* @__PURE__ */ jsx_dev_runtime18.jsxDEV(ClaudeEnvironmentUnsetConfirm, {
+      mode === "claude-env-unset-confirm" && /* @__PURE__ */ jsx_dev_runtime19.jsxDEV(ClaudeEnvironmentUnsetConfirm, {
         draft: claudeEnvDraft,
         shell: shell.kind === "unsupported" ? "posix" : shell.kind,
         settingsTarget: claudeSettingsTarget
       }, undefined, false, undefined, this),
-      commandOutput && /* @__PURE__ */ jsx_dev_runtime18.jsxDEV(CommandOutput, {
+      commandOutput && /* @__PURE__ */ jsx_dev_runtime19.jsxDEV(CommandOutput, {
         title: commandOutput.title,
         output: commandOutput.output
       }, undefined, false, undefined, this)
@@ -59752,9 +60499,9 @@ function upsertRequestLog(logs, entry) {
 }
 
 // src/ui/index.tsx
-var jsx_dev_runtime19 = __toESM(require_jsx_dev_runtime(), 1);
+var jsx_dev_runtime20 = __toESM(require_jsx_dev_runtime(), 1);
 function runUi(options) {
-  return render_default(/* @__PURE__ */ jsx_dev_runtime19.jsxDEV(CodexCodeApp, {
+  return render_default(/* @__PURE__ */ jsx_dev_runtime20.jsxDEV(CodexCodeApp, {
     port: options?.port,
     hostname: options?.hostname,
     apiPassword: options?.password
@@ -59778,7 +60525,7 @@ export {
   updateCopilotAuthSelection,
   startRuntimeWithBootstrap,
   startRuntime,
-  selectCopilotAuthEntry2 as selectCopilotAuthEntry,
+  selectCopilotAuthEntry,
   selectAuthEntry,
   saveCopilotCache,
   runExample,

@@ -10,6 +10,7 @@ import type { JsonObject, RequestProxyLog } from "../../core/types"
 import { countTokens } from "gpt-tokenizer"
 import { normalizeCanonicalRequest, normalizeRequestBody } from "./normalize"
 import { openAICanonicalResponse, openAICanonicalStreamResponse } from "./response"
+import { OPENAI_NON_EMBEDDINGS_ROUTES, openAIProxyRouteDescriptor } from "./routes"
 
 interface OpenAIInboundProviderOptions {
   name?: string
@@ -30,10 +31,7 @@ export class OpenAI_Inbound_Provider implements Inbound_Provider {
 
   constructor(options: OpenAIInboundProviderOptions = {}) {
     this.name = options.name ?? "openai"
-    this.routeDescriptors = options.routes ?? [
-      { path: "/v1/responses", method: "POST" },
-      { path: "/v1/chat/completions", method: "POST" },
-    ]
+    this.routeDescriptors = options.routes ?? OPENAI_NON_EMBEDDINGS_ROUTES.map(openAIProxyRouteDescriptor)
     this.passthrough = options.passthrough ?? true
     this.upstreamLogLabel = options.upstreamLogLabel ?? "Codex responses"
     this.upstreamTarget = options.upstreamTarget ?? "/v1/responses"

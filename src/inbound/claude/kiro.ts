@@ -1,8 +1,9 @@
+import type { Route_Descriptor } from "../../core/interfaces"
 import { Claude_Inbound_Provider } from "./index"
 import { countKiroClaudeInputTokens } from "./kiro-count"
 
 export class Claude_Kiro_Inbound_Adapter extends Claude_Inbound_Provider {
-  constructor(modelResolver: () => Promise<string[]>) {
+  constructor(modelResolver: () => Promise<string[]>, routes?: Route_Descriptor[]) {
     super({
       name: "claude-kiro",
       modelResolver,
@@ -11,6 +12,7 @@ export class Claude_Kiro_Inbound_Adapter extends Claude_Inbound_Provider {
       expectedUpstreamKind: "kiro",
       localCountTokens: true,
       countTokens: countKiroClaudeInputTokens,
+      routes,
     })
   }
 }

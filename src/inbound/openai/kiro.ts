@@ -1,4 +1,5 @@
 import { OpenAI_Inbound_Provider } from "./index"
+import { OPENAI_NON_EMBEDDINGS_ROUTES, openAIProxyRouteDescriptor } from "./routes"
 
 export class OpenAI_Kiro_Inbound_Adapter extends OpenAI_Inbound_Provider {
   constructor() {
@@ -8,10 +9,7 @@ export class OpenAI_Kiro_Inbound_Adapter extends OpenAI_Inbound_Provider {
       upstreamLogLabel: "Kiro OpenAI",
       upstreamTarget: "upstream",
       expectedUpstreamKind: "kiro",
-      routes: [
-        { path: "/v1/responses", method: "POST" },
-        { path: "/v1/chat/completions", method: "POST" },
-      ],
+      routes: OPENAI_NON_EMBEDDINGS_ROUTES.map(openAIProxyRouteDescriptor),
     })
   }
 }

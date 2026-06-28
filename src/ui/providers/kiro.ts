@@ -27,7 +27,7 @@ export const kiroProviderDefinition: UiProviderDefinition = {
     authFile: context.authFile,
     authAccount: context.accountKey,
   }),
-  runtimeSignature: (context) => `kiro:${context.authFile}:${context.accountKey ?? ""}:${context.authRevision}`,
+  runtimeSignature: (context) => `kiro:${context.authFile}:${context.accountKey ?? ""}:${context.authRevision}:${context.routingRevision}`,
   validate: async () => {
     await ensureKiroAuthFile()
   },

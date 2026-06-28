@@ -3,6 +3,12 @@ import { appDataDir, bunPath as path, expandHome } from "./paths"
 
 export type ProviderMode = "codex" | "kiro" | "copilot"
 
+export type ProxyableEndpoint = "messages" | "count_tokens" | "responses" | "chat_completions" | "embeddings"
+
+export type EndpointProxyTarget = "self" | ProviderMode
+
+export type EndpointProxyMap = Partial<Record<ProxyableEndpoint, EndpointProxyTarget>>
+
 export const PROVIDER_STATE_FILE_NAME = "provider-state.json"
 export const PROVIDER_CACHE_FILE_NAME = "provider-cache.json"
 
@@ -11,6 +17,7 @@ export const PROVIDER_CACHE_PATH = path.join(appDataDir(), PROVIDER_CACHE_FILE_N
 
 export interface ProviderStateSection<T = unknown> {
   activeAccount?: string
+  endpointProxy?: EndpointProxyMap
   data?: T
   [key: string]: unknown
 }

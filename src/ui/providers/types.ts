@@ -5,6 +5,7 @@ export interface ProviderRuntimeContext {
   authFile: string
   accountKey?: string
   authRevision: number
+  routingRevision: number
 }
 
 export type ProviderAccountData = unknown

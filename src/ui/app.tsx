@@ -32,6 +32,7 @@ import { CommandOutput } from "./components/command-output"
 import { CodexFastModeSelector } from "./components/codex-fast-mode"
 import { ConnectAccountWizard } from "./components/connect-account-wizard"
 import { ConnectSourceSelector } from "./components/connect-source-selector"
+import { EndpointShareWizard } from "./components/endpoint-share-wizard"
 import { ProviderDashboard } from "./components/provider-dashboard"
 import {
   formatAllRequestLogs,
@@ -43,11 +44,14 @@ import {
 } from "./components/request-logs-panel"
 import { StatusHeader } from "./components/resource-usage-header"
 import { SwitchProviderConfirm } from "./components/switch-provider-confirm"
+import { loadEndpointShareAvailability, endpointShareEndpointOptions, endpointShareSourceOptions, endpointShareSummaryLines, type EndpointShareAvailabilityMap } from "./endpoint-share"
+import { readEndpointProxyMap, writeEndpointProxyMap, canUseEndpointProxySource, normalizeEndpointProxyMap, resolveEndpointProxyStoredTarget } from "../app/endpoint-share"
 import { nextProviderDefinition, providerDefinition, providerDefinitions } from "./providers/registry"
 import type { ProviderAccountData, ProviderConnectDraft, ProviderConnectField, ProviderConnectProgress } from "./providers/types"
 import { useCodexFastMode } from "./providers/use-codex-fast-mode"
 import { useProviderLimits } from "./providers/use-provider-limits"
 import { useProviderRuntime } from "./providers/use-provider-runtime"
+import type { EndpointProxyMap, ProxyableEndpoint } from "../core/provider-state"
 import type { ProviderMode } from "./types"
 
 export function CodexCodeApp(props: { port?: number; hostname?: string; apiPassword?: string }) {
@@ -74,6 +78,7 @@ export function CodexCodeApp(props: { port?: number; hostname?: string; apiPassw
     | "connect-source"
     | "connect-account"
     | "switch-provider"
+    | "endpoint-share"
   >("home")
   const [selectorIndex, setSelectorIndex] = useState(0)
   const [switchProviderIndex, setSwitchProviderIndex] = useState(0)
@@ -103,7 +108,15 @@ export function CodexCodeApp(props: { port?: number; hostname?: string; apiPassw
   const [connectStatus, setConnectStatus] = useState<string>()
   const [connectProgress, setConnectProgress] = useState<ProviderConnectProgress>()
   const [authRevision, setAuthRevision] = useState(0)
+  const [routingRevision, setRoutingRevision] = useState(0)
   const [accountKey, setAccountKey] = useState<string>()
+  const [endpointProxyConfig, setEndpointProxyConfig] = useState<EndpointProxyMap>({})
+  const [endpointProxyAvailability, setEndpointProxyAvailability] = useState<EndpointShareAvailabilityMap>()
+  const [endpointShareStep, setEndpointShareStep] = useState(0)
+  const [endpointShareEndpointIndex, setEndpointShareEndpointIndex] = useState(0)
+  const [endpointShareSourceIndex, setEndpointShareSourceIndex] = useState(0)
+  const [endpointShareSaving, setEndpointShareSaving] = useState(false)
+  const [endpointShareStatus, setEndpointShareStatus] = useState<string>()
   const connectOperationId = useRef(0)
   const resetRuntimeLogs = useCallback(() => {
     setRequestLogs([])
@@ -138,6 +151,7 @@ export function CodexCodeApp(props: { port?: number; hostname?: string; apiPassw
     apiPassword,
     accountKey,
     authRevision,
+    routingRevision,
     loadError,
     onMessage: setInputMessage,
     requestLogMode: resolveRequestLogMode,
@@ -191,6 +205,13 @@ export function CodexCodeApp(props: { port?: number; hostname?: string; apiPassw
     setConnectSaving(false)
     setConnectStatus(undefined)
     setConnectProgress(undefined)
+    setEndpointProxyConfig({})
+    setEndpointProxyAvailability(undefined)
+    setEndpointShareStep(0)
+    setEndpointShareEndpointIndex(0)
+    setEndpointShareSourceIndex(0)
+    setEndpointShareSaving(false)
+    setEndpointShareStatus(undefined)
     setAuthRevision((value) => value + 1)
   }, [clearCommandOutput, resetLimits, resetRuntimeLogs])
   const pkg = useMemo(() => packageInfo(), [])
@@ -215,6 +236,21 @@ export function CodexCodeApp(props: { port?: number; hostname?: string; apiPassw
   const visibleRequestLogs = useMemo(
     () => requestLogs.map((log) => requestLogDetails[log.id] ?? log),
     [requestLogDetails, requestLogs],
+  )
+  const endpointShareEndpointOptionsList = useMemo(
+    () => endpointShareEndpointOptions(providerMode, endpointProxyConfig),
+    [endpointProxyConfig, providerMode],
+  )
+  const selectedEndpointOption = endpointShareEndpointOptionsList[endpointShareEndpointIndex] ?? endpointShareEndpointOptionsList[0]
+  const selectedEndpoint = (selectedEndpointOption?.endpoint ?? endpointShareEndpointOptionsList[0]?.endpoint ?? "responses") as ProxyableEndpoint
+  const endpointShareSourceOptionsList = useMemo(
+    () => endpointProxyAvailability ? endpointShareSourceOptions(providerMode, selectedEndpoint, endpointProxyAvailability, endpointProxyConfig) : [],
+    [endpointProxyAvailability, endpointProxyConfig, providerMode, selectedEndpoint],
+  )
+  const selectedSourceOption = endpointShareSourceOptionsList[endpointShareSourceIndex] ?? endpointShareSourceOptionsList[0]
+  const endpointProxySummaryLines = useMemo(
+    () => endpointShareSummaryLines(providerMode, endpointProxyConfig),
+    [endpointProxyConfig, providerMode],
   )
 
   const claudeEnvScopes: ClaudeSettingsScope[] = ["user", "project", "local"]
@@ -268,6 +304,28 @@ export function CodexCodeApp(props: { port?: number; hostname?: string; apiPassw
       active = false
     }
   }, [accountCapability, authFile, authRevision, providerReady, setRuntimeError])
+
+  useEffect(() => {
+    if (!providerReady) {
+      setEndpointProxyConfig({})
+      return
+    }
+
+    let active = true
+    void readEndpointProxyMap(providerMode)
+      .then((proxy) => {
+        if (!active) return
+        setEndpointProxyConfig(proxy)
+      })
+      .catch(() => {
+        if (!active) return
+        setEndpointProxyConfig({})
+      })
+
+    return () => {
+      active = false
+    }
+  }, [providerMode, providerReady, routingRevision])
 
   useEffect(() => {
     if (mode !== "logs") return
@@ -326,6 +384,35 @@ export function CodexCodeApp(props: { port?: number; hostname?: string; apiPassw
     }
   }, [authFile, logsDetailOpen, logsSelected, mode, requestLogDetails, requestLogs])
 
+  useEffect(() => {
+    setEndpointShareEndpointIndex((value) => Math.min(value, Math.max(0, endpointShareEndpointOptionsList.length - 1)))
+  }, [endpointShareEndpointOptionsList.length])
+
+  useEffect(() => {
+    setEndpointShareSourceIndex((value) => Math.min(value, Math.max(0, endpointShareSourceOptionsList.length - 1)))
+  }, [endpointShareSourceOptionsList.length])
+
+  useEffect(() => {
+    if (mode !== "endpoint-share") return
+    let active = true
+    const loadingMessage = "Loading provider availability..."
+    setEndpointShareStatus(loadingMessage)
+    void loadEndpointShareAvailability()
+      .then((availability) => {
+        if (!active) return
+        setEndpointProxyAvailability(availability)
+        setEndpointShareStatus((current) => current === loadingMessage ? undefined : current)
+      })
+      .catch((error) => {
+        if (!active) return
+        setEndpointProxyAvailability(undefined)
+        setEndpointShareStatus(`Failed to load provider availability: ${error instanceof Error ? error.message : String(error)}`)
+      })
+    return () => {
+      active = false
+    }
+  }, [authRevision, mode])
+
   useInput((input, key) => {
     if (key.ctrl && input === "c") {
       if (runtime.status === "running") runtime.server.stop(true)
@@ -334,6 +421,7 @@ export function CodexCodeApp(props: { port?: number; hostname?: string; apiPassw
       return
     }
     if (switchingProvider) return
+    if (mode === "endpoint-share" && endpointShareSaving) return
     if (mode === "logs") {
       if (logsClearConfirm) {
         if (input.toLowerCase() === "y") {
@@ -448,6 +536,20 @@ export function CodexCodeApp(props: { port?: number; hostname?: string; apiPassw
         setInputMessage("Provider switch cancelled")
         return
       }
+      if (mode === "endpoint-share") {
+        if (endpointShareStep > 0) {
+          setEndpointShareStep((value) => Math.max(0, value - 1))
+          setEndpointShareStatus(undefined)
+          setInputMessage("Endpoint share step back")
+          return
+        }
+        setMode("home")
+        setCommandIndex(0)
+        setEndpointProxyAvailability(undefined)
+        setEndpointShareStatus(undefined)
+        setInputMessage("Endpoint share cancelled")
+        return
+      }
       if (mode === "connect-source" || mode === "connect-account") {
         connectOperationId.current += 1
         setConnectSaving(false)
@@ -527,6 +629,87 @@ export function CodexCodeApp(props: { port?: number; hostname?: string; apiPassw
         }
         void switchProvider(target.mode, { onBeforeApply: resetForProviderSwitch })
         return
+      }
+      if (mode === "endpoint-share") {
+        const endpointOption = selectedEndpointOption ?? endpointShareEndpointOptionsList[0]
+        if (!endpointOption) {
+          setEndpointShareStatus("No endpoint is available to proxy")
+          return
+        }
+
+        if (endpointShareStep === 0) {
+          if (!endpointProxyAvailability) {
+            setEndpointShareStatus("Loading provider availability...")
+            return
+          }
+          const currentTarget = resolveEndpointProxyStoredTarget(providerMode, endpointOption.endpoint, endpointProxyConfig)
+          const nextSourceIndex = endpointShareSourceOptionsList.findIndex((option) => option.target === currentTarget)
+          setEndpointShareSourceIndex(nextSourceIndex >= 0 ? nextSourceIndex : 0)
+          setEndpointShareStep(1)
+          setEndpointShareStatus(undefined)
+          return
+        }
+
+        if (endpointShareStep === 1) {
+          const sourceOption = selectedSourceOption ?? endpointShareSourceOptionsList[0]
+          if (!sourceOption) {
+            setEndpointShareStatus("No source provider is available")
+            return
+          }
+          if (!sourceOption.available) {
+            setEndpointShareStatus(sourceOption.description)
+            return
+          }
+          setEndpointShareStep(2)
+          setEndpointShareStatus(undefined)
+          return
+        }
+
+        if (endpointShareStep === 2) {
+          const sourceOption = selectedSourceOption ?? endpointShareSourceOptionsList[0]
+          if (!sourceOption) {
+            setEndpointShareStatus("No source provider is available")
+            return
+          }
+          if (!sourceOption.available) {
+            setEndpointShareStatus(sourceOption.description)
+            return
+          }
+
+          const nextProxy: EndpointProxyMap = { ...endpointProxyConfig }
+          if (sourceOption.target === "self") {
+            delete nextProxy[endpointOption.endpoint]
+          } else {
+            nextProxy[endpointOption.endpoint] = sourceOption.target
+          }
+
+          const normalizedProxy = normalizeEndpointProxyMap(providerMode, nextProxy)
+          setEndpointShareSaving(true)
+          setEndpointShareStatus(`Saving ${endpointOption.label} -> ${sourceOption.label}...`)
+          void (async () => {
+            try {
+              const allowed = await canUseEndpointProxySource(providerMode, endpointOption.endpoint, normalizedProxy)
+              if (!allowed) {
+                throw new Error(sourceOption.description)
+              }
+              await writeEndpointProxyMap(providerMode, undefined, normalizedProxy)
+              setEndpointProxyConfig(normalizedProxy)
+              setRoutingRevision((value) => value + 1)
+              setMode("home")
+              setCommandIndex(0)
+              setEndpointShareStep(0)
+              setEndpointShareEndpointIndex(0)
+              setEndpointShareSourceIndex(0)
+              setEndpointShareStatus(undefined)
+              setInputMessage(`Endpoint proxy saved: ${endpointOption.label} -> ${sourceOption.label}`)
+            } catch (error) {
+              setEndpointShareStatus(`Failed to save endpoint proxy: ${error instanceof Error ? error.message : String(error)}`)
+            } finally {
+              setEndpointShareSaving(false)
+            }
+          })()
+          return
+        }
       }
       if (mode === "connect-source") {
         if (!connectCapability) {
@@ -751,6 +934,18 @@ export function CodexCodeApp(props: { port?: number; hostname?: string; apiPassw
           setInputMessage("Showing request logs")
           return
         }
+        if (command.name === "/endpoint-share") {
+          setEndpointShareStep(0)
+          setEndpointShareEndpointIndex(0)
+          setEndpointShareSourceIndex(0)
+          setEndpointShareSaving(false)
+          setEndpointShareStatus(undefined)
+          setEndpointProxyAvailability(undefined)
+          setMode("endpoint-share")
+          setCommandIndex(0)
+          setInputMessage("Select endpoint to proxy")
+          return
+        }
         if (command.name === "/codex-fast-mode") {
           codexFastMode.resetSelection()
           setMode("codex-fast-mode")
@@ -930,6 +1125,27 @@ export function CodexCodeApp(props: { port?: number; hostname?: string; apiPassw
       }
       return
     }
+    if (mode === "endpoint-share") {
+      if (endpointShareStep === 0) {
+        if (key.upArrow && endpointShareEndpointOptionsList.length) {
+          setEndpointShareEndpointIndex((value) => (value - 1 + endpointShareEndpointOptionsList.length) % endpointShareEndpointOptionsList.length)
+        }
+        if (key.downArrow && endpointShareEndpointOptionsList.length) {
+          setEndpointShareEndpointIndex((value) => (value + 1) % endpointShareEndpointOptionsList.length)
+        }
+        return
+      }
+      if (endpointShareStep === 1) {
+        if (key.upArrow && endpointShareSourceOptionsList.length) {
+          setEndpointShareSourceIndex((value) => (value - 1 + endpointShareSourceOptionsList.length) % endpointShareSourceOptionsList.length)
+        }
+        if (key.downArrow && endpointShareSourceOptionsList.length) {
+          setEndpointShareSourceIndex((value) => (value + 1) % endpointShareSourceOptionsList.length)
+        }
+        return
+      }
+      return
+    }
     if (mode === "home") {
       if (key.upArrow) {
         clearCommandOutput()
@@ -962,12 +1178,25 @@ export function CodexCodeApp(props: { port?: number; hostname?: string; apiPassw
         limitsLoading={limitsLoading}
         limitsError={limitsError}
         apiPassword={apiPassword}
+        endpointProxyLines={endpointProxySummaryLines}
       />
       {mode === "home" && <CommandInput selected={commandIndex} message={inputMessage} commands={commands} />}
       {mode === "account-selector" && accountCapability && <AccountSelector accounts={accounts} selected={selectorIndex} title={accountCapability.selectorTitle} description={accountCapability.selectorDescription} />}
       {mode === "codex-fast-mode" && providerMode === "codex" && <CodexFastModeSelector selected={codexFastMode.selected} current={codexFastMode.enabled} />}
       {mode === "connect-source" && connectCapability && <ConnectSourceSelector connect={connectCapability} selected={connectSourceIndex} saving={connectSaving} status={connectStatus} progress={connectProgress} />}
       {mode === "connect-account" && connectCapability && <ConnectAccountWizard title={connectCapability.title} description={connectCapability.manualDescription} draft={connectDraft} fields={connectFields} step={connectStep} saving={connectSaving} />}
+      {mode === "endpoint-share" && (
+        <EndpointShareWizard
+          providerMode={providerMode}
+          step={endpointShareStep}
+          endpointOptions={endpointShareEndpointOptionsList}
+          sourceOptions={endpointShareSourceOptionsList}
+          selectedEndpoint={endpointShareEndpointIndex}
+          selectedSource={endpointShareSourceIndex}
+          saving={endpointShareSaving}
+          status={endpointShareStatus}
+        />
+      )}
       {mode === "switch-provider" && (
         <SwitchProviderConfirm
           currentLabel={providerInfo.label}

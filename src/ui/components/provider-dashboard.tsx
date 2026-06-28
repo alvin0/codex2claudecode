@@ -3,6 +3,7 @@ import { Box, Text } from "ink"
 
 import type { AccountInfo } from "../../upstream/codex/account-info"
 import type { LimitGroupView } from "../limits"
+import type { EndpointShareSummaryLine } from "../endpoint-share"
 import type { AccountView, ProviderInfo, ProviderMode } from "../types"
 import { AccountInfoPanel } from "./account-info-panel"
 import { CodexFastModeStatus } from "./codex-fast-mode"
@@ -24,6 +25,7 @@ export function ProviderDashboard(props: {
   limitsLoading: boolean
   limitsError?: string
   apiPassword?: string
+  endpointProxyLines?: EndpointShareSummaryLine[]
 }) {
   const leftWidth = props.compact ? props.innerWidth : 42
   const detailsWidth = props.compact ? props.innerWidth : Math.min(58, Math.max(42, props.contentWidth - 48))
@@ -37,7 +39,7 @@ export function ProviderDashboard(props: {
       alignSelf={props.compact ? undefined : "flex-start"}
       flexDirection={props.compact ? "column" : "row"}
     >
-      <WelcomePanel hostname={props.hostname} port={props.port} compact={props.compact} width={leftWidth} providerMode={props.providerMode} apiPassword={props.apiPassword} />
+      <WelcomePanel hostname={props.hostname} port={props.port} compact={props.compact} width={leftWidth} providerMode={props.providerMode} apiPassword={props.apiPassword} endpointProxyLines={props.endpointProxyLines} />
       {props.compact ? (
         <Text color="#7f4f45">{"─".repeat(props.innerWidth)}</Text>
       ) : (
