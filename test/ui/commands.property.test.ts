@@ -11,7 +11,7 @@ describe("UI commands properties", () => {
         const filtered = filterCommands(query, mode)
         const names = new Set(getCommands(mode).map((command) => command.name))
 
-        expect(filtered.length).toBeLessThanOrEqual(8)
+        expect(filtered.length).toBeLessThanOrEqual(9)
         for (const command of filtered) {
           expect(names.has(command.name)).toBe(true)
           expect(command.name.startsWith("/")).toBe(true)

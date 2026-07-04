@@ -1,5 +1,6 @@
 import type { ProviderCapabilities } from "../../core/provider-capabilities"
 import { DEFAULT_RETRY_POLICY } from "../../core/provider-capabilities"
+import { KIRO_FIRST_TOKEN_TIMEOUT_MS } from "./constants"
 
 export const KIRO_CAPABILITIES: ProviderCapabilities = {
   streaming: true,
@@ -16,7 +17,7 @@ export const KIRO_CAPABILITIES: ProviderCapabilities = {
   timeoutPolicy: {
     requestTimeoutMs: 0,
     streamIdleTimeoutMs: 300_000,
-    firstTokenTimeoutMs: 2000,
+    firstTokenTimeoutMs: KIRO_FIRST_TOKEN_TIMEOUT_MS,
   },
   logBodyDefault: true,
 }

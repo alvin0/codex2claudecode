@@ -11,7 +11,7 @@ export const GET_USAGE_LIMITS_PATH = "/getUsageLimits"
 
 export const TOKEN_REFRESH_THRESHOLD_SECONDS = 600
 export const STREAMING_READ_TIMEOUT_MS = 300_000
-export const KIRO_FIRST_TOKEN_TIMEOUT_MS = 2_000
+export const KIRO_FIRST_TOKEN_TIMEOUT_MS = 15_000
 export const KIRO_FIRST_TOKEN_MAX_RETRIES = 1
 export const MAX_RETRIES = 3
 export const BASE_RETRY_DELAY_MS = 1000
