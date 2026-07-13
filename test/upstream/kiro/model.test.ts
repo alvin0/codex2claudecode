@@ -16,6 +16,8 @@ function auth(overrides: Record<string, unknown> = {}) {
 
 describe("Kiro model handling", () => {
   test("normalizes model name variants", () => {
+    expect(normalizeKiroModelName("claude-opus-4-8")).toBe("claude-opus-4.8")
+    expect(normalizeKiroModelName("claude-haiku-4-5")).toBe("claude-haiku-4.5")
     expect(normalizeKiroModelName("claude-sonnet-4-5")).toBe("claude-sonnet-4.5")
     expect(normalizeKiroModelName("claude-sonnet-4-20250514")).toBe("claude-sonnet-4")
     expect(normalizeKiroModelName("claude-sonnet-4-latest")).toBe("claude-sonnet-4")

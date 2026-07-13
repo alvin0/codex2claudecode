@@ -36948,6 +36948,7 @@ var kiro_models_default = {
     "claude-4.1-opus": "claude-opus-4.1",
     "claude-4-opus": "claude-opus-4",
     "claude-4-sonnet": "claude-sonnet-4",
+    "claude-opus-4-8": "claude-opus-4.8",
     "claude-opus-4-7": "claude-opus-4.7",
     "claude-opus-4-6": "claude-opus-4.6",
     "claude-sonnet-4-6": "claude-sonnet-4.6",
@@ -40296,6 +40297,7 @@ var USER_AGENT_TEMPLATE = "aws-sdk-js/1.0.27 ua/2.1 os/{platform}#{version} lang
 var X_AMZ_USER_AGENT_TEMPLATE = "aws-sdk-js/1.0.27 KiroIDE-{kiroVersion}-{fingerprint}";
 var KIRO_STATE_FILE_NAME = "provider-state.json";
 var HIDDEN_KIRO_MODELS = [
+  "claude-sonnet-5",
   "claude-sonnet-4.5",
   "claude-sonnet-4",
   "claude-3.7-sonnet",
@@ -55251,10 +55253,10 @@ var config = {
   },
   kiro: {
     canEdit: {
-      ANTHROPIC_MODEL: "claude-opus-4.8",
-      ANTHROPIC_DEFAULT_OPUS_MODEL: "claude-opus-4.8",
-      ANTHROPIC_DEFAULT_SONNET_MODEL: "claude-sonnet-4.6",
-      ANTHROPIC_DEFAULT_HAIKU_MODEL: "claude-haiku-4.5",
+      ANTHROPIC_MODEL: "claude-opus-4-8",
+      ANTHROPIC_DEFAULT_OPUS_MODEL: "claude-opus-4-8",
+      ANTHROPIC_DEFAULT_SONNET_MODEL: "claude-sonnet-5",
+      ANTHROPIC_DEFAULT_HAIKU_MODEL: "claude-haiku-4-5",
       CLAUDE_CODE_DISABLE_1M_CONTEXT: "1",
       CLAUDE_AUTOCOMPACT_PCT_OVERRIDE: "64"
     },

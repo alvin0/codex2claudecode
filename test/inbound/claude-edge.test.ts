@@ -1299,6 +1299,7 @@ describe("Model_Catalog edge cases", () => {
 
   test("getModel resolves Kiro model aliases", () => {
     const catalog = new Model_Catalog()
+    expect(catalog.getModel("claude-opus-4-8")?.id).toBe("claude-opus-4.8")
     expect(catalog.getModel("claude-sonnet-4-5")?.id).toBe("claude-sonnet-4.5")
   })
 
