@@ -198,7 +198,7 @@ describe.serial("bootstrap endpoint proxying", () => {
       const logs = await readRecentRequestLogs(bootstrapped.authFile)
       const proxied = logs.find((entry) => entry.path === "/v1/responses")
       expect(proxied?.proxy).toMatchObject({
-        label: "Kiro OpenAI",
+        label: "Copilot OpenAI",
         method: "POST",
         target: "upstream",
         status: 200,

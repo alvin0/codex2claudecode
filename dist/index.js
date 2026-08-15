@@ -7840,7 +7840,7 @@ Learn more about data fetching with Hooks: https://react.dev/link/hooks-data-fet
           offscreenSubtreeIsHidden = prevOffscreenSubtreeIsHidden;
           wasHidden && !hoistableRoot && !prevOffscreenSubtreeIsHidden && !prevOffscreenSubtreeWasHidden && (finishedWork.mode & 2) !== NoMode && 0 <= componentEffectStartTime && 0 <= componentEffectEndTime && 0.05 < componentEffectEndTime - componentEffectStartTime && logComponentReappeared(finishedWork, componentEffectStartTime, componentEffectEndTime);
           commitReconciliationEffects(finishedWork);
-          if (flags & 8192 && (root = finishedWork.stateNode, root._visibility = hoistableRoot ? root._visibility & ~OffscreenVisible : root._visibility | OffscreenVisible, !hoistableRoot || current2 === null || wasHidden || offscreenSubtreeIsHidden || offscreenSubtreeWasHidden || (recursivelyTraverseDisappearLayoutEffects(finishedWork), (finishedWork.mode & 2) !== NoMode && 0 <= componentEffectStartTime && 0 <= componentEffectEndTime && 0.05 < componentEffectEndTime - componentEffectStartTime && logComponentTrigger(finishedWork, componentEffectStartTime, componentEffectEndTime, "Disconnect")), supportsMutation))
+          if (flags & 8192 && (root = finishedWork.stateNode, root._visibility = hoistableRoot ? root._visibility & ~OffscreenVisible : root._visibility | OffscreenVisible, !hoistableRoot || current2 === null || wasHidden || offscreenSubtreeIsHidden || offscreenSubtreeWasHidden || (recursivelyTraverseDisappearLayoutEffects(finishedWork), (finishedWork.mode & 2) !== NoMode && 0 <= componentEffectStartTime && 0 <= componentEffectEndTime && 0.05 < componentEffectEndTime - componentEffectStartTime && logComponentTrigger(finishedWork, componentEffectStartTime, componentEffectEndTime, "Disconnect")), supportsMutation)) {
             a:
               if (current2 = null, supportsMutation)
                 for (root = finishedWork;; ) {
@@ -7890,6 +7890,7 @@ Learn more about data fetching with Hooks: https://react.dev/link/hooks-data-fet
                   root.sibling.return = root.return;
                   root = root.sibling;
                 }
+          }
           flags & 4 && (flags = finishedWork.updateQueue, flags !== null && (current2 = flags.retryQueue, current2 !== null && (flags.retryQueue = null, attachSuspenseRetryListeners(finishedWork, current2))));
           break;
         case 19:
@@ -12553,7 +12554,7 @@ var require_backend = __commonJS((exports, module) => {
         987: (module2, __unused_webpack_exports, __webpack_require__2) => {
           if (true) {
             module2.exports = __webpack_require__2(786);
-          } else {}
+          }
         },
         126: (__unused_webpack_module, exports2, __webpack_require__2) => {
           var process4 = __webpack_require__2(169);
@@ -13003,7 +13004,7 @@ var require_backend = __commonJS((exports, module) => {
         189: (module2, __unused_webpack_exports, __webpack_require__2) => {
           if (true) {
             module2.exports = __webpack_require__2(126);
-          } else {}
+          }
         },
         206: function(module2, exports2, __webpack_require__2) {
           var __WEBPACK_AMD_DEFINE_FACTORY__, __WEBPACK_AMD_DEFINE_ARRAY__, __WEBPACK_AMD_DEFINE_RESULT__;
@@ -13018,7 +13019,7 @@ var require_backend = __commonJS((exports, module) => {
           (function(root, factory) {
             if (true) {
               __WEBPACK_AMD_DEFINE_ARRAY__ = [__webpack_require__2(430)], __WEBPACK_AMD_DEFINE_FACTORY__ = factory, __WEBPACK_AMD_DEFINE_RESULT__ = typeof __WEBPACK_AMD_DEFINE_FACTORY__ === "function" ? __WEBPACK_AMD_DEFINE_FACTORY__.apply(exports2, __WEBPACK_AMD_DEFINE_ARRAY__) : __WEBPACK_AMD_DEFINE_FACTORY__, __WEBPACK_AMD_DEFINE_RESULT__ !== undefined && (module2.exports = __WEBPACK_AMD_DEFINE_RESULT__);
-            } else {}
+            }
           })(this, function ErrorStackParser(StackFrame) {
             var FIREFOX_SAFARI_STACK_REGEXP = /(^|@)\S+:\d+/;
             var CHROME_IE_STACK_REGEXP = /^\s*at .*(\S+:\d+|\(native\))/m;
@@ -13714,7 +13715,7 @@ var require_backend = __commonJS((exports, module) => {
           (function(root, factory) {
             if (true) {
               __WEBPACK_AMD_DEFINE_ARRAY__ = [], __WEBPACK_AMD_DEFINE_FACTORY__ = factory, __WEBPACK_AMD_DEFINE_RESULT__ = typeof __WEBPACK_AMD_DEFINE_FACTORY__ === "function" ? __WEBPACK_AMD_DEFINE_FACTORY__.apply(exports2, __WEBPACK_AMD_DEFINE_ARRAY__) : __WEBPACK_AMD_DEFINE_FACTORY__, __WEBPACK_AMD_DEFINE_RESULT__ !== undefined && (module2.exports = __WEBPACK_AMD_DEFINE_RESULT__);
-            } else {}
+            }
           })(this, function() {
             function _isNumber(n) {
               return !isNaN(parseFloat(n)) && isFinite(n);
@@ -19088,7 +19089,7 @@ In order to be iterable, non-array objects must have a [Symbol.iterator]() metho
           var suffix = "";
           if (true) {
             suffix = " (<anonymous>)";
-          } else {}
+          }
           return `
 ` + prefix + name + suffix;
         }
@@ -21817,7 +21818,7 @@ In order to be iterable, non-array objects must have a [Symbol.iterator]() metho
                     hasChanges = true;
                     updateMostRecentlyInspectedElementIfNecessary(devtoolsInstance.id);
                   }
-                } else {}
+                }
               }
             } catch (err) {
               _iterator2.e(err);
@@ -23596,7 +23597,7 @@ In order to be iterable, non-array objects must have a [Symbol.iterator]() metho
                       if (contentFiber === null) {
                         throw new Error("There should always be an Offscreen Fiber child in a hydrated Suspense boundary.");
                       }
-                    } else {}
+                    }
                     var _isTimedOut = fiber.memoizedState !== null;
                     if (!_isTimedOut) {
                       newSuspenseNode.rects = measureInstance(newInstance);
@@ -23630,7 +23631,7 @@ In order to be iterable, non-array objects must have a [Symbol.iterator]() metho
                     if (_contentFiber === null) {
                       throw new Error("There should always be an Offscreen Fiber child in a hydrated Suspense boundary.");
                     }
-                  } else {}
+                  }
                   var suspenseState = fiber.memoizedState;
                   var _isTimedOut3 = suspenseState !== null;
                   if (!_isTimedOut3) {
@@ -23730,7 +23731,7 @@ In order to be iterable, non-array objects must have a [Symbol.iterator]() metho
                   trackThrownPromisesFromRetryCache(newSuspenseNode, fiber.stateNode);
                   mountSuspenseChildrenRecursively(_contentFiber2, traceNearestHostComponentUpdate, stashedSuspenseParent, stashedSuspensePrevious, stashedSuspenseRemaining);
                   shouldPopSuspenseNode = false;
-                } else {}
+                }
               } else {
                 if (fiber.child !== null) {
                   mountChildrenRecursively(fiber.child, traceNearestHostComponentUpdate);
@@ -24316,7 +24317,7 @@ In order to be iterable, non-array objects must have a [Symbol.iterator]() metho
                   shouldPopSuspenseNode = false;
                 } else if (previousHydrated && !nextHydrated) {
                   throw new Error("Encountered a dehydrated Suspense boundary that was previously hydrated.");
-                } else {}
+                }
               } else {
                 if (nextFiber.child !== prevFiber.child) {
                   updateFlags |= updateChildrenRecursively(nextFiber.child, prevFiber.child, traceNearestHostComponentUpdate);
@@ -24362,8 +24363,8 @@ In order to be iterable, non-array objects must have a [Symbol.iterator]() metho
                     recordResetChildren(fiberInstance);
                   }
                   updateFlags &= ~ShouldResetChildren;
-                } else {}
-              } else {}
+                }
+              }
               if ((updateFlags & ShouldResetSuspenseChildren) !== NoUpdate) {
                 if (fiberInstance !== null && fiberInstance.kind === FIBER_INSTANCE) {
                   var _suspenseNode3 = fiberInstance.suspenseNode;
@@ -24371,7 +24372,7 @@ In order to be iterable, non-array objects must have a [Symbol.iterator]() metho
                     recordResetSuspenseChildren(_suspenseNode3);
                     updateFlags &= ~ShouldResetSuspenseChildren;
                   }
-                } else {}
+                }
               }
               if ((updateFlags & ShouldResetParentSuspenseChildren) !== NoUpdate) {
                 if (fiberInstance !== null && fiberInstance.kind === FIBER_INSTANCE) {
@@ -24380,7 +24381,7 @@ In order to be iterable, non-array objects must have a [Symbol.iterator]() metho
                     updateFlags &= ~ShouldResetParentSuspenseChildren;
                     updateFlags |= ShouldResetSuspenseChildren;
                   }
-                } else {}
+                }
               }
               return updateFlags;
             } finally {
@@ -27444,7 +27445,7 @@ The error thrown in the component is:
               rendererInterface = renderer_attach(hook, id, renderer, global2, shouldStartProfilingNow, profilingSettings);
             } else if (renderer.ComponentTree) {
               rendererInterface = legacy_renderer_attach(hook, id, renderer, global2);
-            } else {}
+            }
           }
           return rendererInterface;
         }
