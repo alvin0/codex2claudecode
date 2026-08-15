@@ -42,7 +42,7 @@ try {
     "Claude messages stream (multi-token)",
   )
 
-  await postJson("/v1/responses", { model, input: "hello" }, 404, "OpenAI responses disabled in Kiro mode")
+  await postJson("/v1/responses", { model, input: "hello" }, 200, "OpenAI responses in Kiro mode")
   await getJsonOneOf("/usage", [200, 501, 502, 504], "usage")
   await getJson("/environments", 501, "environments unsupported in Kiro mode")
   console.log("\nKiro API smoke test passed.")

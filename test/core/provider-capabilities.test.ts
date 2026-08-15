@@ -25,7 +25,7 @@ describe("ProviderCapabilities", () => {
   })
 
   test("Kiro has first-token timeout configured", () => {
-    expect(KIRO_CAPABILITIES.timeoutPolicy.firstTokenTimeoutMs).toBe(2000)
+    expect(KIRO_CAPABILITIES.timeoutPolicy.firstTokenTimeoutMs).toBe(15_000)
     expect(CODEX_CAPABILITIES.timeoutPolicy.firstTokenTimeoutMs).toBe(0)
   })
 

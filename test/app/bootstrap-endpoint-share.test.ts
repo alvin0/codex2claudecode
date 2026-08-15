@@ -128,7 +128,7 @@ describe.serial("bootstrap endpoint proxying", () => {
       },
     }))
 
-    const runtime = await bootstrapRuntime({ providerMode: "codex" })
+    const runtime = await bootstrapRuntime({ providerMode: "codex", providerConfigPath: sandbox.providerStatePath })
     expect(runtime.registry.match("POST", "/v1/messages", new Headers())?.provider.name).toBe("claude-codex")
     expect(runtime.registry.match("POST", "/v1/messages/count_tokens", new Headers())?.provider.name).toBe("claude-codex")
     expect(runtime.registry.match("POST", "/v1/responses", new Headers())?.provider.name).toBe("openai-copilot")
@@ -151,7 +151,7 @@ describe.serial("bootstrap endpoint proxying", () => {
       },
     }))
 
-    const runtime = await bootstrapRuntime({ providerMode: "kiro" })
+    const runtime = await bootstrapRuntime({ providerMode: "kiro", providerConfigPath: sandbox.providerStatePath })
     expect(runtime.registry.match("POST", "/v1/messages", new Headers())?.provider.name).toBe("claude-kiro")
     expect(runtime.registry.match("POST", "/v1/messages/count_tokens", new Headers())?.provider.name).toBe("claude-kiro")
     expect(runtime.registry.match("POST", "/v1/responses", new Headers())?.provider.name).toBe("openai-copilot")
@@ -174,7 +174,7 @@ describe.serial("bootstrap endpoint proxying", () => {
       },
     }))
 
-    const bootstrapped = await bootstrapRuntime({ providerMode: "kiro" })
+    const bootstrapped = await bootstrapRuntime({ providerMode: "kiro", providerConfigPath: sandbox.providerStatePath })
     const server = await startRuntimeWithBootstrap(
       { port: 0, healthIntervalMs: 0, logBody: false, quiet: true, requestLogMode: "sync" },
       async () => bootstrapped,
@@ -217,7 +217,7 @@ describe.serial("bootstrap endpoint proxying", () => {
       copilot: {},
     }))
 
-    const runtime = await bootstrapRuntime({ providerMode: "copilot" })
+    const runtime = await bootstrapRuntime({ providerMode: "copilot", providerConfigPath: sandbox.providerStatePath })
     expect(runtime.registry.match("POST", "/v1/messages", new Headers())?.provider.name).toBe("claude-copilot")
     expect(runtime.registry.match("POST", "/v1/messages/count_tokens", new Headers())?.provider.name).toBe("claude-copilot")
     expect(runtime.registry.match("POST", "/v1/responses", new Headers())?.provider.name).toBe("openai-copilot")

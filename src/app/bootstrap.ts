@@ -16,7 +16,7 @@ export async function bootstrapRuntime(options?: RuntimeOptions & { providerMode
   const registry = new Provider_Registry()
 
   registerClaudeProvider(providerMode, activeRuntime.upstream, registry)
-  await registerEndpointProxyProviders(providerMode, activeRuntime, registry)
+  await registerEndpointProxyProviders(providerMode, activeRuntime, registry, options?.providerConfigPath)
 
   return {
     authFile: activeRuntime.authFile,
@@ -42,8 +42,13 @@ function registerClaudeProvider(mode: ProviderMode, upstream: ProviderRuntimeRes
   registry.register(new Claude_Codex_Inbound_Adapter(() => upstreamWithModels.listModels(), CLAUDE_MODEL_ROUTES))
 }
 
-async function registerEndpointProxyProviders(mode: ProviderMode, activeRuntime: ProviderRuntimeResult, registry: Provider_Registry) {
-  const endpointProxy = await readEndpointProxyMap(mode)
+async function registerEndpointProxyProviders(
+  mode: ProviderMode,
+  activeRuntime: ProviderRuntimeResult,
+  registry: Provider_Registry,
+  providerConfigPath?: string,
+) {
+  const endpointProxy = await readEndpointProxyMap(mode, providerConfigPath)
   const sourceRuntimeCache = new Map<ProviderMode, ProviderRuntimeResult>()
 
   for (const route of ENDPOINT_PROXY_ROUTES) {

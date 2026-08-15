@@ -36949,6 +36949,7 @@ var kiro_models_default = {
     "claude-4.1-opus": "claude-opus-4.1",
     "claude-4-opus": "claude-opus-4",
     "claude-4-sonnet": "claude-sonnet-4",
+    "claude-opus-4-8": "claude-opus-4.8",
     "claude-opus-4-7": "claude-opus-4.7",
     "claude-opus-4-6": "claude-opus-4.6",
     "claude-sonnet-4-6": "claude-sonnet-4.6",
@@ -40251,7 +40252,7 @@ var LIST_AVAILABLE_MODELS_PATH = "/ListAvailableModels";
 var GET_USAGE_LIMITS_PATH = "/getUsageLimits";
 var TOKEN_REFRESH_THRESHOLD_SECONDS = 600;
 var STREAMING_READ_TIMEOUT_MS = 300000;
-var KIRO_FIRST_TOKEN_TIMEOUT_MS = 2000;
+var KIRO_FIRST_TOKEN_TIMEOUT_MS = 15000;
 var KIRO_FIRST_TOKEN_MAX_RETRIES = 1;
 var MAX_RETRIES = 3;
 var BASE_RETRY_DELAY_MS = 1000;
@@ -40297,6 +40298,7 @@ var USER_AGENT_TEMPLATE = "aws-sdk-js/1.0.27 ua/2.1 os/{platform}#{version} lang
 var X_AMZ_USER_AGENT_TEMPLATE = "aws-sdk-js/1.0.27 KiroIDE-{kiroVersion}-{fingerprint}";
 var KIRO_STATE_FILE_NAME = "provider-state.json";
 var HIDDEN_KIRO_MODELS = [
+  "claude-sonnet-5",
   "claude-sonnet-4.5",
   "claude-sonnet-4",
   "claude-3.7-sonnet",
@@ -45500,7 +45502,7 @@ async function bootstrapRuntime(options) {
   const activeRuntime = await createProviderRuntime(providerMode, options);
   const registry = new Provider_Registry;
   registerClaudeProvider(providerMode, activeRuntime.upstream, registry);
-  await registerEndpointProxyProviders(providerMode, activeRuntime, registry);
+  await registerEndpointProxyProviders(providerMode, activeRuntime, registry, options?.providerConfigPath);
   return {
     authFile: activeRuntime.authFile,
     authAccount: activeRuntime.authAccount,
@@ -45520,8 +45522,8 @@ function registerClaudeProvider(mode, upstream, registry) {
   }
   registry.register(new Claude_Codex_Inbound_Adapter(() => upstreamWithModels.listModels(), CLAUDE_MODEL_ROUTES));
 }
-async function registerEndpointProxyProviders(mode, activeRuntime, registry) {
-  const endpointProxy = await readEndpointProxyMap(mode);
+async function registerEndpointProxyProviders(mode, activeRuntime, registry, providerConfigPath) {
+  const endpointProxy = await readEndpointProxyMap(mode, providerConfigPath);
   const sourceRuntimeCache = new Map;
   for (const route of ENDPOINT_PROXY_ROUTES) {
     const sourceMode = resolveEndpointProxySourceMode(mode, route.endpoint, endpointProxy);
@@ -55252,10 +55254,10 @@ var config = {
   },
   kiro: {
     canEdit: {
-      ANTHROPIC_MODEL: "claude-opus-4.8",
-      ANTHROPIC_DEFAULT_OPUS_MODEL: "claude-opus-4.8",
-      ANTHROPIC_DEFAULT_SONNET_MODEL: "claude-sonnet-4.6",
-      ANTHROPIC_DEFAULT_HAIKU_MODEL: "claude-haiku-4.5",
+      ANTHROPIC_MODEL: "claude-opus-4-8",
+      ANTHROPIC_DEFAULT_OPUS_MODEL: "claude-opus-4-8",
+      ANTHROPIC_DEFAULT_SONNET_MODEL: "claude-sonnet-5",
+      ANTHROPIC_DEFAULT_HAIKU_MODEL: "claude-haiku-4-5",
       CLAUDE_CODE_DISABLE_1M_CONTEXT: "1",
       CLAUDE_AUTOCOMPACT_PCT_OVERRIDE: "64"
     },
