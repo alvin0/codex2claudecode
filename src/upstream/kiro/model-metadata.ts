@@ -23,6 +23,16 @@ export interface KiroModelMetadata {
   }
   rateMultiplier: number
   rateUnit: string
+  effort?: KiroModelEffortMetadata
+  richMetadata: boolean
+}
+
+export type KiroEffortSchemaPath = "output_config" | "reasoning"
+
+export interface KiroModelEffortMetadata {
+  schemaPath: KiroEffortSchemaPath
+  levels: string[]
+  defaultLevel?: string
 }
 
 /**
@@ -149,6 +159,7 @@ function createMinimalEntry(modelId: string): KiroModelMetadata {
     promptCaching: { supportsPromptCaching: false, minimumTokensPerCacheCheckpoint: null, maximumCacheCheckpointsPerRequest: null },
     rateMultiplier: 1.0,
     rateUnit: "Credit",
+    richMetadata: false,
   }
 }
 
@@ -168,6 +179,7 @@ function parseModelEntry(raw: unknown): KiroModelMetadata | undefined {
   const supportedInputTypes = Array.isArray(entry.supportedInputTypes)
     ? entry.supportedInputTypes.filter((t): t is string => typeof t === "string")
     : []
+  const effort = parseEffortMetadata(entry.additionalModelRequestFieldsSchema)
 
   return {
     modelId,
@@ -184,5 +196,36 @@ function parseModelEntry(raw: unknown): KiroModelMetadata | undefined {
     },
     rateMultiplier: typeof entry.rateMultiplier === "number" ? entry.rateMultiplier : 1.0,
     rateUnit: typeof entry.rateUnit === "string" ? entry.rateUnit : "Credit",
+    ...(effort ? { effort } : {}),
+    richMetadata: true,
   }
+}
+
+function parseEffortMetadata(schema: unknown): KiroModelEffortMetadata | undefined {
+  if (!schema || typeof schema !== "object" || Array.isArray(schema)) return undefined
+  const properties = objectProperty(schema, "properties")
+  if (!properties) return undefined
+
+  for (const schemaPath of ["output_config", "reasoning"] as const) {
+    const section = objectProperty(properties, schemaPath)
+    const sectionProperties = section ? objectProperty(section, "properties") : undefined
+    const effort = sectionProperties ? objectProperty(sectionProperties, "effort") : undefined
+    const levels = effort && Array.isArray(effort.enum)
+      ? effort.enum.filter((level): level is string => typeof level === "string")
+      : []
+    if (!levels.length) continue
+    const defaultLevel = typeof effort?.default === "string" && levels.includes(effort.default) ? effort.default : undefined
+    return {
+      schemaPath,
+      levels,
+      ...(defaultLevel ? { defaultLevel } : {}),
+    }
+  }
+
+  return undefined
+}
+
+function objectProperty(value: object, key: string): Record<string, unknown> | undefined {
+  const property = (value as Record<string, unknown>)[key]
+  return property && typeof property === "object" && !Array.isArray(property) ? property as Record<string, unknown> : undefined
 }

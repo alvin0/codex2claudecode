@@ -24,10 +24,10 @@ export type ExportEnvClaudeProviderConfig = {
 export const config: ExportEnvClaudeCodeConfig = {
     codex: {
         canEdit: {
-            ANTHROPIC_MODEL: "gpt-5.5",
-            ANTHROPIC_DEFAULT_OPUS_MODEL: "gpt-5.5",
-            ANTHROPIC_DEFAULT_SONNET_MODEL: "gpt-5.4",
-            ANTHROPIC_DEFAULT_HAIKU_MODEL: "gpt-5.4-mini",
+            ANTHROPIC_MODEL: "gpt-5.6-sol",
+            ANTHROPIC_DEFAULT_OPUS_MODEL: "gpt-5.6-sol",
+            ANTHROPIC_DEFAULT_SONNET_MODEL: "gpt-5.6-terra",
+            ANTHROPIC_DEFAULT_HAIKU_MODEL: "gpt-5.6-luna",
             CLAUDE_CODE_DISABLE_1M_CONTEXT: "1",
             CLAUDE_AUTOCOMPACT_PCT_OVERRIDE: "64",
         },
@@ -40,10 +40,10 @@ export const config: ExportEnvClaudeCodeConfig = {
     },
     kiro: {
         canEdit: {
-            ANTHROPIC_MODEL: "claude-opus-4-8",
-            ANTHROPIC_DEFAULT_OPUS_MODEL: "claude-opus-4-8",
+            ANTHROPIC_MODEL: "claude-opus-5",
+            ANTHROPIC_DEFAULT_OPUS_MODEL: "claude-opus-5",
             ANTHROPIC_DEFAULT_SONNET_MODEL: "claude-sonnet-5",
-            ANTHROPIC_DEFAULT_HAIKU_MODEL: "claude-haiku-4-5",
+            ANTHROPIC_DEFAULT_HAIKU_MODEL: "claude-haiku-4.5",
             CLAUDE_CODE_DISABLE_1M_CONTEXT: "1",
             CLAUDE_AUTOCOMPACT_PCT_OVERRIDE: "64",
         },

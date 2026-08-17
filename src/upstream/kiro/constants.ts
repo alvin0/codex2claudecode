@@ -66,9 +66,7 @@ export const KIRO_STATE_FILE_NAME = "provider-state.json"
 // The normal model path fetches the upstream list and caches it to avoid stale
 // hardcoded availability.
 export const HIDDEN_KIRO_MODELS = [
+  "claude-opus-5",
   "claude-sonnet-5",
-  "claude-sonnet-4.5",
-  "claude-sonnet-4",
-  "claude-3.7-sonnet",
-  "claude-opus-4.1",
+  "claude-haiku-4.5",
 ]

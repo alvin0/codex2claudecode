@@ -17,5 +17,5 @@ export function runtimeLine(runtime: RuntimeState, hostname: string, port: numbe
 }
 
 export function modelLabel() {
-  return process.env.ANTHROPIC_DEFAULT_OPUS_MODEL ?? process.env.CODEX_MODEL ?? "gpt-5.4_high"
+  return process.env.ANTHROPIC_DEFAULT_OPUS_MODEL ?? process.env.CODEX_MODEL ?? "gpt-5.6-sol"
 }

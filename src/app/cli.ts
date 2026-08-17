@@ -2,6 +2,8 @@ export interface CliOptions {
   port?: number
   hostname?: string
   password?: string
+  setupCodexCli?: boolean
+  codexCliMakeDefault?: boolean
 }
 
 export function parseCliOptions(args = process.argv.slice(2)): CliOptions {
@@ -24,10 +26,15 @@ export function parseCliOptions(args = process.argv.slice(2)): CliOptions {
     if (arg.startsWith("--password=")) return [arg.slice("--password=".length)]
     return []
   })[0]
+  const setupCodexCli = args.includes("--setup-codex-cli")
+  const codexCliMakeDefault = args.includes("--make-default")
+
   return {
     ...(port !== undefined && { port: parsePort(port) }),
     ...(hostname !== undefined && { hostname }),
     ...(password !== undefined && password !== "" && { password }),
+    ...(setupCodexCli && { setupCodexCli }),
+    ...(codexCliMakeDefault && { codexCliMakeDefault }),
   }
 }
 

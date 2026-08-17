@@ -1,9 +1,12 @@
 export const DEFAULT_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann"
 export const DEFAULT_ISSUER = "https://auth.openai.com"
 export const DEFAULT_CODEX_ENDPOINT = "https://chatgpt.com/backend-api/codex/responses"
+export const DEFAULT_CODEX_WEBSOCKET_ENDPOINT = "wss://chatgpt.com/backend-api/codex/responses"
+export const CODEX_WEBSOCKET_BETA = "responses_websockets=2026-02-06"
+export const CODEX_WEBSOCKET_CONNECT_TIMEOUT_MS = 10_000
 export const OPENAI_RESPONSES_INPUT_TOKENS_ENDPOINT = "https://api.openai.com/v1/responses/input_tokens"
 export const WHAM_USAGE_ENDPOINT = "https://chatgpt.com/backend-api/wham/usage"
 export const WHAM_ENVIRONMENTS_ENDPOINT = "https://chatgpt.com/backend-api/wham/environments"
-export const CODEX_MODELS_ENDPOINT = "https://chatgpt.com/backend-api/models"
+export const CODEX_MODELS_ENDPOINT = "https://chatgpt.com/backend-api/codex/models?client_version=0.0.0"
 export const CODEX_MODEL_CACHE_TTL_SECONDS = 3600
 export const REFRESH_SAFETY_MARGIN_MS = 30_000

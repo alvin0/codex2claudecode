@@ -47,6 +47,59 @@ describe("Kiro model handling", () => {
     expect(calls).toBe(2)
   })
 
+  test("parses model-specific effort schemas from the live Kiro model response", async () => {
+    const manager = auth()
+    const client = new Kiro_Client(manager, {
+      fetch: (() => Promise.resolve(Response.json({
+        defaultModel: { modelId: "auto", modelName: "Auto" },
+        models: [
+          {
+            modelId: "claude-sonnet-5",
+            modelName: "Claude Sonnet 5",
+            additionalModelRequestFieldsSchema: {
+              properties: {
+                output_config: {
+                  properties: {
+                    effort: { type: "string", enum: ["low", "medium", "high", "xhigh", "max"], default: "high" },
+                  },
+                },
+              },
+            },
+          },
+          {
+            modelId: "gpt-5.6-luna",
+            modelName: "GPT 5.6 Luna",
+            additionalModelRequestFieldsSchema: {
+              properties: {
+                reasoning: {
+                  properties: {
+                    effort: { type: "string", enum: ["none", "low", "medium", "high", "xhigh", "max"], default: "high" },
+                  },
+                },
+              },
+            },
+          },
+          { modelId: "deepseek-3.2", modelName: "DeepSeek 3.2", additionalModelRequestFieldsSchema: null },
+        ],
+      }))) as unknown as typeof fetch,
+    })
+    const upstream = new Kiro_Upstream_Provider({ auth: manager, client })
+
+    await upstream.listModels()
+
+    expect(upstream.modelMetadata.get("claude-sonnet-5")?.effort).toEqual({
+      schemaPath: "output_config",
+      levels: ["low", "medium", "high", "xhigh", "max"],
+      defaultLevel: "high",
+    })
+    expect(upstream.modelMetadata.get("gpt-5.6-luna")?.effort).toEqual({
+      schemaPath: "reasoning",
+      levels: ["none", "low", "medium", "high", "xhigh", "max"],
+      defaultLevel: "high",
+    })
+    expect(upstream.modelMetadata.get("deepseek-3.2")?.effort).toBeUndefined()
+  })
+
   test("falls back to hidden models when API listing fails", async () => {
     const manager = auth()
     const client = new Kiro_Client(manager, {
@@ -54,7 +107,11 @@ describe("Kiro model handling", () => {
     })
     const upstream = new Kiro_Upstream_Provider({ auth: manager, client })
 
-    expect(await upstream.listModels()).toEqual(HIDDEN_KIRO_MODELS)
+    expect(await upstream.listModels()).toEqual([
+      "claude-opus-5",
+      "claude-sonnet-5",
+      "claude-haiku-4.5",
+    ])
   })
 
   test("omits profileArn for SSO OIDC model listing requests", async () => {

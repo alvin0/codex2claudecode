@@ -258,10 +258,10 @@ macOS/Linux:
 export ANTHROPIC_BASE_URL="http://127.0.0.1:8787"
 export ANTHROPIC_API_KEY="codex2claudecode"
 export ANTHROPIC_AUTH_TOKEN="codex2claudecode"
-export ANTHROPIC_MODEL="gpt-5.4"
-export ANTHROPIC_DEFAULT_OPUS_MODEL="gpt-5.4_high"
-export ANTHROPIC_DEFAULT_SONNET_MODEL="gpt-5.3-codex_high"
-export ANTHROPIC_DEFAULT_HAIKU_MODEL="gpt-5.4-mini_high"
+export ANTHROPIC_MODEL="gpt-5.6-sol"
+export ANTHROPIC_DEFAULT_OPUS_MODEL="gpt-5.6-sol"
+export ANTHROPIC_DEFAULT_SONNET_MODEL="gpt-5.6-terra"
+export ANTHROPIC_DEFAULT_HAIKU_MODEL="gpt-5.6-luna"
 ```
 
 PowerShell:
@@ -270,15 +270,22 @@ PowerShell:
 $env:ANTHROPIC_BASE_URL="http://127.0.0.1:8787"
 $env:ANTHROPIC_API_KEY="codex2claudecode"
 $env:ANTHROPIC_AUTH_TOKEN="codex2claudecode"
-$env:ANTHROPIC_MODEL="gpt-5.4"
-$env:ANTHROPIC_DEFAULT_OPUS_MODEL="gpt-5.4_high"
-$env:ANTHROPIC_DEFAULT_SONNET_MODEL="gpt-5.3-codex_high"
-$env:ANTHROPIC_DEFAULT_HAIKU_MODEL="gpt-5.4-mini_high"
+$env:ANTHROPIC_MODEL="gpt-5.6-sol"
+$env:ANTHROPIC_DEFAULT_OPUS_MODEL="gpt-5.6-sol"
+$env:ANTHROPIC_DEFAULT_SONNET_MODEL="gpt-5.6-terra"
+$env:ANTHROPIC_DEFAULT_HAIKU_MODEL="gpt-5.6-luna"
 ```
 
 When `--password` is set, `ANTHROPIC_API_KEY` and `ANTHROPIC_AUTH_TOKEN` are
 automatically set to the password value by `/set-claude-env`. Without a password,
 they default to a placeholder token.
+
+Recommended Claude Code tier mappings:
+
+| Provider mode | Opus / default | Sonnet | Haiku |
+| --- | --- | --- | --- |
+| Codex | `gpt-5.6-sol` | `gpt-5.6-terra` | `gpt-5.6-luna` |
+| Kiro | `claude-opus-5` | `claude-sonnet-5` | `claude-haiku-4.5` |
 
 The UI command:
 
@@ -482,6 +489,194 @@ forwards input, cache, and server-tool usage fields when Kiro includes them in
 an object-shaped `usage` event. If Kiro does not return concrete input tokens,
 `contextUsagePercentage` is used as the session input estimate when available.
 
+## Codex Browser Login
+
+`/connect` → **Login with browser** signs in to ChatGPT from the gateway itself:
+it runs the same OAuth PKCE flow `codex login` uses, listens on the callback
+Codex registered (`http://localhost:1455/auth/callback`), and writes the tokens
+into this gateway's own auth file. `~/.codex/auth.json` is never read or written,
+so this is a login for codex2claudecode, not a Codex CLI setup.
+
+The URL is printed as well as opened, so a machine without a browser can finish
+the sign-in from another device. Port 1455 is fixed because the OAuth client only
+accepts that redirect, so the login fails with a clear message if something else
+already holds it.
+
+Device-code login (`codex login --device-auth`) is not offered: it runs against
+`https://auth.api.openai.org/deviceauth/*`, which answers `403` from anything but
+the Rust client.
+
+## Account Rotation
+
+Rotation is a mode you turn on from `/rotation` in the UI. It is off by default
+because it spends other accounts' quota. The toggle applies to the running gateway
+immediately and is remembered for the next start; with only one account connected
+it stays on but idle until you add another.
+
+While it is on, a request that fails for an account-level reason is retried on
+the next account instead of being returned to the client:
+
+```text
+401 / 403          auth is dead          rests 30 min
+402 / 429          quota exhausted       rests until the provider's reset time
+5xx                upstream is broken    rests 1 min
+```
+
+Anything else — a malformed request, a 404 — is returned as-is; rotating would
+only waste another account's quota on the same failure.
+
+The account that answers becomes the active one and is persisted, so later
+requests skip the failed account entirely. A resting account records why it
+failed, and quota failures are re-probed every 5 minutes through the provider's
+own usage endpoint, because providers sometimes refill before the reset they
+reported. Cooldowns live in `provider-cache.json`, never with the credentials.
+
+The dashboard always carries the rotation state, so turning it on is visible even
+before a second account exists:
+
+```text
+Rotation: ON · 1 account
+Idle until a second account is connected
+```
+
+Once there are two or more accounts, rotation replaces the single-account info and
+limits panels with the whole pool — the active account alone no longer describes what
+the gateway is doing. Each account's quota comes from that account's own usage
+endpoint, refreshed every 5 minutes:
+
+```text
+Rotation ON · 3 accounts · 1 resting
+› work@example.com     active
+  55% used · resets 03:02 PM
+  personal@example.com resting
+  quota (429) · resets 03:32 PM · 100% used
+  old@example.com      ready
+  12% used
+```
+
+The `/rotation` screen shows the same pool next to the on/off choice:
+
+```text
+Account rotation
+Current: on · active work@example.com
+
+>  on      Retry on the next account when one fails
+   off     Fail the request on the active account
+
+── Accounts ──
+  work@example.com       active    55% used · resets 03:02 PM
+  personal@example.com   resting   quota (429) · resets 03:32 PM · 100% used
+  old@example.com        ready     12% used
+```
+
+Rotation only covers failures that arrive before the response body does; once a
+stream has started, its errors belong to the client. To drive it without the UI,
+`ACCOUNT_ROTATION` overrides the stored toggle:
+
+```sh
+ACCOUNT_ROTATION=1                    # force on
+ACCOUNT_ROTATION=0                    # force off
+ACCOUNT_ROTATION_COOLDOWN_MINUTES=30  # default quota cooldown
+```
+
+## Codex CLI / Codex IDE Mode
+
+Codex CLI and the Codex IDE speak the OpenAI Responses wire, so they can run on
+Kiro, Copilot, or Codex credentials through the gateway's `/v1/responses`
+endpoint. `/set-codex-cli` in the UI points Codex at the gateway. The same thing
+without the UI:
+
+```sh
+codex2claudecode --setup-codex-cli
+```
+
+That appends one marked `[model_providers.codex2claude]` block to
+`~/.codex/config.toml` without changing which provider Codex uses. Everything else
+in the file is left alone, the original is copied to
+`config.toml.codex2claudecode.bak` first, and a second run replaces the block
+instead of stacking it. Then:
+
+```sh
+export CODEX2CLAUDECODE_API_KEY=codex2claudecode
+codex                                  # unchanged: the real Codex models
+codex -c model_provider=codex2claude   # this gateway: codex2claude-<model>
+```
+
+Plain `codex` is deliberately left alone. Codex binds one provider per session —
+`model_provider_id` lives on the thread, not on a catalog entry — so the stock
+model names and the `codex2claude-` ones cannot share a picker; you pick the
+provider when you start the session. To undo, delete the `codex2claudecode` block
+or restore the backup.
+
+No model is pinned. Codex fetches the catalog itself at
+`GET <base_url>/models?client_version=…` and offers those names in its own picker,
+prefixed with `codex2claude-` so it is obvious which traffic goes through the
+gateway:
+
+```text
+codex2claude-gpt-5.6-sol
+codex2claude-gpt-5.6-terra
+codex2claude-claude-opus-5
+```
+
+That request gets Codex's own catalog shape (`{"models":[{"slug":…}]}`), not the
+OpenAI `{"object":"list"}` shape — Codex drops a catalog it cannot deserialize and
+silently falls back to the list bundled in its binary, which is what makes the
+picker show the stock model names. When the upstream already serves that catalog,
+it is passed through with only the slugs renamed, so every field Codex depends on
+survives.
+
+Codex replaces its bundled catalog with the one a provider serves rather than
+merging them, and it binds one provider per session, so which models appear is
+decided entirely by this gateway. `CODEX_MODEL_PREFIX` chooses how they are named:
+
+```sh
+CODEX_MODEL_PREFIX=1      # default — codex2claude-gpt-5.6-sol
+CODEX_MODEL_PREFIX=0      # the upstream's own names — gpt-5.6-sol
+CODEX_MODEL_PREFIX=both   # every model listed twice, under both names
+```
+
+`both` is presentation only. Codex reaches the upstream through this gateway for
+every entry in that picker, so an unprefixed name there is not a direct route to
+the provider — for that, start the session on the provider itself (`codex`).
+
+Codex caches the catalog in a single `~/.codex/models_cache.json` per CODEX_HOME —
+one file for every provider, not one per provider. While it is fresh, Codex serves
+the picker from it and never asks the gateway, so a catalog fetched for one
+provider is what you see under the other. The setup deletes that file so the next
+session refetches; delete it by hand after switching back and forth.
+
+The OpenAI routes are served twice: under `/v1` and under `/codex/v1`. On `/v1`
+they share `GET /v1/models` with the Anthropic listing and are told apart by the
+`originator` header Codex always sends, so a browser or a plain OpenAI client hits
+the Anthropic shape there. `/codex/v1` has no such collision, which is why the
+setup writes that base URL.
+
+Reasoning effort stays with Codex — it sends its own `reasoning.effort` on every
+request. A `_<effort>` suffix on a `codex2claude-` model is still honoured and
+overrides that, for anyone who prefers to pin it in the model name.
+
+`GET /v1/models` serves the OpenAI-shaped list when the request carries the
+`originator` header that Codex always sends, and the Anthropic-shaped list
+otherwise, so Claude Code and Codex can share the port.
+
+## Codex WebSocket Transport
+
+Codex also serves the Responses API over
+`wss://chatgpt.com/backend-api/codex/responses`. The frames are the same events
+the SSE endpoint emits, so the only difference is that the connection stays open
+and is reused between turns, which removes the TLS handshake from every request.
+
+The transport is off by default because the endpoint is still beta. Enable it
+with:
+
+```sh
+CODEX_WIRE_API=responses_websocket
+```
+
+Only streaming requests use the WebSocket. Non-streaming requests, and any turn
+where the handshake or the socket fails, use the regular HTTPS endpoint.
+
 ## Kiro Payload Limit
 
 Kiro requests are preflight-checked before sending upstream. The default body
@@ -514,15 +709,20 @@ gpt-5.4
 gpt-5.4_high
 gpt-5.4_xhigh
 gpt-5.4-mini_low
+gpt-5.6-sol_max
+gpt-5.6-sol_ultra
 ```
 
 Suffixes are mapped to the OpenAI Responses `reasoning.effort` field:
 
 ```text
-none, low, medium (default), high, xhigh
+none, low, medium (default), high, xhigh, max, ultra
 ```
 
 If no suffix is supplied for a GPT-5 model, `medium` is used.
+`ultra` is accepted as a Claude Code compatibility level and is sent to the
+OpenAI API as `max`; automatic task delegation remains the responsibility of
+the calling agent runtime.
 
 ## Development
 

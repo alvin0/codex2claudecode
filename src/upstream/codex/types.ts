@@ -1,4 +1,5 @@
 import type { JsonObject } from "../../core/types"
+import type { CodexWebSocketFactory } from "./websocket"
 
 export interface CodexClientOptions {
   accessToken: string
@@ -8,6 +9,9 @@ export interface CodexClientOptions {
   clientId?: string
   issuer?: string
   codexEndpoint?: string
+  codexWebSocketEndpoint?: string
+  useWebSocket?: boolean
+  webSocket?: CodexWebSocketFactory
   originator?: string
   userAgent?: string
   fetch?: typeof fetch

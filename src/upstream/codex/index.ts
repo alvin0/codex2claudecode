@@ -1,6 +1,6 @@
 import type { Canonical_ErrorResponse, Canonical_PassthroughResponse, Canonical_Request, Canonical_Response, Canonical_StreamResponse } from "../../core/canonical"
 import { responseHeaders } from "../../core/http"
-import type { TokenCredentialProvider, UpstreamResult, Upstream_Provider } from "../../core/interfaces"
+import type { ProviderModelDescriptor, TokenCredentialProvider, UpstreamResult, Upstream_Provider } from "../../core/interfaces"
 import { withChunkCallback } from "../../core/stream-utils"
 import type { RequestOptions } from "../../core/types"
 import { readCodexFastModeConfig } from "./fast-mode"
@@ -65,7 +65,7 @@ export class Codex_Upstream_Provider implements Upstream_Provider, TokenCredenti
   }
 
   /**
-   * List available model slugs from the Codex /backend-api/models API.
+   * List available model slugs from the Codex /backend-api/codex/models API.
    * Results are cached for CODEX_MODEL_CACHE_TTL_SECONDS.
    * Also populates the modelMetadata registry.
    */
@@ -84,8 +84,26 @@ export class Codex_Upstream_Provider implements Upstream_Provider, TokenCredenti
     }
   }
 
+  async listModelDescriptors(): Promise<ProviderModelDescriptor[]> {
+    await this.listModels()
+    return this.modelMetadata.all().map((metadata) => ({
+      id: metadata.slug,
+      displayName: metadata.title,
+      maxInputTokens: metadata.maxTokens,
+      maxOutputTokens: metadata.maxOutputTokens,
+      supportsImages: metadata.supportsImages,
+      ...(metadata.thinkingEfforts.length > 0 && {
+        effort: {
+          schemaPath: "reasoning" as const,
+          levels: metadata.thinkingEfforts.map((effort) => effort.thinkingEffort),
+          ...(metadata.defaultThinkingEffort && { defaultLevel: metadata.defaultThinkingEffort }),
+        },
+      }),
+    }))
+  }
+
   /**
-   * Refresh model metadata from the Codex /backend-api/models API.
+   * Refresh model metadata from the Codex /backend-api/codex/models API.
    * Called at startup and can be called on account switch.
    */
   async refreshModelMetadata(): Promise<void> {
@@ -148,4 +166,3 @@ export type {
   Canonical_Response,
   Canonical_StreamResponse,
 }
-

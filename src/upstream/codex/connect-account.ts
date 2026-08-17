@@ -4,6 +4,7 @@ import { isProviderStatePath, updateProviderSection } from "../../core/provider-
 import { writeAccountInfoFile } from "./account-info"
 import { accessTokenExpiresAt, extractAccountId, readAuthFileData } from "./auth"
 import { DEFAULT_CLIENT_ID, DEFAULT_ISSUER } from "./constants"
+import { runCodexBrowserLogin, type CodexBrowserLoginOptions } from "./browser-login"
 import { DEFAULT_CODEX_CLI_AUTH_FILE, readCodexCliAuthFile, syncCodexCliAuthTokens } from "./codex-auth"
 import type { AuthFileContent, AuthFileData } from "./types"
 
@@ -18,6 +19,8 @@ export interface ConnectAccountOptions {
   clientId?: string
   fetch?: typeof fetch
   codexAuthFile?: string
+  /** Set false to keep the credentials out of the Codex CLI auth file entirely. */
+  syncCodexCli?: boolean
 }
 
 export async function connectAccount(authFile: string, draft: ConnectAccountDraft, options?: ConnectAccountOptions) {
@@ -37,6 +40,24 @@ export async function connectAccountFromCodexAuth(authFile: string, source = DEF
     ...options,
     codexAuthFile: sourceAuthFile,
   })
+}
+
+/**
+ * Signs in through the browser and stores the account here only — the Codex CLI
+ * auth file is never read or written, so this does not double as a `codex` setup.
+ */
+export async function connectAccountFromBrowserLogin(authFile: string, options?: ConnectAccountOptions & CodexBrowserLoginOptions) {
+  const tokens = await runCodexBrowserLogin(options)
+  const accountId = extractAccountId(tokens)
+  if (!accountId) throw new Error("Sign-in succeeded but the account id is missing from the token")
+
+  return saveConnectedAuth(authFile, {
+    type: "oauth",
+    access: cleanToken(tokens.access_token),
+    refresh: cleanToken(tokens.refresh_token),
+    expires: Date.now() + (tokens.expires_in ?? 3600) * 1000,
+    accountId,
+  }, { ...options, syncCodexCli: false })
 }
 
 async function connectedAuthEntry(draft: ConnectAccountDraft, options?: ConnectAccountOptions): Promise<AuthFileContent> {
@@ -72,13 +93,15 @@ async function saveConnectedAuth(authFile: string, auth: AuthFileContent, option
     await writeAccountInfoFile(authFile, nextEntries, auth.accountId)
   }
 
-  await syncCodexCliAuthTokens({
-    accountId: auth.accountId,
-    accessToken: auth.access,
-    refreshToken: auth.refresh,
-    path: auth.sourceAuthFile ?? options?.codexAuthFile,
-    sourceAccountKey: auth.sourceAccountKey,
-  }).catch(() => false)
+  if (options?.syncCodexCli !== false) {
+    await syncCodexCliAuthTokens({
+      accountId: auth.accountId,
+      accessToken: auth.access,
+      refreshToken: auth.refresh,
+      path: auth.sourceAuthFile ?? options?.codexAuthFile,
+      sourceAccountKey: auth.sourceAccountKey,
+    }).catch(() => false)
+  }
   return {
     accountId: auth.accountId,
     data: nextEntries,

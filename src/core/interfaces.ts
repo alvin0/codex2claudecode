@@ -15,6 +15,19 @@ export type UpstreamResult =
 
 export type UpstreamProviderKind = "codex" | "kiro" | "copilot"
 
+export interface ProviderModelDescriptor {
+  id: string
+  displayName?: string
+  maxInputTokens?: number
+  maxOutputTokens?: number
+  supportsImages?: boolean
+  effort?: {
+    schemaPath: "output_config" | "reasoning"
+    levels: string[]
+    defaultLevel?: string
+  }
+}
+
 export interface Upstream_Provider {
   readonly providerKind?: UpstreamProviderKind
   proxy(request: Canonical_Request, options?: RequestOptions): Promise<UpstreamResult>
@@ -23,6 +36,7 @@ export interface Upstream_Provider {
   usage?(options?: RequestOptions): Promise<Response>
   environments?(options?: RequestOptions): Promise<Response>
   modelsRaw?(options?: RequestOptions): Promise<Response>
+  listModelDescriptors?(): Promise<Array<string | ProviderModelDescriptor>>
   embeddingsRaw?(body: JsonObject, options?: RequestOptions): Promise<Response>
 }
 

@@ -4,6 +4,7 @@ import type { CodexStandaloneClient } from "../../upstream/codex/client"
 import { Claude_Inbound_Provider } from "./index"
 import type { CodexProxyFn } from "./handlers"
 import { claudeSettingsModelResolver } from "./models"
+import type { ModelResolverFn } from "./models"
 
 export { handleClaudeCountTokens, handleClaudeMessages } from "./handlers"
 export type { CodexProxyFn } from "./handlers"
@@ -22,7 +23,7 @@ export function codexProxyFn(client: CodexStandaloneClient): CodexProxyFn {
 }
 
 export class Claude_Codex_Inbound_Adapter extends Claude_Inbound_Provider {
-  constructor(modelResolver?: () => Promise<string[]>, routes?: Route_Descriptor[]) {
+  constructor(modelResolver?: ModelResolverFn, routes?: Route_Descriptor[]) {
     super({
       name: "claude-codex",
       modelResolver: modelResolver ?? claudeSettingsModelResolver,

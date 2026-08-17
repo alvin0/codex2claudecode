@@ -9,9 +9,11 @@ describe("UI commands", () => {
       "/codex-fast-mode",
       "/connect",
       "/account",
+      "/rotation",
       "/endpoint-share",
       "/set-claude-env",
       "/unset-claude-env",
+      "/set-codex-cli",
       "/switch-provider",
       "/quit",
     ])
@@ -22,9 +24,11 @@ describe("UI commands", () => {
       "/logs",
       "/connect",
       "/account",
+      "/rotation",
       "/endpoint-share",
       "/set-claude-env",
       "/unset-claude-env",
+      "/set-codex-cli",
       "/switch-provider",
       "/quit",
     ])
@@ -35,9 +39,11 @@ describe("UI commands", () => {
       "/logs",
       "/connect",
       "/account",
+      "/rotation",
       "/endpoint-share",
       "/set-claude-env",
       "/unset-claude-env",
+      "/set-codex-cli",
       "/switch-provider",
       "/quit",
     ])
@@ -67,7 +73,8 @@ describe("UI commands", () => {
     expect(filterCommands("switch", "codex").map((command) => command.name)).toContain("/switch-provider")
     expect(filterCommands("switch", "kiro").map((command) => command.name)).toContain("/switch-provider")
     expect(filterCommands("switch", "copilot").map((command) => command.name)).toContain("/switch-provider")
-    expect(filterCommands("codex", "kiro")).toEqual([])
+    expect(filterCommands("codex", "kiro").map((command) => command.name)).toEqual(["/set-codex-cli"])
+    expect(filterCommands("codex-fast", "kiro")).toEqual([])
     expect(filterCommands("", "codex")).toHaveLength(9)
   })
 })

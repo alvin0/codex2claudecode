@@ -51,9 +51,9 @@ test("formats preview lines for Claude settings updates", async () => {
 
   expect(claudeEnvironmentExports(value, "http://127.0.0.1:8787")).toContain(`Target file: ${claudeSettingsPath()}`)
   expect(claudeEnvironmentCommands(value, "http://127.0.0.1:8787", "posix")).toContain('ANTHROPIC_BASE_URL = "http://127.0.0.1:8787"')
-  expect(claudeEnvironmentPowerShellCommands(value, "http://127.0.0.1:8787")).toContain('ANTHROPIC_DEFAULT_OPUS_MODEL = "gpt-5.4"')
+  expect(claudeEnvironmentPowerShellCommands(value, "http://127.0.0.1:8787")).toContain('ANTHROPIC_DEFAULT_OPUS_MODEL = "gpt-5.6-sol"')
   expect(claudeEnvironmentCommands(value, "http://127.0.0.1:8787", "posix")).toContain("ANTHROPIC_AUTH_TOKEN = [redacted]")
-  await expect(echoClaudeEnvironment(value, "http://127.0.0.1:8787", "posix")).resolves.toContain('ANTHROPIC_DEFAULT_HAIKU_MODEL = "gpt-5.4-mini"')
+  await expect(echoClaudeEnvironment(value, "http://127.0.0.1:8787", "posix")).resolves.toContain('ANTHROPIC_DEFAULT_HAIKU_MODEL = "gpt-5.6-luna"')
   await expect(echoClaudeEnvironment(value, "http://127.0.0.1:8787", "posix")).resolves.toContain('CLAUDE_CODE_DISABLE_1M_CONTEXT = "1"')
   await expect(echoClaudeEnvironment(value, "http://127.0.0.1:8787", "posix")).resolves.toContain('CLAUDE_AUTOCOMPACT_PCT_OVERRIDE = "64"')
   await expect(runClaudeEnvironmentSet(value, "http://127.0.0.1:8787", "posix", { persist: false })).resolves.toContain("ANTHROPIC_BASE_URL=http://127.0.0.1:8787")
@@ -78,22 +78,28 @@ test("formats unset preview lines for Claude settings env keys", async () => {
   await expect(runClaudeEnvironmentUnset(value, "posix", { persist: false })).resolves.toBe(`Updated ${claudeSettingsPath()} env object.`)
 })
 
-test("uses OpenRouter Codex model recommendations", () => {
+test("uses GPT-5.6 Codex model recommendations by Claude tier", () => {
+  expect(CLAUDE_CODE_ENV_CONFIG.editableEnvDefaults).toEqual({
+    ANTHROPIC_MODEL: "gpt-5.6-sol",
+    ANTHROPIC_DEFAULT_OPUS_MODEL: "gpt-5.6-sol",
+    ANTHROPIC_DEFAULT_SONNET_MODEL: "gpt-5.6-terra",
+    ANTHROPIC_DEFAULT_HAIKU_MODEL: "gpt-5.6-luna",
+  })
   expect(recommendedClaudeEnvironment("codex")).toMatchObject({
-    ANTHROPIC_MODEL: "gpt-5.5",
-    ANTHROPIC_DEFAULT_OPUS_MODEL: "gpt-5.5",
-    ANTHROPIC_DEFAULT_SONNET_MODEL: "gpt-5.4",
-    ANTHROPIC_DEFAULT_HAIKU_MODEL: "gpt-5.4-mini",
+    ANTHROPIC_MODEL: "gpt-5.6-sol",
+    ANTHROPIC_DEFAULT_OPUS_MODEL: "gpt-5.6-sol",
+    ANTHROPIC_DEFAULT_SONNET_MODEL: "gpt-5.6-terra",
+    ANTHROPIC_DEFAULT_HAIKU_MODEL: "gpt-5.6-luna",
   })
 })
 
 test("uses Kiro Claude model defaults when provider mode is Kiro", async () => {
   const recommended = recommendedClaudeEnvironment("kiro")
   expect(recommended).toMatchObject({
-    ANTHROPIC_MODEL: "claude-opus-4-8",
-    ANTHROPIC_DEFAULT_OPUS_MODEL: "claude-opus-4-8",
+    ANTHROPIC_MODEL: "claude-opus-5",
+    ANTHROPIC_DEFAULT_OPUS_MODEL: "claude-opus-5",
     ANTHROPIC_DEFAULT_SONNET_MODEL: "claude-sonnet-5",
-    ANTHROPIC_DEFAULT_HAIKU_MODEL: "claude-haiku-4-5",
+    ANTHROPIC_DEFAULT_HAIKU_MODEL: "claude-haiku-4.5",
   })
 
   await withTempDir("claude-settings-kiro-", async (dir) => {
@@ -101,10 +107,10 @@ test("uses Kiro Claude model defaults when provider mode is Kiro", async () => {
     await writeFile(settingsFile, `${JSON.stringify({ env: {} }, null, 2)}\n`)
 
     await expect(readClaudeSettingsEnvAsDraft(settingsFile, "kiro")).resolves.toMatchObject({
-      ANTHROPIC_MODEL: "claude-opus-4-8",
-      ANTHROPIC_DEFAULT_OPUS_MODEL: "claude-opus-4-8",
+      ANTHROPIC_MODEL: "claude-opus-5",
+      ANTHROPIC_DEFAULT_OPUS_MODEL: "claude-opus-5",
       ANTHROPIC_DEFAULT_SONNET_MODEL: "claude-sonnet-5",
-      ANTHROPIC_DEFAULT_HAIKU_MODEL: "claude-haiku-4-5",
+      ANTHROPIC_DEFAULT_HAIKU_MODEL: "claude-haiku-4.5",
     })
   })
 })

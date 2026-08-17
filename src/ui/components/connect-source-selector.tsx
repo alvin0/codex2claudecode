@@ -32,18 +32,20 @@ export function ConnectSourceSelector(props: { connect: ProviderAccountConnectDe
           </Box>
         ))}
       </Box>
-      {props.progress?.verificationUri && props.progress?.userCode && (
+      {props.progress?.verificationUri && (
         <Box marginTop={1} flexDirection="column" borderStyle="round" borderColor="#3b82f6" paddingX={1} paddingY={1}>
-          <Text bold color="#93c5fd">Device code login</Text>
+          <Text bold color="#93c5fd">{props.progress.userCode ? "Device code login" : "Browser login"}</Text>
           {props.progress.message && <Text color="gray">{props.progress.message}</Text>}
           <Box marginTop={1} flexDirection="column">
             <Text color="gray">Open this URL in your browser:</Text>
             <Text color="#67e8f9">{props.progress.verificationUri}</Text>
           </Box>
-          <Box marginTop={1} flexDirection="column">
-            <Text color="gray">Enter this code:</Text>
-            <Text bold color="white">{props.progress.userCode}</Text>
-          </Box>
+          {props.progress.userCode && (
+            <Box marginTop={1} flexDirection="column">
+              <Text color="gray">Enter this code:</Text>
+              <Text bold color="white">{props.progress.userCode}</Text>
+            </Box>
+          )}
         </Box>
       )}
       {activeMessage && (

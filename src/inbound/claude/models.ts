@@ -1,4 +1,5 @@
 import { readTextFile } from "../../core/bun-fs"
+import type { ProviderModelDescriptor } from "../../core/interfaces"
 import { bunPath as path, homeDir } from "../../core/paths"
 
 import kiroModelsConfig from "../../../kiro-models.json"
@@ -72,6 +73,8 @@ export interface EffortCapability extends CapabilitySupport {
   low: CapabilitySupport
   max: CapabilitySupport
   medium: CapabilitySupport
+  none: CapabilitySupport
+  ultra: CapabilitySupport
   xhigh: CapabilitySupport
 }
 
@@ -102,6 +105,7 @@ interface JsonModelCapabilities {
   effort_high: boolean
   effort_xhigh: boolean
   effort_max: boolean
+  effort_ultra?: boolean
   context_management: boolean
 }
 
@@ -121,7 +125,9 @@ function expandCapabilities(c: JsonModelCapabilities): ModelCapabilities {
       low: { supported: c.effort_low },
       max: { supported: c.effort_max },
       medium: { supported: c.effort_medium },
-      supported: c.effort_low || c.effort_medium || c.effort_high || c.effort_xhigh || c.effort_max,
+      none: { supported: false },
+      supported: c.effort_low || c.effort_medium || c.effort_high || c.effort_xhigh || c.effort_max || c.effort_ultra === true,
+      ultra: { supported: c.effort_ultra === true },
       xhigh: { supported: c.effort_xhigh },
     },
     image_input: { supported: c.image_input },
@@ -247,17 +253,26 @@ async function readActiveModelIds(): Promise<string[]> {
   return ids
 }
 
+export type ModelResolverEntry = string | ProviderModelDescriptor
+
 export interface ModelResolverFn {
-  (): Promise<string[]>
+  (): Promise<ModelResolverEntry[]>
 }
 
 export class Model_Catalog {
   private readonly catalog = MODEL_CATALOG
   private readonly aliases = MODEL_ALIASES
   private readonly modelMap = MODEL_MAP
+  private readonly resolvedModelMap = new Map<string, ModelInfo>()
 
   getModel(modelId: string): ModelInfo | undefined {
-    return this.modelMap.get(this.resolveAlias(modelId))
+    const resolvedId = this.resolveAlias(modelId)
+    return this.resolvedModelMap.get(resolvedId) ?? this.modelMap.get(resolvedId)
+  }
+
+  async resolveModel(modelId: string, resolver?: ModelResolverFn): Promise<ModelInfo | undefined> {
+    if (resolver) this.rememberResolvedModels(resolveModelInfos(await resolver()))
+    return this.getModel(modelId)
   }
 
   resolveAlias(raw: string): string {
@@ -273,6 +288,7 @@ export class Model_Catalog {
     const limit = Math.min(Math.max(1, pagination?.limit ?? 20), 1000)
 
     let data = resolver ? resolveModelInfos(await resolver()) : [...this.catalog]
+    if (resolver) this.rememberResolvedModels(data)
 
     if (afterId) {
       const idx = data.findIndex((m) => m.id === afterId)
@@ -294,6 +310,10 @@ export class Model_Catalog {
       last_id: page.length > 0 ? page[page.length - 1].id : null,
     }
   }
+
+  private rememberResolvedModels(models: ModelInfo[]) {
+    for (const model of models) this.resolvedModelMap.set(model.id, model)
+  }
 }
 
 export async function claudeSettingsModelResolver(): Promise<string[]> {
@@ -305,21 +325,54 @@ export async function claudeSettingsModelResolver(): Promise<string[]> {
  * a minimal synthetic entry so the user can still see what is configured
  * even if the model is not in models.json.
  */
-function resolveModelInfos(ids: string[]): ModelInfo[] {
-  return ids.map((id) => {
-    const known = MODEL_MAP.get(resolveModelId(id))
+function resolveModelInfos(entries: ModelResolverEntry[]): ModelInfo[] {
+  return entries.map((entry) => {
+    if (typeof entry !== "string") return resolveProviderModelDescriptor(entry)
+    const known = MODEL_MAP.get(resolveModelId(entry))
     if (known) return known
     // Synthetic entry for models not in catalog (user set a custom model)
     return {
-      id,
+      id: entry,
       capabilities: SYNTHETIC_MODEL_CAPABILITIES,
       created_at: "1970-01-01T00:00:00Z",
-      display_name: displayNameFromModelId(id),
+      display_name: displayNameFromModelId(entry),
       max_input_tokens: 0,
       max_tokens: 0,
       type: "model" as const,
     }
   })
+}
+
+function resolveProviderModelDescriptor(descriptor: ProviderModelDescriptor): ModelInfo {
+  const known = MODEL_MAP.get(resolveModelId(descriptor.id))
+  const baseCapabilities = known?.capabilities ?? SYNTHETIC_MODEL_CAPABILITIES
+  return {
+    id: descriptor.id,
+    capabilities: {
+      ...baseCapabilities,
+      effort: effortCapabilities(descriptor.effort?.levels ?? []),
+      image_input: { supported: descriptor.supportsImages ?? baseCapabilities.image_input.supported },
+    },
+    created_at: known?.created_at ?? "1970-01-01T00:00:00Z",
+    display_name: descriptor.displayName ?? known?.display_name ?? displayNameFromModelId(descriptor.id),
+    max_input_tokens: descriptor.maxInputTokens ?? known?.max_input_tokens ?? 0,
+    max_tokens: descriptor.maxOutputTokens ?? known?.max_tokens ?? 0,
+    type: "model",
+  }
+}
+
+function effortCapabilities(levels: string[]): EffortCapability {
+  const supported = new Set(levels)
+  return {
+    high: { supported: supported.has("high") },
+    low: { supported: supported.has("low") },
+    max: { supported: supported.has("max") },
+    medium: { supported: supported.has("medium") },
+    none: { supported: supported.has("none") },
+    supported: supported.size > 0,
+    ultra: { supported: supported.has("ultra") },
+    xhigh: { supported: supported.has("xhigh") },
+  }
 }
 
 function displayNameFromModelId(id: string) {

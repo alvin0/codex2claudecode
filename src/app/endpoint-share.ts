@@ -4,7 +4,7 @@ import { Claude_Inbound_Provider } from "../inbound/claude"
 import { countKiroClaudeInputTokens } from "../inbound/claude/kiro-count"
 import { CLAUDE_PROXY_ROUTES, type ClaudeProxyRoute } from "../inbound/claude/routes"
 import { OpenAI_Inbound_Provider } from "../inbound/openai"
-import { OPENAI_PROXY_ROUTES, type OpenAIProxyRoute } from "../inbound/openai/routes"
+import { codexBasePathRoutes, CODEX_MODELS_ROUTE, OPENAI_MODELS_ROUTE, OPENAI_PROXY_ROUTES, type OpenAIProxyRoute } from "../inbound/openai/routes"
 import { providerHasConnectedAccounts } from "./provider-runtime"
 
 export type EndpointProxyRoute = ClaudeProxyRoute | OpenAIProxyRoute
@@ -115,13 +115,23 @@ export function endpointProxyRouteProvider(sourceMode: ProviderMode, endpoint: P
     })
   }
 
+  const upstreamWithModels = upstream as Upstream_Provider & { listModels: () => Promise<string[]> }
+
   return new OpenAI_Inbound_Provider({
     name: endpointProxyProviderName(sourceMode),
     passthrough: sourceMode === "codex",
     upstreamLogLabel: upstreamLabels.openai,
     upstreamTarget: "upstream",
     expectedUpstreamKind: sourceMode,
-    routes: route.routes,
+    // The Codex model list rides along with the responses endpoint so it is
+    // registered exactly once, whichever providers share endpoints. Every route is
+    // mirrored under /codex so a client can use that base path instead.
+    routes: [
+      ...route.routes,
+      ...codexBasePathRoutes(route.routes),
+      ...(route.endpoint === "responses" ? [OPENAI_MODELS_ROUTE, CODEX_MODELS_ROUTE] : []),
+    ],
+    modelResolver: () => upstreamWithModels.listModelDescriptors?.() ?? upstreamWithModels.listModels(),
   })
 }
 

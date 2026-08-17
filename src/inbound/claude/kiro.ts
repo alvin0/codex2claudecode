@@ -1,9 +1,10 @@
 import type { Route_Descriptor } from "../../core/interfaces"
 import { Claude_Inbound_Provider } from "./index"
 import { countKiroClaudeInputTokens } from "./kiro-count"
+import type { ModelResolverFn } from "./models"
 
 export class Claude_Kiro_Inbound_Adapter extends Claude_Inbound_Provider {
-  constructor(modelResolver: () => Promise<string[]>, routes?: Route_Descriptor[]) {
+  constructor(modelResolver: ModelResolverFn, routes?: Route_Descriptor[]) {
     super({
       name: "claude-kiro",
       modelResolver,

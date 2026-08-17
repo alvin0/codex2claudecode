@@ -1,5 +1,5 @@
 import type { Canonical_ErrorResponse, Canonical_PassthroughResponse, Canonical_Response, Canonical_StreamResponse } from "../../core/canonical"
-import type { Inbound_Provider, RequestHandlerContext, Route_Descriptor, UpstreamProviderKind, UpstreamResult, Upstream_Provider } from "../../core/interfaces"
+import type { Inbound_Provider, ProviderModelDescriptor, RequestHandlerContext, Route_Descriptor, UpstreamProviderKind, UpstreamResult, Upstream_Provider } from "../../core/interfaces"
 import { accumulateCanonicalStream } from "../../core/canonical-accumulator"
 import { responseHeaders } from "../../core/http"
 import { LOG_BODY_PREVIEW_LIMIT } from "../../core/constants"
@@ -8,9 +8,12 @@ import { createLogPreview } from "../../core/log-preview"
 import { interceptResponseStream } from "../../core/stream-utils"
 import type { JsonObject, RequestProxyLog } from "../../core/types"
 import { countTokens } from "gpt-tokenizer"
+import { codex2ClaudeCatalog, codex2ClaudeModelIds, resolveCodex2ClaudeModel } from "./model-alias"
 import { normalizeCanonicalRequest, normalizeRequestBody } from "./normalize"
 import { openAICanonicalResponse, openAICanonicalStreamResponse } from "./response"
-import { OPENAI_NON_EMBEDDINGS_ROUTES, openAIProxyRouteDescriptor } from "./routes"
+import { OPENAI_MODELS_ROUTE, OPENAI_NON_EMBEDDINGS_ROUTES, openAIProxyRouteDescriptor } from "./routes"
+
+export type OpenAIModelResolverFn = () => Promise<Array<string | ProviderModelDescriptor>>
 
 interface OpenAIInboundProviderOptions {
   name?: string
@@ -19,6 +22,7 @@ interface OpenAIInboundProviderOptions {
   upstreamLogLabel?: string
   upstreamTarget?: string
   expectedUpstreamKind?: UpstreamProviderKind
+  modelResolver?: OpenAIModelResolverFn
 }
 
 export class OpenAI_Inbound_Provider implements Inbound_Provider {
@@ -28,6 +32,7 @@ export class OpenAI_Inbound_Provider implements Inbound_Provider {
   private readonly upstreamLogLabel: string
   private readonly upstreamTarget: string
   private readonly expectedUpstreamKind?: UpstreamProviderKind
+  private readonly modelResolver?: OpenAIModelResolverFn
 
   constructor(options: OpenAIInboundProviderOptions = {}) {
     this.name = options.name ?? "openai"
@@ -36,6 +41,7 @@ export class OpenAI_Inbound_Provider implements Inbound_Provider {
     this.upstreamLogLabel = options.upstreamLogLabel ?? "Codex responses"
     this.upstreamTarget = options.upstreamTarget ?? "/v1/responses"
     this.expectedUpstreamKind = options.expectedUpstreamKind
+    this.modelResolver = options.modelResolver
   }
 
   routes(): Route_Descriptor[] {
@@ -45,6 +51,8 @@ export class OpenAI_Inbound_Provider implements Inbound_Provider {
   async handle(request: Request, route: Route_Descriptor, upstream: Upstream_Provider, context: RequestHandlerContext): Promise<Response> {
     const upstreamMismatch = this.upstreamMismatch(upstream)
     if (upstreamMismatch) return openAIErrorResponse(upstreamMismatch, 500, "server_error")
+
+    if (route.path === OPENAI_MODELS_ROUTE.path) return this.handleListModels(request, upstream)
 
     let body: unknown
     try {
@@ -77,8 +85,13 @@ export class OpenAI_Inbound_Provider implements Inbound_Provider {
       if (validationError) return openAIErrorResponse(validationError, 400, "invalid_request_error")
     }
 
+    // Codex clients address models as `codex2claude-<slug>_<effort>`; the upstream
+    // only knows the bare slug. `wireBody` keeps the client's name for logging and
+    // for the model echoed back in the response.
+    const upstreamBody = resolveCodex2ClaudeModel(wireBody)
+
     const shouldCaptureProxyBody = context.logBody && context.onProxy !== undefined
-    const requestBody = shouldCaptureProxyBody ? previewText(JSON.stringify(normalizeRequestBody(route.path, wireBody))) : undefined
+    const requestBody = shouldCaptureProxyBody ? previewText(JSON.stringify(normalizeRequestBody(route.path, upstreamBody))) : undefined
     const upstreamRequestPreview = shouldCaptureProxyBody ? createLogPreview() : undefined
     const upstreamResponsePreview = shouldCaptureProxyBody ? createLogPreview() : undefined
     const started = Date.now()
@@ -86,7 +99,7 @@ export class OpenAI_Inbound_Provider implements Inbound_Provider {
     if (route.path === "/v1/embeddings") {
       if (!upstream.embeddingsRaw) return openAIErrorResponse("Embeddings are not supported by this upstream provider.", 501, "server_error")
 
-      const embeddingsBody = normalizeRequestBody(route.path, wireBody)
+      const embeddingsBody = normalizeRequestBody(route.path, upstreamBody)
       const response = await upstream.embeddingsRaw(embeddingsBody, {
         headers: request.headers,
         signal: request.signal,
@@ -118,7 +131,7 @@ export class OpenAI_Inbound_Provider implements Inbound_Provider {
       })
     }
 
-    const result = await upstream.proxy(normalizeCanonicalRequest(route.path, wireBody, { passthrough: this.passthrough }), {
+    const result = await upstream.proxy(normalizeCanonicalRequest(route.path, upstreamBody, { passthrough: this.passthrough }), {
       headers: request.headers,
       signal: request.signal,
       ...(upstreamRequestPreview && upstreamResponsePreview ? {
@@ -241,6 +254,55 @@ export class OpenAI_Inbound_Provider implements Inbound_Provider {
     }
 
     return unexpectedNonPassthroughResponse()
+  }
+
+  private async handleListModels(request: Request, upstream: Upstream_Provider) {
+    // Codex fetches its own catalog shape and tags the request with client_version;
+    // every other OpenAI client wants the plain list. When the upstream serves that
+    // catalog, use it directly — asking for descriptors as well would fetch the same
+    // thing twice and silently downgrade to synthesized entries if the second call fails.
+    if (new URL(request.url).searchParams.has("client_version")) {
+      const catalog = await this.readUpstreamCatalog(upstream)
+      if (catalog) return Response.json(codex2ClaudeCatalog(catalog, []))
+    }
+
+    const resolver = this.modelResolver
+      ?? (upstream.listModelDescriptors ? () => upstream.listModelDescriptors!() : undefined)
+
+    let models: Array<string | ProviderModelDescriptor> = []
+    try {
+      models = resolver ? await resolver() : []
+    } catch (error) {
+      return openAIErrorResponse(error instanceof Error ? error.message : String(error), 502, "upstream_error")
+    }
+
+    if (new URL(request.url).searchParams.has("client_version")) {
+      return Response.json(codex2ClaudeCatalog(undefined, models))
+    }
+
+    const created = Math.floor(Date.now() / 1000)
+    return Response.json({
+      object: "list",
+      data: models.flatMap((model) => codex2ClaudeModelIds(model)).map((id) => ({
+        id,
+        object: "model",
+        created,
+        owned_by: "codex2claude",
+      })),
+    })
+  }
+
+  /** The upstream's own catalog, when it serves one, so its fields survive the rename. */
+  private async readUpstreamCatalog(upstream: Upstream_Provider) {
+    if (!upstream.modelsRaw) return undefined
+    try {
+      const response = await upstream.modelsRaw()
+      if (!response.ok) return undefined
+      const body = (await response.json()) as { models?: unknown }
+      return Array.isArray(body?.models) && body.models.length > 0 ? body : undefined
+    } catch {
+      return undefined
+    }
   }
 
   private upstreamMismatch(upstream: Upstream_Provider) {

@@ -163,13 +163,13 @@ var require_react_development = __commonJS((exports, module) => {
     function UnknownOwner() {
       return Error("react-stack-top-frame");
     }
-    function hasValidKey(config) {
-      if (hasOwnProperty.call(config, "key")) {
-        var getter = Object.getOwnPropertyDescriptor(config, "key").get;
+    function hasValidKey(config2) {
+      if (hasOwnProperty.call(config2, "key")) {
+        var getter = Object.getOwnPropertyDescriptor(config2, "key").get;
         if (getter && getter.isReactWarning)
           return false;
       }
-      return config.key !== undefined;
+      return config2.key !== undefined;
     }
     function defineKeyPropWarningGetter(props, displayName) {
       function warnAboutAccessingKey() {
@@ -648,23 +648,23 @@ See https://react.dev/link/invalid-hook-call for tips about how to debug and fix
       var getCurrentStack = ReactSharedInternals.getCurrentStack;
       return getCurrentStack === null ? null : getCurrentStack();
     };
-    exports.cloneElement = function(element, config, children) {
+    exports.cloneElement = function(element, config2, children) {
       if (element === null || element === undefined)
         throw Error("The argument must be a React element, but you passed " + element + ".");
       var props = assign({}, element.props), key = element.key, owner = element._owner;
-      if (config != null) {
+      if (config2 != null) {
         var JSCompiler_inline_result;
         a: {
-          if (hasOwnProperty.call(config, "ref") && (JSCompiler_inline_result = Object.getOwnPropertyDescriptor(config, "ref").get) && JSCompiler_inline_result.isReactWarning) {
+          if (hasOwnProperty.call(config2, "ref") && (JSCompiler_inline_result = Object.getOwnPropertyDescriptor(config2, "ref").get) && JSCompiler_inline_result.isReactWarning) {
             JSCompiler_inline_result = false;
             break a;
           }
-          JSCompiler_inline_result = config.ref !== undefined;
+          JSCompiler_inline_result = config2.ref !== undefined;
         }
         JSCompiler_inline_result && (owner = getOwner());
-        hasValidKey(config) && (checkKeyStringCoercion(config.key), key = "" + config.key);
-        for (propName in config)
-          !hasOwnProperty.call(config, propName) || propName === "key" || propName === "__self" || propName === "__source" || propName === "ref" && config.ref === undefined || (props[propName] = config[propName]);
+        hasValidKey(config2) && (checkKeyStringCoercion(config2.key), key = "" + config2.key);
+        for (propName in config2)
+          !hasOwnProperty.call(config2, propName) || propName === "key" || propName === "__self" || propName === "__source" || propName === "ref" && config2.ref === undefined || (props[propName] = config2[propName]);
       }
       var propName = arguments.length - 2;
       if (propName === 1)
@@ -698,14 +698,14 @@ See https://react.dev/link/invalid-hook-call for tips about how to debug and fix
       defaultValue._currentRenderer2 = null;
       return defaultValue;
     };
-    exports.createElement = function(type, config, children) {
+    exports.createElement = function(type, config2, children) {
       for (var i = 2;i < arguments.length; i++)
         validateChildKeys(arguments[i]);
       i = {};
       var key = null;
-      if (config != null)
-        for (propName in didWarnAboutOldJSXRuntime || !("__self" in config) || "key" in config || (didWarnAboutOldJSXRuntime = true, console.warn("Your app (or one of its dependencies) is using an outdated JSX transform. Update to the modern JSX transform for faster performance: https://react.dev/link/new-jsx-transform")), hasValidKey(config) && (checkKeyStringCoercion(config.key), key = "" + config.key), config)
-          hasOwnProperty.call(config, propName) && propName !== "key" && propName !== "__self" && propName !== "__source" && (i[propName] = config[propName]);
+      if (config2 != null)
+        for (propName in didWarnAboutOldJSXRuntime || !("__self" in config2) || "key" in config2 || (didWarnAboutOldJSXRuntime = true, console.warn("Your app (or one of its dependencies) is using an outdated JSX transform. Update to the modern JSX transform for faster performance: https://react.dev/link/new-jsx-transform")), hasValidKey(config2) && (checkKeyStringCoercion(config2.key), key = "" + config2.key), config2)
+          hasOwnProperty.call(config2, propName) && propName !== "key" && propName !== "__self" && propName !== "__source" && (i[propName] = config2[propName]);
       var childrenLength = arguments.length - 2;
       if (childrenLength === 1)
         i.children = children;
@@ -12828,13 +12828,13 @@ var require_backend = __commonJS((exports, module) => {
           exports2.cacheSignal = function() {
             return null;
           };
-          exports2.cloneElement = function(element, config, children) {
+          exports2.cloneElement = function(element, config2, children) {
             if (element === null || element === undefined)
               throw Error("The argument must be a React element, but you passed " + element + ".");
             var props = assign2({}, element.props), key = element.key;
-            if (config != null)
-              for (propName in config.key !== undefined && (key = "" + config.key), config)
-                !hasOwnProperty.call(config, propName) || propName === "key" || propName === "__self" || propName === "__source" || propName === "ref" && config.ref === undefined || (props[propName] = config[propName]);
+            if (config2 != null)
+              for (propName in config2.key !== undefined && (key = "" + config2.key), config2)
+                !hasOwnProperty.call(config2, propName) || propName === "key" || propName === "__self" || propName === "__source" || propName === "ref" && config2.ref === undefined || (props[propName] = config2[propName]);
             var propName = arguments.length - 2;
             if (propName === 1)
               props.children = children;
@@ -12861,11 +12861,11 @@ var require_backend = __commonJS((exports, module) => {
             };
             return defaultValue;
           };
-          exports2.createElement = function(type, config, children) {
+          exports2.createElement = function(type, config2, children) {
             var propName, props = {}, key = null;
-            if (config != null)
-              for (propName in config.key !== undefined && (key = "" + config.key), config)
-                hasOwnProperty.call(config, propName) && propName !== "key" && propName !== "__self" && propName !== "__source" && (props[propName] = config[propName]);
+            if (config2 != null)
+              for (propName in config2.key !== undefined && (key = "" + config2.key), config2)
+                hasOwnProperty.call(config2, propName) && propName !== "key" && propName !== "__self" && propName !== "__source" && (props[propName] = config2[propName]);
             var childrenLength = arguments.length - 2;
             if (childrenLength === 1)
               props.children = children;
@@ -28629,9 +28629,9 @@ In order to be iterable, non-array objects must have a [Symbol.iterator]() metho
 
 // node_modules/ink/build/devtools.js
 var exports_devtools = {};
-import WebSocket from "ws";
+import WebSocket2 from "ws";
 var import_react_devtools_core, isDevToolsReachable = async () => new Promise((resolve) => {
-  const socket = new WebSocket("ws://localhost:8097");
+  const socket = new WebSocket2("ws://localhost:8097");
   const timeout = setTimeout(() => {
     socket.terminate();
     resolve(false);
@@ -29044,13 +29044,13 @@ var require_react_jsx_dev_runtime_development = __commonJS((exports) => {
     function UnknownOwner() {
       return Error("react-stack-top-frame");
     }
-    function hasValidKey(config2) {
-      if (hasOwnProperty.call(config2, "key")) {
-        var getter = Object.getOwnPropertyDescriptor(config2, "key").get;
+    function hasValidKey(config3) {
+      if (hasOwnProperty.call(config3, "key")) {
+        var getter = Object.getOwnPropertyDescriptor(config3, "key").get;
         if (getter && getter.isReactWarning)
           return false;
       }
-      return config2.key !== undefined;
+      return config3.key !== undefined;
     }
     function defineKeyPropWarningGetter(props, displayName) {
       function warnAboutAccessingKey() {
@@ -29109,8 +29109,8 @@ var require_react_jsx_dev_runtime_development = __commonJS((exports) => {
       Object.freeze && (Object.freeze(type.props), Object.freeze(type));
       return type;
     }
-    function jsxDEVImpl(type, config2, maybeKey, isStaticChildren, debugStack, debugTask) {
-      var children = config2.children;
+    function jsxDEVImpl(type, config3, maybeKey, isStaticChildren, debugStack, debugTask) {
+      var children = config3.children;
       if (children !== undefined)
         if (isStaticChildren)
           if (isArrayImpl(children)) {
@@ -29121,9 +29121,9 @@ var require_react_jsx_dev_runtime_development = __commonJS((exports) => {
             console.error("React.jsx: Static children should always be an array. You are likely explicitly calling React.jsxs or React.jsxDEV. Use the Babel transform instead.");
         else
           validateChildKeys(children);
-      if (hasOwnProperty.call(config2, "key")) {
+      if (hasOwnProperty.call(config3, "key")) {
         children = getComponentNameFromType(type);
-        var keys2 = Object.keys(config2).filter(function(k) {
+        var keys2 = Object.keys(config3).filter(function(k) {
           return k !== "key";
         });
         isStaticChildren = 0 < keys2.length ? "{key: someKey, " + keys2.join(": ..., ") + ": ...}" : "{key: someKey}";
@@ -29136,13 +29136,13 @@ React keys must be passed directly to JSX without using spread:
       }
       children = null;
       maybeKey !== undefined && (checkKeyStringCoercion(maybeKey), children = "" + maybeKey);
-      hasValidKey(config2) && (checkKeyStringCoercion(config2.key), children = "" + config2.key);
-      if ("key" in config2) {
+      hasValidKey(config3) && (checkKeyStringCoercion(config3.key), children = "" + config3.key);
+      if ("key" in config3) {
         maybeKey = {};
-        for (var propName in config2)
-          propName !== "key" && (maybeKey[propName] = config2[propName]);
+        for (var propName in config3)
+          propName !== "key" && (maybeKey[propName] = config3[propName]);
       } else
-        maybeKey = config2;
+        maybeKey = config3;
       children && defineKeyPropWarningGetter(maybeKey, typeof type === "function" ? type.displayName || type.name || "Unknown" : type);
       return ReactElement(type, children, maybeKey, getOwner(), debugStack, debugTask);
     }
@@ -29166,9 +29166,9 @@ React keys must be passed directly to JSX without using spread:
     var unknownOwnerDebugTask = createTask(getTaskName(UnknownOwner));
     var didWarnAboutKeySpread = {};
     exports.Fragment = REACT_FRAGMENT_TYPE;
-    exports.jsxDEV = function(type, config2, maybeKey, isStaticChildren) {
+    exports.jsxDEV = function(type, config3, maybeKey, isStaticChildren) {
       var trackActualOwner = 1e4 > ReactSharedInternals.recentlyCreatedOwnerStacks++;
-      return jsxDEVImpl(type, config2, maybeKey, isStaticChildren, trackActualOwner ? Error("react-stack-top-frame") : unknownOwnerDebugStack, trackActualOwner ? createTask(getTaskName(type)) : unknownOwnerDebugTask);
+      return jsxDEVImpl(type, config3, maybeKey, isStaticChildren, trackActualOwner ? Error("react-stack-top-frame") : unknownOwnerDebugStack, trackActualOwner ? createTask(getTaskName(type)) : unknownOwnerDebugTask);
     };
   })();
 });
@@ -29208,10 +29208,14 @@ function parseCliOptions(args = process.argv.slice(2)) {
       return [arg.slice("--password=".length)];
     return [];
   })[0];
+  const setupCodexCli = args.includes("--setup-codex-cli");
+  const codexCliMakeDefault = args.includes("--make-default");
   return {
     ...port !== undefined && { port: parsePort(port) },
     ...hostname !== undefined && { hostname },
-    ...password !== undefined && password !== "" && { password }
+    ...password !== undefined && password !== "" && { password },
+    ...setupCodexCli && { setupCodexCli },
+    ...codexCliMakeDefault && { codexCliMakeDefault }
   };
 }
 function parsePort(value) {
@@ -35890,7 +35894,7 @@ function countClaudeChatTokens(chat, model) {
 function resolveTokenizerModel(model) {
   if (typeof model !== "string")
     return;
-  const normalized = model.replace(/_(none|low|medium|high|xhigh)$/, "");
+  const normalized = model.replace(/_(none|low|medium|high|xhigh|max|ultra)$/, "");
   if (/^gpt-5(?:\.[^-_]+)?-codex$/.test(normalized))
     return "gpt-5-codex";
   if (/^gpt-5(?:\.[^-_]+)?-mini$/.test(normalized))
@@ -37357,12 +37361,14 @@ var kiro_models_default = {
 // models.json
 var models_default = {
   clientDefaults: {
-    ANTHROPIC_MODEL: "gpt-5.3-codex-spark",
-    ANTHROPIC_DEFAULT_OPUS_MODEL: "gpt-5.4",
-    ANTHROPIC_DEFAULT_SONNET_MODEL: "gpt-5.3-codex-spark",
-    ANTHROPIC_DEFAULT_HAIKU_MODEL: "gpt-5.4-mini"
+    ANTHROPIC_MODEL: "gpt-5.6-sol",
+    ANTHROPIC_DEFAULT_OPUS_MODEL: "gpt-5.6-sol",
+    ANTHROPIC_DEFAULT_SONNET_MODEL: "gpt-5.6-terra",
+    ANTHROPIC_DEFAULT_HAIKU_MODEL: "gpt-5.6-luna"
   },
   aliases: {
+    "gpt-5.6": "gpt-5.6-sol",
+    "gpt-5.6-latest": "gpt-5.6-sol",
     "gpt-5.5-latest": "gpt-5.5",
     "gpt-5.4-latest": "gpt-5.4",
     "gpt-5.4-mini-latest": "gpt-5.4-mini",
@@ -37550,7 +37556,9 @@ function expandCapabilities(c) {
       low: { supported: c.effort_low },
       max: { supported: c.effort_max },
       medium: { supported: c.effort_medium },
-      supported: c.effort_low || c.effort_medium || c.effort_high || c.effort_xhigh || c.effort_max,
+      none: { supported: false },
+      supported: c.effort_low || c.effort_medium || c.effort_high || c.effort_xhigh || c.effort_max || c.effort_ultra === true,
+      ultra: { supported: c.effort_ultra === true },
       xhigh: { supported: c.effort_xhigh }
     },
     image_input: { supported: c.image_input },
@@ -37642,8 +37650,15 @@ class Model_Catalog {
   catalog = MODEL_CATALOG;
   aliases = MODEL_ALIASES;
   modelMap = MODEL_MAP;
+  resolvedModelMap = new Map;
   getModel(modelId) {
-    return this.modelMap.get(this.resolveAlias(modelId));
+    const resolvedId = this.resolveAlias(modelId);
+    return this.resolvedModelMap.get(resolvedId) ?? this.modelMap.get(resolvedId);
+  }
+  async resolveModel(modelId, resolver) {
+    if (resolver)
+      this.rememberResolvedModels(resolveModelInfos(await resolver()));
+    return this.getModel(modelId);
   }
   resolveAlias(raw) {
     return this.aliases[raw] ?? raw;
@@ -37653,6 +37668,8 @@ class Model_Catalog {
     const beforeId = pagination?.beforeId;
     const limit = Math.min(Math.max(1, pagination?.limit ?? 20), 1000);
     let data = resolver ? resolveModelInfos(await resolver()) : [...this.catalog];
+    if (resolver)
+      this.rememberResolvedModels(data);
     if (afterId) {
       const idx = data.findIndex((m) => m.id === afterId);
       if (idx >= 0)
@@ -37674,25 +37691,61 @@ class Model_Catalog {
       last_id: page.length > 0 ? page[page.length - 1].id : null
     };
   }
+  rememberResolvedModels(models) {
+    for (const model of models)
+      this.resolvedModelMap.set(model.id, model);
+  }
 }
 async function claudeSettingsModelResolver() {
   return readActiveModelIds();
 }
-function resolveModelInfos(ids) {
-  return ids.map((id) => {
-    const known = MODEL_MAP.get(resolveModelId(id));
+function resolveModelInfos(entries) {
+  return entries.map((entry) => {
+    if (typeof entry !== "string")
+      return resolveProviderModelDescriptor(entry);
+    const known = MODEL_MAP.get(resolveModelId(entry));
     if (known)
       return known;
     return {
-      id,
+      id: entry,
       capabilities: SYNTHETIC_MODEL_CAPABILITIES,
       created_at: "1970-01-01T00:00:00Z",
-      display_name: displayNameFromModelId(id),
+      display_name: displayNameFromModelId(entry),
       max_input_tokens: 0,
       max_tokens: 0,
       type: "model"
     };
   });
+}
+function resolveProviderModelDescriptor(descriptor) {
+  const known = MODEL_MAP.get(resolveModelId(descriptor.id));
+  const baseCapabilities = known?.capabilities ?? SYNTHETIC_MODEL_CAPABILITIES;
+  return {
+    id: descriptor.id,
+    capabilities: {
+      ...baseCapabilities,
+      effort: effortCapabilities(descriptor.effort?.levels ?? []),
+      image_input: { supported: descriptor.supportsImages ?? baseCapabilities.image_input.supported }
+    },
+    created_at: known?.created_at ?? "1970-01-01T00:00:00Z",
+    display_name: descriptor.displayName ?? known?.display_name ?? displayNameFromModelId(descriptor.id),
+    max_input_tokens: descriptor.maxInputTokens ?? known?.max_input_tokens ?? 0,
+    max_tokens: descriptor.maxOutputTokens ?? known?.max_tokens ?? 0,
+    type: "model"
+  };
+}
+function effortCapabilities(levels) {
+  const supported = new Set(levels);
+  return {
+    high: { supported: supported.has("high") },
+    low: { supported: supported.has("low") },
+    max: { supported: supported.has("max") },
+    medium: { supported: supported.has("medium") },
+    none: { supported: supported.has("none") },
+    supported: supported.size > 0,
+    ultra: { supported: supported.has("ultra") },
+    xhigh: { supported: supported.has("xhigh") }
+  };
 }
 function displayNameFromModelId(id) {
   return id.split("-").filter(Boolean).map((part) => {
@@ -37766,7 +37819,7 @@ class Claude_Inbound_Provider {
     if (route.path === "/v1/models/:model_id") {
       const pathname = new URL(request.url).pathname;
       const modelId = decodeURIComponent(pathname.slice("/v1/models/".length));
-      const model = this.modelCatalog.getModel(modelId);
+      const model = await this.modelCatalog.resolveModel(modelId, this.modelResolver);
       if (!model) {
         return Response.json({
           type: "error",
@@ -38037,7 +38090,7 @@ function normalizeReasoningBody(body) {
 function normalizeReasoningModel(body) {
   if (typeof body.model !== "string")
     return {};
-  const match = body.model.match(/^(gpt-5(?:\.[^_]+)?)(?:_(none|low|medium|high|xhigh))?$/);
+  const match = body.model.match(/^(gpt-5(?:\.[^_]+)?)(?:_(none|low|medium|high|xhigh|max|ultra))?$/);
   if (!match)
     return {};
   const [, model, effort = "medium"] = match;
@@ -38046,9 +38099,12 @@ function normalizeReasoningModel(body) {
     model,
     reasoning: {
       ...reasoning,
-      effort: reasoning.effort ?? body.reasoning_effort ?? effort
+      effort: normalizeReasoningEffort(reasoning.effort ?? body.reasoning_effort ?? effort)
     }
   };
+}
+function normalizeReasoningEffort(effort) {
+  return effort === "ultra" ? "max" : effort;
 }
 
 // src/core/stream-utils.ts
@@ -38372,6 +38428,9 @@ var PROVIDER_CACHE_PATH = bunPath.join(appDataDir(), PROVIDER_CACHE_FILE_NAME);
 var writeQueues = new Map;
 function providerStatePath(filePath) {
   return filePath ? expandHome(filePath) : bunPath.join(appDataDir(), PROVIDER_STATE_FILE_NAME);
+}
+function providerCachePath(filePath) {
+  return filePath ? expandHome(filePath) : bunPath.join(appDataDir(), PROVIDER_CACHE_FILE_NAME);
 }
 function isProviderStatePath(filePath) {
   return fileName(expandHome(filePath)) === PROVIDER_STATE_FILE_NAME;
@@ -39391,10 +39450,13 @@ async function readCodexConfigFile(authFile) {
 var DEFAULT_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann";
 var DEFAULT_ISSUER = "https://auth.openai.com";
 var DEFAULT_CODEX_ENDPOINT = "https://chatgpt.com/backend-api/codex/responses";
+var DEFAULT_CODEX_WEBSOCKET_ENDPOINT = "wss://chatgpt.com/backend-api/codex/responses";
+var CODEX_WEBSOCKET_BETA = "responses_websockets=2026-02-06";
+var CODEX_WEBSOCKET_CONNECT_TIMEOUT_MS = 1e4;
 var OPENAI_RESPONSES_INPUT_TOKENS_ENDPOINT = "https://api.openai.com/v1/responses/input_tokens";
 var WHAM_USAGE_ENDPOINT = "https://chatgpt.com/backend-api/wham/usage";
 var WHAM_ENVIRONMENTS_ENDPOINT = "https://chatgpt.com/backend-api/wham/environments";
-var CODEX_MODELS_ENDPOINT = "https://chatgpt.com/backend-api/models";
+var CODEX_MODELS_ENDPOINT = "https://chatgpt.com/backend-api/codex/models?client_version=0.0.0";
 var CODEX_MODEL_CACHE_TTL_SECONDS = 3600;
 var REFRESH_SAFETY_MARGIN_MS = 30000;
 
@@ -39704,6 +39766,141 @@ function cleanToken2(value) {
   return (value ?? "").trim().replace(/^['"]|['"]$/g, "").replace(/\s+/g, "");
 }
 
+// src/upstream/codex/websocket.ts
+var TERMINAL_EVENTS = new Set(["response.completed", "response.failed", "response.incomplete", "error"]);
+var defaultFactory = (url, headers) => new WebSocket(url, { headers });
+
+class CodexWebSocketTransport {
+  endpoint;
+  factory;
+  connectTimeoutMs;
+  maxIdleSockets;
+  idle = [];
+  poolToken;
+  constructor(options) {
+    this.endpoint = options?.endpoint ?? DEFAULT_CODEX_WEBSOCKET_ENDPOINT;
+    this.factory = options?.webSocket ?? defaultFactory;
+    this.connectTimeoutMs = options?.connectTimeoutMs ?? CODEX_WEBSOCKET_CONNECT_TIMEOUT_MS;
+    this.maxIdleSockets = options?.maxIdleSockets ?? 4;
+  }
+  async stream(body, headers, signal) {
+    const socket = await this.acquire(headers);
+    const stream = this.toSseStream(socket, body, signal);
+    return new Response(stream, { status: 200, headers: { "content-type": "text/event-stream" } });
+  }
+  close() {
+    for (const socket of this.idle.splice(0))
+      socket.close();
+  }
+  async acquire(headers) {
+    const token = headers.get("authorization") ?? "";
+    if (token !== this.poolToken) {
+      this.close();
+      this.poolToken = token;
+    }
+    while (this.idle.length > 0) {
+      const socket = this.idle.pop();
+      if (socket && socket.readyState === WebSocket.OPEN)
+        return socket;
+    }
+    return this.connect(headers);
+  }
+  release(socket) {
+    if (socket.readyState !== WebSocket.OPEN)
+      return;
+    if (this.idle.length >= this.maxIdleSockets) {
+      socket.close();
+      return;
+    }
+    this.idle.push(socket);
+  }
+  async connect(headers) {
+    const socket = this.factory(this.endpoint, Object.fromEntries(headers));
+    await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        socket.close();
+        reject(new Error(`Codex WebSocket connect timed out after ${this.connectTimeoutMs}ms`));
+      }, this.connectTimeoutMs);
+      const settle = (error) => {
+        clearTimeout(timer);
+        if (error)
+          reject(error);
+        else
+          resolve();
+      };
+      socket.addEventListener("open", () => settle(), { once: true });
+      socket.addEventListener("error", () => settle(new Error("Codex WebSocket handshake failed")), { once: true });
+      socket.addEventListener("close", () => settle(new Error("Codex WebSocket closed during handshake")), { once: true });
+    });
+    return socket;
+  }
+  toSseStream(socket, body, signal) {
+    const encoder = new TextEncoder;
+    return new ReadableStream({
+      start: (controller) => {
+        let settled = false;
+        const cleanup = () => {
+          socket.removeEventListener("message", onMessage);
+          socket.removeEventListener("close", onClose);
+          socket.removeEventListener("error", onError);
+          signal?.removeEventListener("abort", onAbort);
+        };
+        const finish = () => {
+          if (settled)
+            return;
+          settled = true;
+          cleanup();
+          this.release(socket);
+          controller.close();
+        };
+        const fail = (error) => {
+          if (settled)
+            return;
+          settled = true;
+          cleanup();
+          socket.close();
+          controller.error(error);
+        };
+        function onMessage(event) {
+          if (settled)
+            return;
+          const text = typeof event.data === "string" ? event.data : String(event.data);
+          const parsed = parseJsonObject(text);
+          const type = typeof parsed.type === "string" ? parsed.type : undefined;
+          controller.enqueue(encoder.encode(`${type ? `event: ${type}
+` : ""}data: ${text}
+
+`));
+          if (type && TERMINAL_EVENTS.has(type))
+            finish();
+        }
+        function onClose() {
+          fail(new Error("Codex WebSocket closed before the response completed"));
+        }
+        function onError() {
+          fail(new Error("Codex WebSocket stream failed"));
+        }
+        function onAbort() {
+          fail(new Error("Codex WebSocket stream aborted"));
+        }
+        socket.addEventListener("message", onMessage);
+        socket.addEventListener("close", onClose, { once: true });
+        socket.addEventListener("error", onError, { once: true });
+        signal?.addEventListener("abort", onAbort, { once: true });
+        if (signal?.aborted) {
+          onAbort();
+          return;
+        }
+        try {
+          socket.send(JSON.stringify({ type: "response.create", ...body }));
+        } catch (error) {
+          fail(error instanceof Error ? error : new Error(String(error)));
+        }
+      }
+    });
+  }
+}
+
 // src/upstream/codex/client.ts
 class CodexStandaloneClient {
   accessToken;
@@ -39720,6 +39917,7 @@ class CodexStandaloneClient {
   authFile;
   codexAuthFile;
   openAiApiKey;
+  webSocket;
   sourceAuthFile;
   sourceAccountKey;
   authEntryIndex;
@@ -39738,6 +39936,12 @@ class CodexStandaloneClient {
     this.authFile = options.authFile;
     this.codexAuthFile = options.codexAuthFile;
     this.openAiApiKey = options.openAiApiKey ?? process.env.OPENAI_API_KEY;
+    if (options.useWebSocket ?? process.env.CODEX_WIRE_API === "responses_websocket") {
+      this.webSocket = new CodexWebSocketTransport({
+        endpoint: options.codexWebSocketEndpoint,
+        webSocket: options.webSocket
+      });
+    }
     this.sourceAuthFile = options.sourceAuthFile;
     this.sourceAccountKey = options.sourceAccountKey;
   }
@@ -39862,7 +40066,21 @@ class CodexStandaloneClient {
     return response.body;
   }
   async request(body, options) {
-    return this.requestUpstream(this.codexEndpoint, "POST", options, JSON.stringify(normalizeReasoningBody(body)));
+    const normalized = normalizeReasoningBody(body);
+    const webSocket = this.webSocket;
+    if (webSocket && normalized.stream === true) {
+      try {
+        return await this.streamOverWebSocket(webSocket, normalized, options);
+      } catch {}
+    }
+    return this.requestUpstream(this.codexEndpoint, "POST", options, JSON.stringify(normalized));
+  }
+  async streamOverWebSocket(webSocket, body, options) {
+    await this.refreshIfExpired();
+    const headers = this.headers(options?.headers);
+    headers.delete("content-type");
+    headers.set("OpenAI-Beta", CODEX_WEBSOCKET_BETA);
+    return webSocket.stream(body, headers, options?.signal);
   }
   async requestUpstream(url, method, options, body) {
     await this.refreshIfExpired();
@@ -40099,32 +40317,37 @@ function parseCodexModelEntry(raw) {
   const attachments = productFeatures.attachments && typeof productFeatures.attachments === "object" ? productFeatures.attachments : {};
   const imageMimeTypes = Array.isArray(attachments.image_mime_types) ? attachments.image_mime_types.filter((t) => typeof t === "string") : [];
   const acceptedMimeTypes = Array.isArray(attachments.accepted_mime_types) ? attachments.accepted_mime_types.filter((t) => typeof t === "string") : [];
-  const thinkingEfforts = Array.isArray(entry.thinking_efforts) ? entry.thinking_efforts.flatMap((te) => {
+  const rawThinkingEfforts = Array.isArray(entry.supported_reasoning_levels) ? entry.supported_reasoning_levels : Array.isArray(entry.thinking_efforts) ? entry.thinking_efforts : [];
+  const thinkingEfforts = rawThinkingEfforts.flatMap((te) => {
     if (!te || typeof te !== "object")
       return [];
     const item = te;
-    if (typeof item.thinking_effort !== "string")
+    const thinkingEffort = typeof item.effort === "string" ? item.effort : typeof item.thinking_effort === "string" ? item.thinking_effort : undefined;
+    if (!thinkingEffort)
       return [];
     return [{
-      thinkingEffort: item.thinking_effort,
-      fullLabel: typeof item.full_label === "string" ? item.full_label : item.thinking_effort,
-      shortLabel: typeof item.short_label === "string" ? item.short_label : item.thinking_effort,
+      thinkingEffort,
+      fullLabel: typeof item.full_label === "string" ? item.full_label : thinkingEffort,
+      shortLabel: typeof item.short_label === "string" ? item.short_label : thinkingEffort,
       description: typeof item.description === "string" ? item.description : ""
     }];
-  }) : [];
+  });
   const enabledTools = Array.isArray(entry.enabled_tools) ? entry.enabled_tools.filter((t) => typeof t === "string") : [];
   const tags = Array.isArray(entry.tags) ? entry.tags.filter((t) => typeof t === "string") : [];
   return {
     slug,
-    title: typeof entry.title === "string" ? entry.title : slug,
+    title: typeof entry.display_name === "string" ? entry.display_name : typeof entry.title === "string" ? entry.title : slug,
     description: typeof entry.description === "string" ? entry.description : "",
-    maxTokens: typeof entry.max_tokens === "number" ? entry.max_tokens : 128000,
-    reasoningType: typeof entry.reasoning_type === "string" ? entry.reasoning_type : "auto",
-    configurableThinkingEffort: entry.configurable_thinking_effort === true,
+    maxTokens: typeof entry.context_window === "number" ? entry.context_window : typeof entry.max_context_window === "number" ? entry.max_context_window : typeof entry.max_tokens === "number" ? entry.max_tokens : 128000,
+    maxOutputTokens: typeof entry.max_output_tokens === "number" ? entry.max_output_tokens : 128000,
+    reasoningType: typeof entry.reasoning_type === "string" ? entry.reasoning_type : thinkingEfforts.length > 0 ? "reasoning" : "auto",
+    configurableThinkingEffort: entry.configurable_thinking_effort === true || thinkingEfforts.length > 0,
     thinkingEfforts,
-    supportedImageTypes: imageMimeTypes,
+    ...typeof entry.default_reasoning_level === "string" && { defaultThinkingEffort: entry.default_reasoning_level },
+    ...typeof entry.multi_agent_version === "string" && { multiAgentVersion: entry.multi_agent_version },
+    supportedImageTypes: imageMimeTypes.length > 0 ? imageMimeTypes : Array.isArray(entry.input_modalities) && entry.input_modalities.includes("image") ? ["image/*"] : [],
     supportedDocumentTypes: acceptedMimeTypes.filter((t) => !t.startsWith("image/")),
-    supportsImages: imageMimeTypes.length > 0,
+    supportsImages: imageMimeTypes.length > 0 || Array.isArray(entry.input_modalities) && entry.input_modalities.includes("image"),
     supportsPdf: acceptedMimeTypes.includes("application/pdf"),
     enabledTools,
     tags
@@ -40193,6 +40416,23 @@ class Codex_Upstream_Provider {
     } catch {
       return this.modelCache?.models ?? [];
     }
+  }
+  async listModelDescriptors() {
+    await this.listModels();
+    return this.modelMetadata.all().map((metadata) => ({
+      id: metadata.slug,
+      displayName: metadata.title,
+      maxInputTokens: metadata.maxTokens,
+      maxOutputTokens: metadata.maxOutputTokens,
+      supportsImages: metadata.supportsImages,
+      ...metadata.thinkingEfforts.length > 0 && {
+        effort: {
+          schemaPath: "reasoning",
+          levels: metadata.thinkingEfforts.map((effort) => effort.thinkingEffort),
+          ...metadata.defaultThinkingEffort && { defaultLevel: metadata.defaultThinkingEffort }
+        }
+      }
+    }));
   }
   async refreshModelMetadata() {
     try {
@@ -40288,21 +40528,13 @@ function parsePositiveNumber(value) {
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
 }
-var REASONING_EFFORT_BUDGETS = {
-  low: 4000,
-  medium: 8000,
-  high: 16000,
-  xhigh: 32000
-};
 var USER_AGENT_TEMPLATE = "aws-sdk-js/1.0.27 ua/2.1 os/{platform}#{version} lang/js md/nodejs#{nodeVersion} api/codewhispererstreaming#1.0.27 m/E KiroIDE-{kiroVersion}-{fingerprint}";
 var X_AMZ_USER_AGENT_TEMPLATE = "aws-sdk-js/1.0.27 KiroIDE-{kiroVersion}-{fingerprint}";
 var KIRO_STATE_FILE_NAME = "provider-state.json";
 var HIDDEN_KIRO_MODELS = [
+  "claude-opus-5",
   "claude-sonnet-5",
-  "claude-sonnet-4.5",
-  "claude-sonnet-4",
-  "claude-3.7-sonnet",
-  "claude-opus-4.1"
+  "claude-haiku-4.5"
 ];
 
 // src/upstream/kiro/errors.ts
@@ -41389,8 +41621,7 @@ ${toolDocs.join(`
   let currentMessage = repaired.currentMessage;
   embedInstructions(historyMessages, currentMessage, baseInstructions);
   ensureHistoryContent(historyMessages);
-  const preserveCurrentThinkingPrefix = injectThinkingTags(currentMessage, request.reasoningEffort);
-  return trimPayload(buildPayload(historyMessages, currentMessage, tools, options), tools, options, baseInstructions, preserveCurrentThinkingPrefix);
+  return trimPayload(buildPayload(historyMessages, currentMessage, tools, options), tools, options, baseInstructions);
 }
 function sanitizeToolSchema(schema) {
   if (!schema || typeof schema !== "object" || Array.isArray(schema))
@@ -41612,41 +41843,19 @@ function previousAssistant(messages, index) {
       return;
   }
 }
-function embedInstructions(historyMessages, currentMessage, instructions, preserveCurrentThinkingPrefix = false) {
+function embedInstructions(historyMessages, currentMessage, instructions) {
   if (!instructions)
     return;
   const target = historyMessages.find((message) => message.role === "user") ?? currentMessage;
-  if (preserveCurrentThinkingPrefix && target === currentMessage) {
-    const { prefix, body } = splitThinkingPrefix(target.content);
-    target.content = `${prefix}${instructions}
-
-${body || "Continue"}`;
-    return;
-  }
   target.content = `${instructions}
 
 ${target.content || "Continue"}`;
-}
-function splitThinkingPrefix(content) {
-  const match = content.match(/^<thinking_mode>enabled<\/thinking_mode>\n<max_thinking_length>\d+<\/max_thinking_length>\n/);
-  return match ? { prefix: match[0], body: content.slice(match[0].length) } : { prefix: "", body: content };
 }
 function ensureHistoryContent(historyMessages) {
   for (const message of historyMessages) {
     if (!message.content)
       message.content = "(empty)";
   }
-}
-function injectThinkingTags(currentMessage, reasoningEffort) {
-  if (!reasoningEffort)
-    return false;
-  const budget = REASONING_EFFORT_BUDGETS[reasoningEffort];
-  if (!budget)
-    return false;
-  currentMessage.content = `<thinking_mode>enabled</thinking_mode>
-<max_thinking_length>${budget}</max_thinking_length>
-${currentMessage.content}`;
-  return true;
 }
 function buildPayload(historyMessages, currentMessage, tools, options) {
   const history = historyMessages.map((message) => message.role === "assistant" ? assistantHistory(message) : userHistory(message, options.modelId));
@@ -41669,9 +41878,13 @@ function buildPayload(historyMessages, currentMessage, tools, options) {
       chatTriggerType: "MANUAL",
       ...history.length ? { history } : {}
     },
-    ...options.authType === "kiro_desktop" && options.profileArn ? { profileArn: options.profileArn } : {}
+    ...options.authType === "kiro_desktop" && options.profileArn ? { profileArn: options.profileArn } : {},
+    ...options.effort ? { additionalModelRequestFields: additionalModelRequestFields(options.effort) } : {}
   };
   return payload;
+}
+function additionalModelRequestFields(effort) {
+  return effort.schemaPath === "output_config" ? { output_config: { effort: effort.level } } : { reasoning: { effort: effort.level } };
 }
 function userHistory(message, modelId) {
   const context = message.toolResults?.length ? { toolResults: message.toolResults } : undefined;
@@ -41693,7 +41906,7 @@ function assistantHistory(message) {
     }
   };
 }
-function trimPayload(payload, tools, options, instructions, preserveCurrentThinkingPrefix) {
+function trimPayload(payload, tools, options, instructions) {
   let current = payload;
   const originalSize = payloadSize(current);
   let finalSize = originalSize;
@@ -41703,7 +41916,7 @@ function trimPayload(payload, tools, options, instructions, preserveCurrentThink
     throw new PayloadTooLargeError(CLAUDE_CONTEXT_LIMIT_MESSAGE, { status: 400 });
   }
   if (originalSize > limit && originalHistoryEntries > 0) {
-    const trimmed = findTrimmedPayload(payload, tools, options, instructions, limit, preserveCurrentThinkingPrefix);
+    const trimmed = findTrimmedPayload(payload, tools, options, instructions, limit);
     current = trimmed.payload;
     finalSize = trimmed.size;
   }
@@ -41723,7 +41936,7 @@ function trimPayload(payload, tools, options, instructions, preserveCurrentThink
   }
   return current;
 }
-function findTrimmedPayload(payload, tools, options, instructions, limit, preserveCurrentThinkingPrefix) {
+function findTrimmedPayload(payload, tools, options, instructions, limit) {
   const history = payload.conversationState.history ?? [];
   const trimPoints = historyTrimPoints(history);
   const lastStep = trimPoints.length - 1;
@@ -41733,11 +41946,11 @@ function findTrimmedPayload(payload, tools, options, instructions, limit, preser
   const currentMessage = currentToWorking(payload);
   let lowerStep = 0;
   let upperStep = 1;
-  let best = buildTrimmedPayloadCandidate(historyMessages, currentMessage, trimPoints[upperStep], tools, options, instructions, preserveCurrentThinkingPrefix);
+  let best = buildTrimmedPayloadCandidate(historyMessages, currentMessage, trimPoints[upperStep], tools, options, instructions);
   while (best.size > limit && upperStep < lastStep) {
     lowerStep = upperStep;
     upperStep = Math.min(upperStep * 2, lastStep);
-    best = buildTrimmedPayloadCandidate(historyMessages, currentMessage, trimPoints[upperStep], tools, options, instructions, preserveCurrentThinkingPrefix);
+    best = buildTrimmedPayloadCandidate(historyMessages, currentMessage, trimPoints[upperStep], tools, options, instructions);
   }
   if (best.size > limit)
     return best;
@@ -41745,7 +41958,7 @@ function findTrimmedPayload(payload, tools, options, instructions, limit, preser
   let high = upperStep - 1;
   while (low <= high) {
     const mid = Math.floor((low + high) / 2);
-    const candidate = buildTrimmedPayloadCandidate(historyMessages, currentMessage, trimPoints[mid], tools, options, instructions, preserveCurrentThinkingPrefix);
+    const candidate = buildTrimmedPayloadCandidate(historyMessages, currentMessage, trimPoints[mid], tools, options, instructions);
     if (candidate.size <= limit) {
       best = candidate;
       high = mid - 1;
@@ -41755,10 +41968,10 @@ function findTrimmedPayload(payload, tools, options, instructions, limit, preser
   }
   return best;
 }
-function buildTrimmedPayloadCandidate(historyMessages, currentMessage, removedHistoryEntries, tools, options, instructions, preserveCurrentThinkingPrefix) {
+function buildTrimmedPayloadCandidate(historyMessages, currentMessage, removedHistoryEntries, tools, options, instructions) {
   const candidateHistory = historyMessages.slice(removedHistoryEntries).map(cloneWorkingMessage);
   const repaired = repairOrphanedToolResults(candidateHistory, cloneWorkingMessage(currentMessage));
-  embedInstructions(repaired.historyMessages, repaired.currentMessage, instructions, preserveCurrentThinkingPrefix);
+  embedInstructions(repaired.historyMessages, repaired.currentMessage, instructions);
   ensureHistoryContent(repaired.historyMessages);
   const candidate = buildPayload(repaired.historyMessages, repaired.currentMessage, tools, options);
   return { payload: candidate, size: payloadSize(candidate) };
@@ -42751,7 +42964,8 @@ function createMinimalEntry(modelId) {
     supportsImages: true,
     promptCaching: { supportsPromptCaching: false, minimumTokensPerCacheCheckpoint: null, maximumCacheCheckpointsPerRequest: null },
     rateMultiplier: 1,
-    rateUnit: "Credit"
+    rateUnit: "Credit",
+    richMetadata: false
   };
 }
 function parseModelEntry(raw) {
@@ -42764,6 +42978,7 @@ function parseModelEntry(raw) {
   const tokenLimits = entry.tokenLimits && typeof entry.tokenLimits === "object" ? entry.tokenLimits : {};
   const promptCaching = entry.promptCaching && typeof entry.promptCaching === "object" ? entry.promptCaching : {};
   const supportedInputTypes = Array.isArray(entry.supportedInputTypes) ? entry.supportedInputTypes.filter((t) => typeof t === "string") : [];
+  const effort = parseEffortMetadata(entry.additionalModelRequestFieldsSchema);
   return {
     modelId,
     modelName: typeof entry.modelName === "string" ? entry.modelName : modelId,
@@ -42778,8 +42993,36 @@ function parseModelEntry(raw) {
       maximumCacheCheckpointsPerRequest: typeof promptCaching.maximumCacheCheckpointsPerRequest === "number" ? promptCaching.maximumCacheCheckpointsPerRequest : null
     },
     rateMultiplier: typeof entry.rateMultiplier === "number" ? entry.rateMultiplier : 1,
-    rateUnit: typeof entry.rateUnit === "string" ? entry.rateUnit : "Credit"
+    rateUnit: typeof entry.rateUnit === "string" ? entry.rateUnit : "Credit",
+    ...effort ? { effort } : {},
+    richMetadata: true
   };
+}
+function parseEffortMetadata(schema) {
+  if (!schema || typeof schema !== "object" || Array.isArray(schema))
+    return;
+  const properties = objectProperty(schema, "properties");
+  if (!properties)
+    return;
+  for (const schemaPath of ["output_config", "reasoning"]) {
+    const section = objectProperty(properties, schemaPath);
+    const sectionProperties = section ? objectProperty(section, "properties") : undefined;
+    const effort = sectionProperties ? objectProperty(sectionProperties, "effort") : undefined;
+    const levels = effort && Array.isArray(effort.enum) ? effort.enum.filter((level) => typeof level === "string") : [];
+    if (!levels.length)
+      continue;
+    const defaultLevel = typeof effort?.default === "string" && levels.includes(effort.default) ? effort.default : undefined;
+    return {
+      schemaPath,
+      levels,
+      ...defaultLevel ? { defaultLevel } : {}
+    };
+  }
+  return;
+}
+function objectProperty(value, key) {
+  const property = value[key];
+  return property && typeof property === "object" && !Array.isArray(property) ? property : undefined;
 }
 
 // src/upstream/kiro/index.ts
@@ -42816,6 +43059,10 @@ class Kiro_Upstream_Provider {
     if (clientAllowedDirectoriesCall) {
       return clientToolCallResponse(request, model, clientAllowedDirectoriesCall);
     }
+    const effortResult = await this.resolveRequestedEffort(model, request.reasoningEffort);
+    if ("error" in effortResult)
+      return canonicalError(effortResult.status, effortResult.error);
+    const effort = effortResult.effort;
     const fallbackWebSearchQuery = effective.webSearch ? inferWebSearchFallbackQuery(request) : undefined;
     const shouldPreflightWebSearch = Boolean(effective.webSearch && explicitWebSearch && fallbackWebSearchQuery);
     const signalClaudeContextLimit = shouldSignalClaudeContextLimit(request);
@@ -42830,7 +43077,8 @@ class Kiro_Upstream_Provider {
           authType: this.auth.getAuthType(),
           profileArn: this.auth.getProfileArn(),
           instructions: requestForContextCheck.instructions,
-          payloadOverflowMode: "context_error"
+          payloadOverflowMode: "context_error",
+          effort
         });
       } catch (error) {
         if (error instanceof ToolNameTooLongError)
@@ -42841,7 +43089,7 @@ class Kiro_Upstream_Provider {
       }
     }
     if (request.stream && shouldPreflightWebSearch && fallbackWebSearchQuery && !signalClaudeContextLimit) {
-      return this.streamWithWebSearchPreflight(request, options, effective.tools, model, fallbackWebSearchQuery);
+      return this.streamWithWebSearchPreflight(request, options, effective.tools, model, fallbackWebSearchQuery, effort);
     }
     let preflightWebSearch;
     try {
@@ -42867,6 +43115,7 @@ class Kiro_Upstream_Provider {
         profileArn: this.auth.getProfileArn(),
         instructions: requestForPayload.instructions,
         payloadOverflowMode: signalClaudeContextLimit ? "context_error" : "trim",
+        effort,
         onTrim: (notice) => {
           payloadTrimWarning = `${trimNoticeText(notice)}
 
@@ -42901,7 +43150,7 @@ class Kiro_Upstream_Provider {
       throw error;
     }
   }
-  streamWithWebSearchPreflight(request, options, effectiveTools, model, query) {
+  streamWithWebSearchPreflight(request, options, effectiveTools, model, query, effort) {
     const client = this.client;
     const authType = this.auth.getAuthType();
     const profileArn = this.auth.getProfileArn();
@@ -42943,6 +43192,7 @@ class Kiro_Upstream_Provider {
               profileArn,
               instructions: requestForPayload.instructions,
               payloadOverflowMode: shouldSignalClaudeContextLimit(request) ? "context_error" : "trim",
+              effort,
               onTrim: (notice) => {
                 payloadTrimWarning = `${trimNoticeText(notice)}
 
@@ -43010,6 +43260,22 @@ class Kiro_Upstream_Provider {
       return HIDDEN_KIRO_MODELS;
     }
   }
+  async listModelDescriptors() {
+    const modelIds = await this.listModels();
+    return modelIds.map((id) => {
+      const metadata = this.modelMetadata.get(id);
+      if (!metadata?.richMetadata)
+        return id;
+      return {
+        id,
+        displayName: metadata.modelName,
+        maxInputTokens: metadata.maxInputTokens,
+        maxOutputTokens: metadata.maxOutputTokens,
+        supportsImages: metadata.supportsImages,
+        ...metadata.effort ? { effort: { ...metadata.effort, levels: [...metadata.effort.levels] } } : {}
+      };
+    });
+  }
   async refreshModelMetadata() {
     try {
       const fullBody = await this.client.listAvailableModelsFull();
@@ -43017,6 +43283,26 @@ class Kiro_Upstream_Provider {
       const models = dedupe(this.modelMetadata.modelIds().map(normalizeKiroModelName));
       this.modelCache = { models, cachedAt: Date.now() };
     } catch {}
+  }
+  async resolveRequestedEffort(model, requested) {
+    if (!requested)
+      return {};
+    if (!this.modelMetadata.isPopulated)
+      await this.refreshModelMetadata();
+    if (!this.modelMetadata.isPopulated) {
+      return { status: 503, error: `Unable to load Kiro model metadata required to validate effort '${requested}' for '${model}'` };
+    }
+    const metadata = this.modelMetadata.get(model);
+    if (!metadata?.effort) {
+      return { status: 400, error: `Kiro model '${model}' does not support configurable effort` };
+    }
+    if (!metadata.effort.levels.includes(requested)) {
+      return {
+        status: 400,
+        error: `Kiro model '${model}' does not support effort '${requested}'; supports: ${metadata.effort.levels.join(", ")}`
+      };
+    }
+    return { effort: { schemaPath: metadata.effort.schemaPath, level: requested } };
   }
   async listModelsRaw() {
     return this.client.listAvailableModelsRaw();
@@ -43334,6 +43620,410 @@ function dedupe(values) {
   return [...new Set(values.filter(Boolean))];
 }
 
+// src/app/account-roster.ts
+async function readAccountRoster(mode, authFile) {
+  if (mode === "kiro") {
+    const data = await readKiroAuthFileData(authFile);
+    return {
+      accounts: kiroAuthEntries(data).map((auth, index) => kiroAccountKey(auth, index)),
+      activeAccount: managedActiveAccount(data),
+      persistActive: (accountKey) => writeActiveKiroAccount(authFile, data, accountKey)
+    };
+  }
+  if (mode === "copilot") {
+    const data = await readCopilotAuthFileData(authFile);
+    return {
+      accounts: copilotAuthEntries(data).map((auth, index) => copilotAccountKey(auth, index)),
+      activeAccount: managedActiveAccount(data),
+      persistActive: (accountKey) => writeActiveCopilotAccount(authFile, data, accountKey)
+    };
+  }
+  const file = await readAuthFileData(authFile);
+  const entries = Array.isArray(file.data) ? file.data : [file.data];
+  const info = await readAccountInfoFile(authFile);
+  return {
+    accounts: entries.map((auth, index) => accountInfoKey(auth, index)),
+    activeAccount: info?.activeAccount,
+    persistActive: (accountKey) => writeActiveAccountInfo(authFile, file.data, accountKey)
+  };
+}
+function managedActiveAccount(data) {
+  if (!data || typeof data !== "object" || Array.isArray(data))
+    return;
+  const active = data.activeAccount;
+  return typeof active === "string" ? active : undefined;
+}
+
+// src/app/rotation-config.ts
+async function readRotationConfig(mode, filePath) {
+  const override = rotationEnvOverride();
+  if (override !== undefined)
+    return { enabled: override };
+  const section = await readProviderSection(mode, filePath).catch(() => {
+    return;
+  });
+  const rotation = section?.rotation;
+  return { enabled: rotation?.enabled === true };
+}
+async function writeRotationConfig(mode, filePath, config) {
+  await updateProviderSection(mode, filePath, async (section) => ({
+    ...section ?? {},
+    rotation: { enabled: config.enabled }
+  }));
+}
+function rotationEnvOverride() {
+  const value = process.env.ACCOUNT_ROTATION;
+  if (value === undefined || value === "")
+    return;
+  return value !== "0" && value !== "false";
+}
+
+// src/core/rotation.ts
+var DEFAULT_COOLDOWN_MS = {
+  auth: 30 * 60000,
+  quota: 15 * 60000,
+  server: 60000
+};
+var QUOTA_PROBE_INTERVAL_MS = 5 * 60000;
+var QUOTA_TEXT = /usage limit|quota|rate.?limit|too many requests|insufficient_quota/i;
+function rotationReason(status, body) {
+  if (status === 402 || status === 429)
+    return "quota";
+  if (status === 401 || status === 403)
+    return body && QUOTA_TEXT.test(body) ? "quota" : "auth";
+  if (status >= 500)
+    return "server";
+  return;
+}
+function cooldownUntil(reason, now, resetAt) {
+  if (resetAt && resetAt > now)
+    return { until: resetAt, resetSource: "upstream" };
+  return { until: now + cooldownMs(reason), resetSource: "default" };
+}
+function cooldownMs(reason) {
+  const override = Number(process.env.ACCOUNT_ROTATION_COOLDOWN_MINUTES);
+  if (reason === "quota" && Number.isFinite(override) && override > 0)
+    return override * 60000;
+  return DEFAULT_COOLDOWN_MS[reason];
+}
+function isCoolingDown(cooldown, now) {
+  return Boolean(cooldown && cooldown.until > now);
+}
+function parseQuotaResetAt(usage, now = Date.now()) {
+  let earliest;
+  walk(usage, (key, value) => {
+    const resetAt = resetTimestamp(key, value, now);
+    if (resetAt === undefined || resetAt <= now)
+      return;
+    if (earliest === undefined || resetAt < earliest)
+      earliest = resetAt;
+  });
+  return earliest;
+}
+function parseQuotaAvailable(usage) {
+  let blocked = false;
+  let allowed = false;
+  walk(usage, (key, value) => {
+    if (key === "limit_reached" && value === true)
+      blocked = true;
+    if (key === "limit_reached" && value === false)
+      allowed = true;
+    if (key === "allowed" && value === false)
+      blocked = true;
+    if (key === "allowed" && value === true)
+      allowed = true;
+    if (key === "used_percent" && typeof value === "number" && value >= 100)
+      blocked = true;
+    if (key === "remaining" && typeof value === "number" && value > 0)
+      allowed = true;
+  });
+  if (blocked)
+    return false;
+  return allowed ? true : undefined;
+}
+function parseQuotaUsedPercent(usage) {
+  let highest;
+  walk(usage, (key, value) => {
+    if (key !== "used_percent" && key !== "percent_used")
+      return;
+    if (typeof value !== "number" || !Number.isFinite(value))
+      return;
+    if (highest === undefined || value > highest)
+      highest = value;
+  });
+  return highest;
+}
+function resetTimestamp(key, value, now) {
+  if (typeof value === "number") {
+    if (key === "reset_after_seconds" || key === "resets_in_seconds")
+      return now + value * 1000;
+    if (key.includes("reset"))
+      return value > 100000000000 ? value : value * 1000;
+    return;
+  }
+  if (typeof value === "string" && key.includes("reset")) {
+    const parsed = Date.parse(value);
+    return Number.isNaN(parsed) ? undefined : parsed;
+  }
+  return;
+}
+function walk(value, visit, depth = 0) {
+  if (depth > 8 || !value || typeof value !== "object")
+    return;
+  for (const [key, child] of Object.entries(value)) {
+    visit(key, child);
+    if (Array.isArray(child)) {
+      for (const item of child)
+        walk(item, visit, depth + 1);
+    } else {
+      walk(child, visit, depth + 1);
+    }
+  }
+}
+
+// src/app/account-cooldowns.ts
+var writeQueue = Promise.resolve();
+async function readAccountCooldowns(mode, filePath) {
+  return (await readCacheFile(filePath))[mode]?.accountCooldowns ?? {};
+}
+async function writeAccountCooldowns(mode, cooldowns, filePath) {
+  const path = providerCachePath(filePath);
+  const run = writeQueue.then(async () => {
+    const file = await readCacheFile(filePath);
+    const next = {
+      ...file,
+      [mode]: { ...file[mode], accountCooldowns: Object.keys(cooldowns).length ? cooldowns : undefined }
+    };
+    await writeTextFile(path, `${JSON.stringify(next, null, 2)}
+`);
+  });
+  writeQueue = run.catch(() => {
+    return;
+  });
+  return run;
+}
+async function readCacheFile(filePath) {
+  const path = providerCachePath(filePath);
+  if (!await pathExists(path))
+    return {};
+  try {
+    const parsed = JSON.parse(await readTextFile(path));
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+// src/app/rotating-upstream.ts
+function asRotatingUpstream(upstream) {
+  return upstream instanceof Rotating_Upstream_Provider ? upstream : undefined;
+}
+
+class Rotating_Upstream_Provider {
+  providerKind;
+  options;
+  instances = new Map;
+  cooldowns;
+  active;
+  current;
+  rotationEnabled;
+  constructor(options, active, current, cooldowns) {
+    this.options = options;
+    this.active = active;
+    this.current = current;
+    this.cooldowns = cooldowns;
+    this.rotationEnabled = options.enabled ?? false;
+    this.providerKind = current.providerKind;
+    this.instances.set(active, Promise.resolve(current));
+  }
+  static async create(options, active, current) {
+    const cooldowns = options.cooldowns ?? await readAccountCooldowns(options.mode, options.cachePath);
+    return new Rotating_Upstream_Provider(options, active, current, cooldowns);
+  }
+  get enabled() {
+    return this.rotationEnabled;
+  }
+  setEnabled(enabled) {
+    this.rotationEnabled = enabled;
+  }
+  get accounts() {
+    return this.options.roster.accounts;
+  }
+  get activeAccount() {
+    return this.active;
+  }
+  get accountCooldowns() {
+    return this.cooldowns;
+  }
+  async readAccountUsage() {
+    const entries = await Promise.all(this.options.roster.accounts.map(async (account) => [account, await this.readUsage(account)]));
+    return Object.fromEntries(entries.filter((entry) => entry[1] !== undefined));
+  }
+  async proxy(request, options) {
+    if (!this.rotationEnabled)
+      return this.current.proxy(request, options);
+    const attempted = new Set;
+    let lastError;
+    for (;; ) {
+      const account = await this.nextAccount(attempted);
+      if (!account)
+        return lastError ?? this.exhaustedError();
+      attempted.add(account);
+      const upstream = await this.instance(account).catch(() => {
+        return;
+      });
+      if (!upstream)
+        continue;
+      const result = await upstream.proxy(request, options);
+      if (result.type !== "canonical_error") {
+        await this.accept(account, upstream);
+        return result;
+      }
+      const reason = rotationReason(result.status, result.body);
+      if (!reason) {
+        await this.accept(account, upstream);
+        return result;
+      }
+      lastError = result;
+      await this.penalize(account, reason, result.status, upstream, result.body);
+    }
+  }
+  checkHealth(timeoutMs) {
+    return this.current.checkHealth(timeoutMs);
+  }
+  inputTokens(request, options) {
+    if (!this.current.inputTokens)
+      throw new Error("Upstream does not support input token counting");
+    return this.current.inputTokens(request, options);
+  }
+  usage(options) {
+    if (!this.current.usage)
+      throw new Error("Upstream does not support usage");
+    return this.current.usage(options);
+  }
+  environments(options) {
+    if (!this.current.environments)
+      throw new Error("Upstream does not support environments");
+    return this.current.environments(options);
+  }
+  modelsRaw(options) {
+    if (!this.current.modelsRaw)
+      throw new Error("Upstream does not support raw model listing");
+    return this.current.modelsRaw(options);
+  }
+  listModelDescriptors() {
+    if (!this.current.listModelDescriptors)
+      return Promise.resolve([]);
+    return this.current.listModelDescriptors();
+  }
+  embeddingsRaw(body, options) {
+    if (!this.current.embeddingsRaw)
+      throw new Error("Upstream does not support embeddings");
+    return this.current.embeddingsRaw(body, options);
+  }
+  async nextAccount(attempted) {
+    const candidates = [this.active, ...this.options.roster.accounts].filter((account, index, all) => account && all.indexOf(account) === index && !attempted.has(account));
+    if (candidates.length === 0)
+      return;
+    const now = Date.now();
+    for (const account of candidates) {
+      if (!isCoolingDown(this.cooldowns[account], now))
+        return account;
+      if (await this.quotaRecovered(account, now))
+        return account;
+    }
+    return candidates.sort((left, right) => (this.cooldowns[left]?.until ?? 0) - (this.cooldowns[right]?.until ?? 0))[0];
+  }
+  async quotaRecovered(account, now) {
+    const cooldown = this.cooldowns[account];
+    if (!cooldown || cooldown.reason !== "quota")
+      return false;
+    if (now - (cooldown.lastProbeAt ?? cooldown.since) < QUOTA_PROBE_INTERVAL_MS)
+      return false;
+    await this.patchCooldown(account, { lastProbeAt: now });
+    const usage = await this.readUsage(account);
+    if (usage === undefined || parseQuotaAvailable(usage) !== true)
+      return false;
+    await this.clearCooldown(account);
+    return true;
+  }
+  async accept(account, upstream) {
+    if (this.cooldowns[account])
+      await this.clearCooldown(account);
+    if (account === this.active)
+      return;
+    this.active = account;
+    this.current = upstream;
+    await this.options.roster.persistActive(account).catch(() => {
+      return;
+    });
+  }
+  async penalize(account, reason, status, upstream, detail) {
+    const now = Date.now();
+    const resetAt = reason === "quota" ? parseQuotaResetAt(await this.readUsage(account, upstream), now) : undefined;
+    const { until, resetSource } = cooldownUntil(reason, now, resetAt);
+    const cooldown = {
+      account,
+      reason,
+      status,
+      since: now,
+      until,
+      resetSource,
+      ...detail ? { detail: detail.slice(0, 200) } : {}
+    };
+    await this.saveCooldowns({ ...this.cooldowns, [account]: cooldown });
+    this.options.onRotate?.({ from: account, reason, status, until, resetSource });
+  }
+  async readUsage(account, upstream) {
+    const provider = upstream ?? await this.instance(account).catch(() => {
+      return;
+    });
+    if (!provider?.usage)
+      return;
+    try {
+      const response = await provider.usage();
+      if (!response.ok)
+        return;
+      return await response.json();
+    } catch {
+      return;
+    }
+  }
+  instance(account) {
+    const existing = this.instances.get(account);
+    if (existing)
+      return existing;
+    const created = this.options.create(account);
+    this.instances.set(account, created);
+    created.catch(() => this.instances.delete(account));
+    return created;
+  }
+  async patchCooldown(account, patch) {
+    const cooldown = this.cooldowns[account];
+    if (!cooldown)
+      return;
+    await this.saveCooldowns({ ...this.cooldowns, [account]: { ...cooldown, ...patch } });
+  }
+  async clearCooldown(account) {
+    const { [account]: _removed, ...rest } = this.cooldowns;
+    await this.saveCooldowns(rest);
+  }
+  async saveCooldowns(cooldowns) {
+    this.cooldowns = cooldowns;
+    await writeAccountCooldowns(this.options.mode, cooldowns, this.options.cachePath).catch(() => {
+      return;
+    });
+  }
+  exhaustedError() {
+    return {
+      type: "canonical_error",
+      status: 503,
+      headers: new Headers({ "content-type": "application/json" }),
+      body: JSON.stringify({ error: { message: `All ${this.options.mode} accounts are unavailable`, type: "account_rotation_exhausted" } })
+    };
+  }
+}
+
 // src/app/provider-runtime.ts
 function resolveProviderAuthFile(mode, options) {
   if (mode === "codex") {
@@ -43356,19 +44046,33 @@ async function createProviderRuntime(mode, options) {
   if (mode === "copilot") {
     const authFile2 = resolveProviderAuthFile(mode, options);
     const ensuredAuthFile = await ensureCopilotAuthFile(authFile2);
-    const upstream2 = await Copilot_Upstream_Provider.fromAuthFile(ensuredAuthFile, { authAccount });
+    const create2 = (account) => Copilot_Upstream_Provider.fromAuthFile(ensuredAuthFile, { authAccount: account });
+    const upstream2 = await withAccountRotation(mode, ensuredAuthFile, authAccount, options, create2);
     return { authFile: ensuredAuthFile, authAccount, upstream: upstream2 };
   }
   if (mode === "kiro") {
     const authFile2 = resolveProviderAuthFile(mode, options);
     const ensuredAuthFile = await ensureKiroAuthFile(authFile2);
-    const upstream2 = await Kiro_Upstream_Provider.fromAuthFile(ensuredAuthFile, { authAccount });
+    const create2 = (account) => Kiro_Upstream_Provider.fromAuthFile(ensuredAuthFile, { authAccount: account });
+    const upstream2 = await withAccountRotation(mode, ensuredAuthFile, authAccount, options, create2);
     return { authFile: ensuredAuthFile, authAccount, upstream: upstream2 };
   }
   const authFile = resolveProviderAuthFile(mode, options);
   await ensureCodexAuthFile(authFile);
-  const upstream = await Codex_Upstream_Provider.fromAuthFile(authFile, { authAccount });
+  const create = (account) => Codex_Upstream_Provider.fromAuthFile(authFile, { authAccount: account });
+  const upstream = await withAccountRotation(mode, authFile, authAccount, options, create);
   return { authFile, authAccount, upstream };
+}
+async function withAccountRotation(mode, authFile, authAccount, options, create) {
+  const upstream = await create(authAccount);
+  const roster = await readAccountRoster(mode, authFile).catch(() => {
+    return;
+  });
+  if (!roster || roster.accounts.length < 2)
+    return upstream;
+  const enabled = options?.rotateAccounts ?? (await readRotationConfig(mode)).enabled;
+  const active = authAccount ?? roster.activeAccount ?? roster.accounts[0];
+  return Rotating_Upstream_Provider.create({ mode, roster, enabled, create: (account) => create(account) }, active, upstream);
 }
 async function providerHasConnectedAccounts(mode, options) {
   const authFile = resolveProviderAuthFile(mode, options);
@@ -43386,6 +44090,132 @@ async function providerHasConnectedAccounts(mode, options) {
   } catch {
     return false;
   }
+}
+
+// src/inbound/openai/model-alias.ts
+var CODEX2CLAUDE_MODEL_PREFIX = "codex2claude-";
+var EFFORT_SUFFIX = /_(none|low|medium|high|xhigh|max|ultra)$/;
+function codex2ClaudeNaming() {
+  const value = process.env.CODEX_MODEL_PREFIX;
+  if (value === "0")
+    return "plain";
+  if (value === "both")
+    return "both";
+  return "prefixed";
+}
+function codex2ClaudeModelId(model, effort) {
+  return `${CODEX2CLAUDE_MODEL_PREFIX}${model}${effort ? `_${effort}` : ""}`;
+}
+function namesFor(model) {
+  switch (codex2ClaudeNaming()) {
+    case "plain":
+      return [model];
+    case "both":
+      return [model, codex2ClaudeModelId(model)];
+    default:
+      return [codex2ClaudeModelId(model)];
+  }
+}
+function resolveCodex2ClaudeModel(body) {
+  if (typeof body.model !== "string" || !body.model.startsWith(CODEX2CLAUDE_MODEL_PREFIX))
+    return body;
+  const model = body.model.slice(CODEX2CLAUDE_MODEL_PREFIX.length);
+  const effort = model.match(EFFORT_SUFFIX)?.[1];
+  if (!effort)
+    return { ...body, model };
+  const reasoning = body.reasoning && typeof body.reasoning === "object" && !Array.isArray(body.reasoning) ? body.reasoning : {};
+  return {
+    ...body,
+    model: model.replace(EFFORT_SUFFIX, ""),
+    reasoning: { ...reasoning, effort }
+  };
+}
+function codex2ClaudeModelIds(model) {
+  return namesFor(typeof model === "string" ? model : model.id);
+}
+function codex2ClaudeCatalog(raw, models) {
+  const passthrough = renameCatalogSlugs(raw);
+  if (passthrough)
+    return passthrough;
+  const entries = models.flatMap((model) => catalogEntries(model));
+  return {
+    models: entries,
+    ...entries[0] ? { default_model_slug: entries[0].slug } : {}
+  };
+}
+function renameCatalogSlugs(raw) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw))
+    return;
+  const body = raw;
+  if (!Array.isArray(body.models))
+    return;
+  const models = body.models.flatMap((entry) => {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry))
+      return [entry];
+    const model = entry;
+    if (typeof model.slug !== "string")
+      return [model];
+    return namesFor(model.slug).map((slug) => ({ ...model, slug }));
+  });
+  const defaultSlug = typeof body.default_model_slug === "string" ? namesFor(body.default_model_slug)[0] : undefined;
+  return {
+    ...body,
+    models,
+    ...defaultSlug ? { default_model_slug: defaultSlug } : {}
+  };
+}
+var CODEX2CLAUDE_INSTRUCTIONS = "You are a coding agent running in the Codex CLI, served through codex2claudecode.";
+function catalogEntries(model) {
+  const descriptor = typeof model === "string" ? { id: model } : model;
+  return namesFor(descriptor.id).map((slug) => ({ ...catalogEntry(descriptor), slug }));
+}
+function catalogEntry(descriptor) {
+  const levels = descriptor.effort?.levels ?? ["low", "medium", "high"];
+  const contextWindow = descriptor.maxInputTokens || 272000;
+  return {
+    slug: codex2ClaudeModelId(descriptor.id),
+    display_name: descriptor.displayName ?? descriptor.id,
+    description: `Served through codex2claudecode as ${descriptor.id}`,
+    default_reasoning_level: descriptor.effort?.defaultLevel ?? levels[Math.floor(levels.length / 2)] ?? "medium",
+    supported_reasoning_levels: levels.map((effort) => ({ effort, description: `${effort} reasoning` })),
+    shell_type: "shell_command",
+    visibility: "list",
+    supported_in_api: true,
+    priority: 1,
+    additional_speed_tiers: [],
+    service_tiers: [],
+    availability_nux: null,
+    upgrade: null,
+    model_messages: {
+      instructions_template: CODEX2CLAUDE_INSTRUCTIONS,
+      instructions_variables: { personality_default: "", personality_friendly: "", personality_pragmatic: "" },
+      approvals: null,
+      collaboration_modes: null,
+      auto_review: null,
+      permissions: null
+    },
+    include_skills_usage_instructions: false,
+    include_plugin_usage_instructions: true,
+    include_apps_usage_instructions: true,
+    default_reasoning_summary: "none",
+    support_verbosity: false,
+    default_verbosity: "low",
+    apply_patch_tool_type: "freeform",
+    web_search_tool_type: "text_and_image",
+    truncation_policy: { mode: "tokens", limit: 1e4 },
+    supports_parallel_tool_calls: true,
+    supports_image_detail_original: false,
+    context_window: contextWindow,
+    max_context_window: contextWindow,
+    max_output_tokens: descriptor.maxOutputTokens || 128000,
+    comp_hash: "3000",
+    effective_context_window_percent: 95,
+    experimental_supported_tools: [],
+    input_modalities: descriptor.supportsImages ? ["text", "image"] : ["text"],
+    supports_search_tool: false,
+    use_responses_lite: false,
+    tool_mode: "direct"
+  };
 }
 
 // src/inbound/openai/normalize.ts
@@ -44929,6 +45759,20 @@ var OPENAI_PROXY_ROUTES = [
   { family: "openai", endpoint: "embeddings", label: "Embeddings", path: "/v1/embeddings", method: "POST", routes: [{ path: "/v1/embeddings", method: "POST" }] }
 ];
 var OPENAI_NON_EMBEDDINGS_ROUTES = OPENAI_PROXY_ROUTES.filter((route) => route.endpoint !== "embeddings");
+var CODEX_BASE_PATH = "/codex";
+var OPENAI_MODELS_ROUTE = {
+  path: "/v1/models",
+  method: "GET",
+  headerDiscriminator: { name: "originator", mode: "presence" }
+};
+var CODEX_MODELS_ROUTE = {
+  path: "/v1/models",
+  method: "GET",
+  basePath: CODEX_BASE_PATH
+};
+function codexBasePathRoutes(routes) {
+  return routes.map((route) => ({ ...route, basePath: CODEX_BASE_PATH }));
+}
 function openAIProxyRouteDescriptor(route) {
   return { path: route.path, method: route.method };
 }
@@ -44941,6 +45785,7 @@ class OpenAI_Inbound_Provider {
   upstreamLogLabel;
   upstreamTarget;
   expectedUpstreamKind;
+  modelResolver;
   constructor(options = {}) {
     this.name = options.name ?? "openai";
     this.routeDescriptors = options.routes ?? OPENAI_NON_EMBEDDINGS_ROUTES.map(openAIProxyRouteDescriptor);
@@ -44948,6 +45793,7 @@ class OpenAI_Inbound_Provider {
     this.upstreamLogLabel = options.upstreamLogLabel ?? "Codex responses";
     this.upstreamTarget = options.upstreamTarget ?? "/v1/responses";
     this.expectedUpstreamKind = options.expectedUpstreamKind;
+    this.modelResolver = options.modelResolver;
   }
   routes() {
     return this.routeDescriptors;
@@ -44956,6 +45802,8 @@ class OpenAI_Inbound_Provider {
     const upstreamMismatch = this.upstreamMismatch(upstream);
     if (upstreamMismatch)
       return openAIErrorResponse(upstreamMismatch, 500, "server_error");
+    if (route.path === OPENAI_MODELS_ROUTE.path)
+      return this.handleListModels(request, upstream);
     let body;
     try {
       body = await request.json();
@@ -44978,15 +45826,16 @@ class OpenAI_Inbound_Provider {
       if (validationError)
         return openAIErrorResponse(validationError, 400, "invalid_request_error");
     }
+    const upstreamBody = resolveCodex2ClaudeModel(wireBody);
     const shouldCaptureProxyBody = context.logBody && context.onProxy !== undefined;
-    const requestBody = shouldCaptureProxyBody ? previewText2(JSON.stringify(normalizeRequestBody(route.path, wireBody))) : undefined;
+    const requestBody = shouldCaptureProxyBody ? previewText2(JSON.stringify(normalizeRequestBody(route.path, upstreamBody))) : undefined;
     const upstreamRequestPreview = shouldCaptureProxyBody ? createLogPreview() : undefined;
     const upstreamResponsePreview = shouldCaptureProxyBody ? createLogPreview() : undefined;
     const started = Date.now();
     if (route.path === "/v1/embeddings") {
       if (!upstream.embeddingsRaw)
         return openAIErrorResponse("Embeddings are not supported by this upstream provider.", 501, "server_error");
-      const embeddingsBody = normalizeRequestBody(route.path, wireBody);
+      const embeddingsBody = normalizeRequestBody(route.path, upstreamBody);
       const response = await upstream.embeddingsRaw(embeddingsBody, {
         headers: request.headers,
         signal: request.signal,
@@ -45019,7 +45868,7 @@ class OpenAI_Inbound_Provider {
         }
       });
     }
-    const result = await upstream.proxy(normalizeCanonicalRequest(route.path, wireBody, { passthrough: this.passthrough }), {
+    const result = await upstream.proxy(normalizeCanonicalRequest(route.path, upstreamBody, { passthrough: this.passthrough }), {
       headers: request.headers,
       signal: request.signal,
       ...upstreamRequestPreview && upstreamResponsePreview ? {
@@ -45146,6 +45995,46 @@ class OpenAI_Inbound_Provider {
       });
     }
     return unexpectedNonPassthroughResponse();
+  }
+  async handleListModels(request, upstream) {
+    if (new URL(request.url).searchParams.has("client_version")) {
+      const catalog = await this.readUpstreamCatalog(upstream);
+      if (catalog)
+        return Response.json(codex2ClaudeCatalog(catalog, []));
+    }
+    const resolver = this.modelResolver ?? (upstream.listModelDescriptors ? () => upstream.listModelDescriptors() : undefined);
+    let models = [];
+    try {
+      models = resolver ? await resolver() : [];
+    } catch (error) {
+      return openAIErrorResponse(error instanceof Error ? error.message : String(error), 502, "upstream_error");
+    }
+    if (new URL(request.url).searchParams.has("client_version")) {
+      return Response.json(codex2ClaudeCatalog(undefined, models));
+    }
+    const created = Math.floor(Date.now() / 1000);
+    return Response.json({
+      object: "list",
+      data: models.flatMap((model) => codex2ClaudeModelIds(model)).map((id) => ({
+        id,
+        object: "model",
+        created,
+        owned_by: "codex2claude"
+      }))
+    });
+  }
+  async readUpstreamCatalog(upstream) {
+    if (!upstream.modelsRaw)
+      return;
+    try {
+      const response = await upstream.modelsRaw();
+      if (!response.ok)
+        return;
+      const body = await response.json();
+      return Array.isArray(body?.models) && body.models.length > 0 ? body : undefined;
+    } catch {
+      return;
+    }
   }
   upstreamMismatch(upstream) {
     if (!this.expectedUpstreamKind || upstream.providerKind === this.expectedUpstreamKind)
@@ -45324,10 +46213,10 @@ function endpointProxyRouteProvider(sourceMode, endpoint, upstream) {
     }
   }[sourceMode];
   if (route.family === "claude") {
-    const upstreamWithModels = upstream;
+    const upstreamWithModels2 = upstream;
     return new Claude_Inbound_Provider({
       name: `claude-${sourceMode}`,
-      modelResolver: () => upstreamWithModels.listModels(),
+      modelResolver: () => upstreamWithModels2.listModels(),
       upstreamLogLabel: route.endpoint === "messages" ? upstreamLabels.messages : upstreamLabels.count_tokens,
       inputTokensLogLabel: upstreamLabels.count_tokens,
       expectedUpstreamKind: sourceMode,
@@ -45336,13 +46225,19 @@ function endpointProxyRouteProvider(sourceMode, endpoint, upstream) {
       routes: route.routes
     });
   }
+  const upstreamWithModels = upstream;
   return new OpenAI_Inbound_Provider({
     name: endpointProxyProviderName(sourceMode),
     passthrough: sourceMode === "codex",
     upstreamLogLabel: upstreamLabels.openai,
     upstreamTarget: "upstream",
     expectedUpstreamKind: sourceMode,
-    routes: route.routes
+    routes: [
+      ...route.routes,
+      ...codexBasePathRoutes(route.routes),
+      ...route.endpoint === "responses" ? [OPENAI_MODELS_ROUTE, CODEX_MODELS_ROUTE] : []
+    ],
+    modelResolver: () => upstreamWithModels.listModelDescriptors?.() ?? upstreamWithModels.listModels()
   });
 }
 function bindInboundProvider(provider, upstream) {
@@ -45517,10 +46412,10 @@ function registerClaudeProvider(mode, upstream, registry) {
     return;
   }
   if (mode === "kiro") {
-    registry.register(new Claude_Kiro_Inbound_Adapter(() => upstreamWithModels.listModels(), CLAUDE_MODEL_ROUTES));
+    registry.register(new Claude_Kiro_Inbound_Adapter(() => upstreamWithModels.listModelDescriptors?.() ?? upstreamWithModels.listModels(), CLAUDE_MODEL_ROUTES));
     return;
   }
-  registry.register(new Claude_Codex_Inbound_Adapter(() => upstreamWithModels.listModels(), CLAUDE_MODEL_ROUTES));
+  registry.register(new Claude_Codex_Inbound_Adapter(() => upstreamWithModels.listModelDescriptors?.() ?? upstreamWithModels.listModels(), CLAUDE_MODEL_ROUTES));
 }
 async function registerEndpointProxyProviders(mode, activeRuntime, registry, providerConfigPath) {
   const endpointProxy = await readEndpointProxyMap(mode, providerConfigPath);
@@ -46424,6 +47319,137 @@ async function runExample() {
   console.log(JSON.stringify(response, null, 2));
   console.log("Updated tokens:", client.tokens);
 }
+// src/inbound/openai/export-config-codex.ts
+var CODEX_CLI_PROVIDER_ID = "codex2claude";
+var CODEX_CLI_API_KEY_ENV = "CODEX2CLAUDECODE_API_KEY";
+var CODEX_CLI_CONFIG_FILE = "~/.codex/config.toml";
+var SELECTION_START = "# >>> codex2claudecode: provider selection >>>";
+var SELECTION_END = "# <<< codex2claudecode: provider selection <<<";
+var PROVIDER_START = "# >>> codex2claudecode: provider >>>";
+var PROVIDER_END = "# <<< codex2claudecode: provider <<<";
+var REPLACED_PREFIX = "# codex2claudecode replaced: ";
+var config = {
+  base_url: "http://127.0.0.1:8787/codex/v1",
+  wire_api: "responses",
+  env_key: CODEX_CLI_API_KEY_ENV
+};
+function codexGatewayBaseUrl(origin) {
+  return `${origin.replace(/\/+$/, "")}/codex/v1`;
+}
+function codexCliSelectionBlock() {
+  return [SELECTION_START, `model_provider = "${CODEX_CLI_PROVIDER_ID}"`, SELECTION_END].join(`
+`);
+}
+function codexCliProviderBlock(options = {}) {
+  return [
+    PROVIDER_START,
+    `[model_providers.${CODEX_CLI_PROVIDER_ID}]`,
+    `name = "codex2claudecode"`,
+    `base_url = "${options.baseUrl ?? config.base_url}"`,
+    `wire_api = "${config.wire_api}"`,
+    `env_key = "${config.env_key}"`,
+    PROVIDER_END
+  ].join(`
+`);
+}
+function mergeCodexCliConfig(existing, options = {}) {
+  const lines = stripManagedBlocks(existing).split(`
+`).map((line) => line.startsWith(REPLACED_PREFIX) ? line.slice(REPLACED_PREFIX.length) : line);
+  if (!options.makeDefault) {
+    return `${trimTrailingBlanks(lines).join(`
+`)}
+
+${codexCliProviderBlock(options)}
+`;
+  }
+  const firstTable = lines.findIndex((line) => line.trimStart().startsWith("["));
+  const boundary = firstTable === -1 ? lines.length : firstTable;
+  const head = lines.slice(0, boundary).map((line) => isModelProviderKey(line) ? `${REPLACED_PREFIX}${line}` : line);
+  const tail = lines.slice(boundary);
+  const merged = [
+    ...trimTrailingBlanks(head),
+    "",
+    codexCliSelectionBlock(),
+    "",
+    ...tail
+  ].join(`
+`);
+  return `${trimTrailingBlanks(merged.split(`
+`)).join(`
+`)}
+
+${codexCliProviderBlock(options)}
+`;
+}
+function stripManagedBlocks(existing) {
+  return stripBlock(stripBlock(existing, SELECTION_START, SELECTION_END), PROVIDER_START, PROVIDER_END);
+}
+function stripBlock(existing, start, end) {
+  const from = existing.indexOf(start);
+  if (from === -1)
+    return existing;
+  const to = existing.indexOf(end, from);
+  if (to === -1)
+    return existing;
+  return `${existing.slice(0, from).replace(/\n+$/, `
+`)}${existing.slice(to + end.length).replace(/^\n+/, "")}`;
+}
+function isModelProviderKey(line) {
+  return /^\s*model_provider\s*=/.test(line);
+}
+function trimTrailingBlanks(lines) {
+  const copy = [...lines];
+  while (copy.length > 0 && copy[copy.length - 1].trim() === "")
+    copy.pop();
+  return copy;
+}
+
+// src/app/codex-cli-config.ts
+async function clearCodexModelsCache(configPath) {
+  const cachePath = bunPath.join(bunPath.dirname(configPath), "models_cache.json");
+  if (!await pathExists(cachePath))
+    return false;
+  await removePath(cachePath, { force: true });
+  return true;
+}
+async function writeCodexCliConfig(options = {}) {
+  const configPath = expandHome(options.path ?? CODEX_CLI_CONFIG_FILE);
+  const existing = await pathExists(configPath) ? await readTextFile(configPath) : "";
+  let backupPath;
+  if (existing) {
+    backupPath = `${configPath}.codex2claudecode.bak`;
+    await writeTextFile(backupPath, existing);
+  }
+  const contents = mergeCodexCliConfig(existing, options);
+  await writeTextFile(configPath, contents);
+  const clearedModelsCache = await clearCodexModelsCache(configPath);
+  return { path: configPath, ...backupPath ? { backupPath } : {}, contents, clearedModelsCache };
+}
+async function setupCodexCli(options = {}) {
+  const port = options.port ?? Number(process.env.PORT || 8787);
+  const result = await writeCodexCliConfig({
+    baseUrl: codexGatewayBaseUrl(`http://127.0.0.1:${port}`),
+    ...options.makeDefault ? { makeDefault: true } : {},
+    ...options.path ? { path: options.path } : {}
+  });
+  console.log(`Updated ${result.path}`);
+  if (result.backupPath)
+    console.log(`Backup: ${result.backupPath}`);
+  if (result.clearedModelsCache)
+    console.log(`Cleared models_cache.json so Codex asks this gateway for its catalog`);
+  console.log();
+  console.log(`export ${CODEX_CLI_API_KEY_ENV}=codex2claudecode`);
+  if (options.makeDefault) {
+    console.log(`codex   # this gateway is now the default provider`);
+  } else {
+    console.log(`codex                                  # unchanged: the real Codex models`);
+    console.log(`codex -c model_provider=codex2claude   # this gateway: codex2claude-<model>`);
+    console.log();
+    console.log(`Add --make-default to route plain 'codex' through the gateway instead.`);
+  }
+  return result;
+}
+
 // node_modules/ink/build/render.js
 import { Stream } from "stream";
 import process13 from "process";
@@ -46836,7 +47862,7 @@ var patchConsole = (callback) => {
 var dist_default = patchConsole;
 
 // node_modules/ink/build/ink.js
-var import_constants34 = __toESM(require_constants(), 1);
+var import_constants35 = __toESM(require_constants(), 1);
 
 // node_modules/yoga-layout/dist/binaries/yoga-wasm-base64-esm.js
 var loadYoga = (() => {
@@ -48423,8 +49449,8 @@ function wrapAssembly(lib) {
   patch(lib.Config.prototype, "free", function() {
     lib.Config.destroy(this);
   });
-  patch(lib.Node, "create", (_, config) => {
-    return config ? lib.Node.createWithConfig(config) : lib.Node.createDefault();
+  patch(lib.Node, "create", (_, config2) => {
+    return config2 ? lib.Node.createWithConfig(config2) : lib.Node.createDefault();
   });
   patch(lib.Node.prototype, "free", function() {
     lib.Node.destroy(this);
@@ -49282,7 +50308,7 @@ var getWindowSize = (stdout) => {
 
 // node_modules/ink/build/reconciler.js
 var import_react_reconciler = __toESM(require_react_reconciler(), 1);
-var import_constants33 = __toESM(require_constants(), 1);
+var import_constants34 = __toESM(require_constants(), 1);
 var Scheduler = __toESM(require_scheduler(), 1);
 import process4 from "process";
 var import_react = __toESM(require_react(), 1);
@@ -51128,7 +52154,7 @@ var cleanupYogaNode = (node) => {
   node?.unsetMeasureFunc();
   node?.freeRecursive();
 };
-var currentUpdatePriority = import_constants33.NoEventPriority;
+var currentUpdatePriority = import_constants34.NoEventPriority;
 var currentRootNode;
 async function loadPackageJson() {
   const fs2 = await import("fs");
@@ -51317,10 +52343,10 @@ var reconciler_default = import_react_reconciler.default({
   },
   getCurrentUpdatePriority: () => currentUpdatePriority,
   resolveUpdatePriority() {
-    if (currentUpdatePriority !== import_constants33.NoEventPriority) {
+    if (currentUpdatePriority !== import_constants34.NoEventPriority) {
       return currentUpdatePriority;
     }
-    return import_constants33.DefaultEventPriority;
+    return import_constants34.DefaultEventPriority;
   },
   maySuspendCommit() {
     return true;
@@ -54135,7 +55161,7 @@ class Ink {
     this.lastOutputHeight = 0;
     this.lastTerminalWidth = getWindowSize(this.options.stdout).columns;
     this.fullStaticOutput = "";
-    const rootTag = options.concurrent ? import_constants34.ConcurrentRoot : import_constants34.LegacyRoot;
+    const rootTag = options.concurrent ? import_constants35.ConcurrentRoot : import_constants35.LegacyRoot;
     this.container = reconciler_default.createContainer(this.rootNode, rootTag, null, false, null, "id", () => {}, () => {}, () => {}, () => {});
     this.unsubscribeExit = import_signal_exit2.default(this.unmount, { alwaysLast: false });
     this.setAlternateScreen(Boolean(options.alternateScreen));
@@ -54672,7 +55698,7 @@ var getInstance = (stdout, createInstance) => {
   return instance;
 };
 // node_modules/ink/build/render-to-string.js
-var import_constants35 = __toESM(require_constants(), 1);
+var import_constants36 = __toESM(require_constants(), 1);
 // node_modules/ink/build/components/Static.js
 var import_react17 = __toESM(require_react(), 1);
 // node_modules/ink/build/components/Transform.js
@@ -55235,13 +56261,13 @@ var CLAUDE_CODE_ENV_CONFIG = {
 };
 
 // src/inbound/claude/export-env-claude.ts
-var config = {
+var config2 = {
   codex: {
     canEdit: {
-      ANTHROPIC_MODEL: "gpt-5.5",
-      ANTHROPIC_DEFAULT_OPUS_MODEL: "gpt-5.5",
-      ANTHROPIC_DEFAULT_SONNET_MODEL: "gpt-5.4",
-      ANTHROPIC_DEFAULT_HAIKU_MODEL: "gpt-5.4-mini",
+      ANTHROPIC_MODEL: "gpt-5.6-sol",
+      ANTHROPIC_DEFAULT_OPUS_MODEL: "gpt-5.6-sol",
+      ANTHROPIC_DEFAULT_SONNET_MODEL: "gpt-5.6-terra",
+      ANTHROPIC_DEFAULT_HAIKU_MODEL: "gpt-5.6-luna",
       CLAUDE_CODE_DISABLE_1M_CONTEXT: "1",
       CLAUDE_AUTOCOMPACT_PCT_OVERRIDE: "64"
     },
@@ -55254,10 +56280,10 @@ var config = {
   },
   kiro: {
     canEdit: {
-      ANTHROPIC_MODEL: "claude-opus-4-8",
-      ANTHROPIC_DEFAULT_OPUS_MODEL: "claude-opus-4-8",
+      ANTHROPIC_MODEL: "claude-opus-5",
+      ANTHROPIC_DEFAULT_OPUS_MODEL: "claude-opus-5",
       ANTHROPIC_DEFAULT_SONNET_MODEL: "claude-sonnet-5",
-      ANTHROPIC_DEFAULT_HAIKU_MODEL: "claude-haiku-4-5",
+      ANTHROPIC_DEFAULT_HAIKU_MODEL: "claude-haiku-4.5",
       CLAUDE_CODE_DISABLE_1M_CONTEXT: "1",
       CLAUDE_AUTOCOMPACT_PCT_OVERRIDE: "64"
     },
@@ -55289,13 +56315,13 @@ var config = {
 // src/ui/claude-env.ts
 var CLAUDE_ENV_FIXED = CLAUDE_CODE_ENV_CONFIG.lockedEnv;
 var CLAUDE_MODEL_ENV_KEYS = Object.keys(CLAUDE_CODE_ENV_CONFIG.editableEnvDefaults);
-var EXPORT_ENV_CAN_EDIT_KEYS = Object.keys(config.codex.canEdit);
+var EXPORT_ENV_CAN_EDIT_KEYS = Object.keys(config2.codex.canEdit);
 var EXPORT_ENV_EXTRA_EDITABLE_KEYS = EXPORT_ENV_CAN_EDIT_KEYS.filter((key) => !CLAUDE_MODEL_ENV_KEYS.includes(key));
 var ALL_EDITABLE_KEYS = [...CLAUDE_MODEL_ENV_KEYS, ...EXPORT_ENV_EXTRA_EDITABLE_KEYS];
-var EXPORT_ENV_STATIC_KEYS = Object.keys(config.codex.static).filter((key) => key !== "ANTHROPIC_BASE_URL");
+var EXPORT_ENV_STATIC_KEYS = Object.keys(config2.codex.static).filter((key) => key !== "ANTHROPIC_BASE_URL");
 var EXPORT_ENV_STATIC_ENTRIES = EXPORT_ENV_STATIC_KEYS.map((key) => ({
   key,
-  value: CLAUDE_ENV_FIXED[key] ?? config.codex.static[key]
+  value: CLAUDE_ENV_FIXED[key] ?? config2.codex.static[key]
 }));
 var CLAUDE_ENV_KEYS = [
   "ANTHROPIC_BASE_URL",
@@ -55303,7 +56329,7 @@ var CLAUDE_ENV_KEYS = [
   ...CLAUDE_MODEL_ENV_KEYS
 ];
 function exportEnvConfigForProvider(providerMode = "codex") {
-  return config[providerMode] ?? config.codex;
+  return config2[providerMode] ?? config2.codex;
 }
 function defaultClaudeEnvironment(providerMode = "codex") {
   const defaults2 = modelEnvDefaultsForProvider(providerMode);
@@ -55544,14 +56570,57 @@ function appendPersistenceNote(output, options) {
 Saved to ${claudeSettingsPath(options?.settingsFile)}.`;
 }
 
+// src/ui/codex-cli.ts
+var codexCliProfilePath = () => expandHome(CODEX_CLI_CONFIG_FILE);
+function codexCliStaticEntries(baseUrl) {
+  return [
+    { key: "model_provider", value: CODEX_CLI_PROVIDER_ID },
+    { key: "base_url", value: codexGatewayBaseUrl(baseUrl) },
+    { key: "wire_api", value: config.wire_api },
+    { key: "env_key", value: config.env_key }
+  ];
+}
+var CODEX_CLI_MODES = [
+  { label: "session", description: "codex -c model_provider=codex2claude uses the gateway" },
+  { label: "default", description: "plain codex uses the gateway for everything" }
+];
+async function codexCliModelIds(upstream) {
+  if (!upstream?.listModelDescriptors)
+    return [];
+  try {
+    return (await upstream.listModelDescriptors()).flatMap((model) => codex2ClaudeModelIds(model));
+  } catch {
+    return [];
+  }
+}
+async function applyCodexCliSetup(baseUrl, makeDefault = false) {
+  const result2 = await writeCodexCliConfig({ baseUrl: codexGatewayBaseUrl(baseUrl), makeDefault });
+  return [
+    `Updated ${result2.path}`,
+    ...result2.backupPath ? [`Backup: ${result2.backupPath}`] : [],
+    ...result2.clearedModelsCache ? ["Cleared models_cache.json so Codex asks this gateway for its catalog"] : [],
+    "",
+    `  export ${CODEX_CLI_API_KEY_ENV}=codex2claudecode`,
+    ...makeDefault ? [`  codex   # this gateway is now the default provider`] : [
+      `  codex                                  # unchanged: the real Codex models`,
+      `  codex -c model_provider=${CODEX_CLI_PROVIDER_ID}   # this gateway: ${CODEX_CLI_PROVIDER_ID}-<model>`
+    ],
+    "",
+    `Codex binds one provider per session, so the two model lists cannot share a picker.`
+  ].join(`
+`);
+}
+
 // src/ui/commands.ts
 var SHARED_COMMANDS_BEFORE = [
   { name: "/logs", description: "Show recent runtime request logs" }
 ];
 var SHARED_COMMANDS_AFTER = [
+  { name: "/rotation", description: "Switch to the next account when one fails" },
   { name: "/endpoint-share", description: "Share an endpoint to another provider" },
   { name: "/set-claude-env", description: "Edit and apply Claude Code environment exports" },
-  { name: "/unset-claude-env", description: "Unset Claude Code environment variables" }
+  { name: "/unset-claude-env", description: "Unset Claude Code environment variables" },
+  { name: "/set-codex-cli", description: "Write the Codex CLI / Codex IDE profile for this gateway" }
 ];
 var ACCOUNT_COMMANDS = [
   { name: "/connect", description: "Add or update an account for the active provider" },
@@ -55574,6 +56643,94 @@ function getCommands(providerMode) {
   return [...SHARED_COMMANDS_BEFORE, ...PROVIDER_COMMANDS[providerMode], ...SHARED_COMMANDS_AFTER, switchCommand, quitCommand];
 }
 var UI_COMMANDS = getCommands("codex");
+
+// src/ui/rotation.ts
+var ROTATION_USAGE_REFRESH_INTERVAL_MS = 5 * 60000;
+var REASON_LABEL = {
+  auth: "auth failed",
+  quota: "quota",
+  server: "upstream error"
+};
+function rotationView(upstream, usage = {}, now2 = Date.now()) {
+  const rotating = asRotatingUpstream(upstream);
+  if (!rotating)
+    return;
+  const accounts = rotating.accounts.map((key) => {
+    const cooldown = rotating.accountCooldowns[key];
+    const resting = cooldown !== undefined && cooldown.until > now2;
+    return {
+      key,
+      status: resting ? "resting" : key === rotating.activeAccount ? "active" : "ready",
+      detail: resting ? restingDetail(cooldown, now2) : "",
+      quota: quotaDetail(usage[key], now2)
+    };
+  });
+  return {
+    enabled: rotating.enabled,
+    rotatable: accounts.length > 1,
+    activeAccount: rotating.activeAccount,
+    accounts,
+    restingCount: accounts.filter((account) => account.status === "resting").length
+  };
+}
+function rotationViewOrFallback(upstream, fallback, usage = {}, now2 = Date.now()) {
+  const live = rotationView(upstream, usage, now2);
+  if (live)
+    return live;
+  if (fallback.accounts.length === 0)
+    return;
+  const activeAccount = fallback.activeAccount ?? fallback.accounts[0];
+  return {
+    enabled: fallback.enabled,
+    rotatable: fallback.accounts.length > 1,
+    activeAccount,
+    accounts: fallback.accounts.map((key) => ({
+      key,
+      status: key === activeAccount ? "active" : "ready",
+      detail: "",
+      quota: quotaDetail(usage[key], now2)
+    })),
+    restingCount: 0
+  };
+}
+async function loadRotationUsage(upstream) {
+  const rotating = asRotatingUpstream(upstream);
+  if (!rotating)
+    return {};
+  try {
+    return await rotating.readAccountUsage();
+  } catch {
+    return {};
+  }
+}
+async function setRotationEnabled(mode, upstream, enabled) {
+  asRotatingUpstream(upstream)?.setEnabled(enabled);
+  await writeRotationConfig(mode, undefined, { enabled });
+}
+function restingDetail(cooldown, now2) {
+  const reset = cooldown.resetSource === "upstream" ? `resets ${clockTime(cooldown.until)}` : `retry in ${formatDuration(cooldown.until - now2)}`;
+  return `${REASON_LABEL[cooldown.reason]} (${cooldown.status}) \xB7 ${reset}`;
+}
+function quotaDetail(usage, now2) {
+  if (usage === undefined)
+    return "";
+  const used = parseQuotaUsedPercent(usage);
+  const resetAt = parseQuotaResetAt(usage, now2);
+  const parts = [
+    ...used === undefined ? [] : [`${Math.round(used)}% used`],
+    ...resetAt === undefined ? [] : [`resets ${clockTime(resetAt)}`]
+  ];
+  return parts.join(" \xB7 ");
+}
+function clockTime(timestamp) {
+  return new Date(timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+function formatDuration(ms) {
+  const minutes = Math.max(1, Math.round(ms / 60000));
+  if (minutes < 60)
+    return `${minutes}m`;
+  return `${Math.floor(minutes / 60)}h${String(minutes % 60).padStart(2, "0")}m`;
+}
 
 // src/ui/clipboard.ts
 var encoder = new TextEncoder;
@@ -56240,49 +57397,192 @@ function CommandOutput(props) {
   }, undefined, true, undefined, this);
 }
 
-// src/ui/components/codex-fast-mode.tsx
+// src/ui/components/codex-cli-setup.tsx
 var jsx_dev_runtime8 = __toESM(require_jsx_dev_runtime(), 1);
+function CodexCliSetup(props) {
+  return /* @__PURE__ */ jsx_dev_runtime8.jsxDEV(Box_default, {
+    flexDirection: "column",
+    marginTop: 1,
+    children: [
+      /* @__PURE__ */ jsx_dev_runtime8.jsxDEV(Text, {
+        color: "#aab3cf",
+        children: "\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500"
+      }, undefined, false, undefined, this),
+      /* @__PURE__ */ jsx_dev_runtime8.jsxDEV(Box_default, {
+        marginTop: 1,
+        flexDirection: "column",
+        children: [
+          /* @__PURE__ */ jsx_dev_runtime8.jsxDEV(Text, {
+            bold: true,
+            color: "#c7d2fe",
+            children: "Point Codex CLI at this gateway"
+          }, undefined, false, undefined, this),
+          /* @__PURE__ */ jsx_dev_runtime8.jsxDEV(Text, {
+            color: "gray",
+            children: [
+              "Target: ",
+              props.profilePath
+            ]
+          }, undefined, true, undefined, this),
+          /* @__PURE__ */ jsx_dev_runtime8.jsxDEV(Text, {
+            color: "gray",
+            children: "\u2191/\u2193 move \xB7 Enter write \xB7 Esc cancel"
+          }, undefined, false, undefined, this)
+        ]
+      }, undefined, true, undefined, this),
+      /* @__PURE__ */ jsx_dev_runtime8.jsxDEV(Box_default, {
+        marginTop: 1,
+        flexDirection: "column",
+        children: [
+          /* @__PURE__ */ jsx_dev_runtime8.jsxDEV(Text, {
+            color: "#7aa2f7",
+            children: "\u2500\u2500 When to use the gateway \u2500\u2500"
+          }, undefined, false, undefined, this),
+          CODEX_CLI_MODES.map((mode, index) => /* @__PURE__ */ jsx_dev_runtime8.jsxDEV(Box_default, {
+            children: [
+              /* @__PURE__ */ jsx_dev_runtime8.jsxDEV(Box_default, {
+                width: 3,
+                children: /* @__PURE__ */ jsx_dev_runtime8.jsxDEV(Text, {
+                  color: props.selected === index ? "#d97757" : "gray",
+                  children: props.selected === index ? ">" : " "
+                }, undefined, false, undefined, this)
+              }, undefined, false, undefined, this),
+              /* @__PURE__ */ jsx_dev_runtime8.jsxDEV(Box_default, {
+                width: 10,
+                children: /* @__PURE__ */ jsx_dev_runtime8.jsxDEV(Text, {
+                  bold: props.selected === index,
+                  children: mode.label
+                }, undefined, false, undefined, this)
+              }, undefined, false, undefined, this),
+              /* @__PURE__ */ jsx_dev_runtime8.jsxDEV(Text, {
+                color: "#aab3cf",
+                children: mode.description
+              }, undefined, false, undefined, this)
+            ]
+          }, mode.label, true, undefined, this))
+        ]
+      }, undefined, true, undefined, this),
+      /* @__PURE__ */ jsx_dev_runtime8.jsxDEV(Box_default, {
+        marginTop: 1,
+        flexDirection: "column",
+        children: [
+          /* @__PURE__ */ jsx_dev_runtime8.jsxDEV(Text, {
+            color: "#7aa2f7",
+            children: "\u2500\u2500 Added to config.toml \u2500\u2500"
+          }, undefined, false, undefined, this),
+          codexCliStaticEntries(props.baseUrl).map((entry) => /* @__PURE__ */ jsx_dev_runtime8.jsxDEV(Box_default, {
+            children: [
+              /* @__PURE__ */ jsx_dev_runtime8.jsxDEV(Box_default, {
+                width: 22,
+                children: /* @__PURE__ */ jsx_dev_runtime8.jsxDEV(Text, {
+                  color: "#aab3cf",
+                  children: [
+                    "  ",
+                    entry.key
+                  ]
+                }, undefined, true, undefined, this)
+              }, undefined, false, undefined, this),
+              /* @__PURE__ */ jsx_dev_runtime8.jsxDEV(Text, {
+                color: "#c0caf5",
+                children: entry.value
+              }, undefined, false, undefined, this)
+            ]
+          }, entry.key, true, undefined, this))
+        ]
+      }, undefined, true, undefined, this),
+      /* @__PURE__ */ jsx_dev_runtime8.jsxDEV(Box_default, {
+        marginTop: 1,
+        flexDirection: "column",
+        children: [
+          /* @__PURE__ */ jsx_dev_runtime8.jsxDEV(Text, {
+            color: "#7aa2f7",
+            children: "\u2500\u2500 Models Codex will see \u2500\u2500"
+          }, undefined, false, undefined, this),
+          props.models.slice(0, 8).map((model) => /* @__PURE__ */ jsx_dev_runtime8.jsxDEV(Text, {
+            color: "gray",
+            children: [
+              "  ",
+              model
+            ]
+          }, model, true, undefined, this)),
+          props.models.length > 8 && /* @__PURE__ */ jsx_dev_runtime8.jsxDEV(Text, {
+            color: "gray",
+            children: [
+              "  \u2026 ",
+              props.models.length - 8,
+              " more"
+            ]
+          }, undefined, true, undefined, this),
+          props.models.length === 0 && /* @__PURE__ */ jsx_dev_runtime8.jsxDEV(Text, {
+            color: "gray",
+            children: [
+              "  ",
+              props.loading ? "loading\u2026" : "none yet \u2014 the list is served from /v1/models"
+            ]
+          }, undefined, true, undefined, this)
+        ]
+      }, undefined, true, undefined, this),
+      /* @__PURE__ */ jsx_dev_runtime8.jsxDEV(Box_default, {
+        marginTop: 1,
+        flexDirection: "column",
+        children: [
+          /* @__PURE__ */ jsx_dev_runtime8.jsxDEV(Text, {
+            color: "gray",
+            children: "Codex reads this list itself and picks the reasoning effort on its own."
+          }, undefined, false, undefined, this),
+          /* @__PURE__ */ jsx_dev_runtime8.jsxDEV(Text, {
+            color: "#e5c07b",
+            children: "Your config.toml is backed up before the provider block is added."
+          }, undefined, false, undefined, this)
+        ]
+      }, undefined, true, undefined, this)
+    ]
+  }, undefined, true, undefined, this);
+}
+
+// src/ui/components/codex-fast-mode.tsx
+var jsx_dev_runtime9 = __toESM(require_jsx_dev_runtime(), 1);
 function CodexFastModeSelector(props) {
   const options = [
     { label: "on", description: 'Add service_tier: "priority" to /v1/responses' },
     { label: "off", description: "Default request body" }
   ];
-  return /* @__PURE__ */ jsx_dev_runtime8.jsxDEV(Box_default, {
+  return /* @__PURE__ */ jsx_dev_runtime9.jsxDEV(Box_default, {
     borderStyle: "round",
     borderColor: "#7f4f45",
     flexDirection: "column",
     paddingX: 2,
     paddingY: 1,
     children: [
-      /* @__PURE__ */ jsx_dev_runtime8.jsxDEV(Text, {
+      /* @__PURE__ */ jsx_dev_runtime9.jsxDEV(Text, {
         bold: true,
         color: "#d97757",
         children: "Codex fast mode"
       }, undefined, false, undefined, this),
-      /* @__PURE__ */ jsx_dev_runtime8.jsxDEV(Text, {
+      /* @__PURE__ */ jsx_dev_runtime9.jsxDEV(Text, {
         color: "gray",
         children: [
           "Current: ",
           props.current ? "on" : "off"
         ]
       }, undefined, true, undefined, this),
-      options.map((option, index) => /* @__PURE__ */ jsx_dev_runtime8.jsxDEV(Box_default, {
+      options.map((option, index) => /* @__PURE__ */ jsx_dev_runtime9.jsxDEV(Box_default, {
         children: [
-          /* @__PURE__ */ jsx_dev_runtime8.jsxDEV(Box_default, {
+          /* @__PURE__ */ jsx_dev_runtime9.jsxDEV(Box_default, {
             width: 3,
-            children: /* @__PURE__ */ jsx_dev_runtime8.jsxDEV(Text, {
+            children: /* @__PURE__ */ jsx_dev_runtime9.jsxDEV(Text, {
               color: props.selected === index ? "#d97757" : "gray",
               children: props.selected === index ? ">" : " "
             }, undefined, false, undefined, this)
           }, undefined, false, undefined, this),
-          /* @__PURE__ */ jsx_dev_runtime8.jsxDEV(Box_default, {
+          /* @__PURE__ */ jsx_dev_runtime9.jsxDEV(Box_default, {
             width: 8,
-            children: /* @__PURE__ */ jsx_dev_runtime8.jsxDEV(Text, {
+            children: /* @__PURE__ */ jsx_dev_runtime9.jsxDEV(Text, {
               bold: props.selected === index,
               children: option.label
             }, undefined, false, undefined, this)
           }, undefined, false, undefined, this),
-          /* @__PURE__ */ jsx_dev_runtime8.jsxDEV(Text, {
+          /* @__PURE__ */ jsx_dev_runtime9.jsxDEV(Text, {
             color: "#aab3cf",
             children: option.description
           }, undefined, false, undefined, this)
@@ -56292,25 +57592,25 @@ function CodexFastModeSelector(props) {
   }, undefined, true, undefined, this);
 }
 function CodexFastModeStatus(props) {
-  return /* @__PURE__ */ jsx_dev_runtime8.jsxDEV(Box_default, {
+  return /* @__PURE__ */ jsx_dev_runtime9.jsxDEV(Box_default, {
     marginTop: 1,
     flexDirection: "column",
     children: [
-      /* @__PURE__ */ jsx_dev_runtime8.jsxDEV(Box_default, {
+      /* @__PURE__ */ jsx_dev_runtime9.jsxDEV(Box_default, {
         children: [
-          /* @__PURE__ */ jsx_dev_runtime8.jsxDEV(Text, {
+          /* @__PURE__ */ jsx_dev_runtime9.jsxDEV(Text, {
             bold: true,
             color: "#a58a86",
             children: "Codex fast: "
           }, undefined, false, undefined, this),
-          /* @__PURE__ */ jsx_dev_runtime8.jsxDEV(Text, {
+          /* @__PURE__ */ jsx_dev_runtime9.jsxDEV(Text, {
             bold: true,
             color: props.enabled ? "#d97757" : "gray",
             children: props.enabled ? "ON" : "OFF"
           }, undefined, false, undefined, this)
         ]
       }, undefined, true, undefined, this),
-      props.enabled && /* @__PURE__ */ jsx_dev_runtime8.jsxDEV(Text, {
+      props.enabled && /* @__PURE__ */ jsx_dev_runtime9.jsxDEV(Text, {
         color: "gray",
         wrap: "truncate-end",
         children: "Responses tier: priority"
@@ -56320,50 +57620,50 @@ function CodexFastModeStatus(props) {
 }
 
 // src/ui/components/connect-account-wizard.tsx
-var jsx_dev_runtime9 = __toESM(require_jsx_dev_runtime(), 1);
+var jsx_dev_runtime10 = __toESM(require_jsx_dev_runtime(), 1);
 function ConnectAccountWizard(props) {
   const current = props.fields[props.step] ?? props.fields[0];
-  return /* @__PURE__ */ jsx_dev_runtime9.jsxDEV(Box_default, {
+  return /* @__PURE__ */ jsx_dev_runtime10.jsxDEV(Box_default, {
     flexDirection: "column",
     marginTop: 1,
     children: [
-      /* @__PURE__ */ jsx_dev_runtime9.jsxDEV(Text, {
+      /* @__PURE__ */ jsx_dev_runtime10.jsxDEV(Text, {
         color: "#aab3cf",
         children: "\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500"
       }, undefined, false, undefined, this),
-      /* @__PURE__ */ jsx_dev_runtime9.jsxDEV(Box_default, {
+      /* @__PURE__ */ jsx_dev_runtime10.jsxDEV(Box_default, {
         marginTop: 1,
         children: [
-          /* @__PURE__ */ jsx_dev_runtime9.jsxDEV(Text, {
+          /* @__PURE__ */ jsx_dev_runtime10.jsxDEV(Text, {
             bold: true,
             color: "#c7d2fe",
             children: props.title
           }, undefined, false, undefined, this),
-          /* @__PURE__ */ jsx_dev_runtime9.jsxDEV(Text, {
+          /* @__PURE__ */ jsx_dev_runtime10.jsxDEV(Text, {
             color: "gray",
             children: "  Enter next \xB7 Esc cancel"
           }, undefined, false, undefined, this)
         ]
       }, undefined, true, undefined, this),
-      /* @__PURE__ */ jsx_dev_runtime9.jsxDEV(Text, {
+      /* @__PURE__ */ jsx_dev_runtime10.jsxDEV(Text, {
         color: "gray",
         children: props.description
       }, undefined, false, undefined, this),
-      /* @__PURE__ */ jsx_dev_runtime9.jsxDEV(Box_default, {
+      /* @__PURE__ */ jsx_dev_runtime10.jsxDEV(Box_default, {
         marginTop: 1,
         flexDirection: "column",
-        children: props.fields.map((field, index) => /* @__PURE__ */ jsx_dev_runtime9.jsxDEV(Box_default, {
+        children: props.fields.map((field, index) => /* @__PURE__ */ jsx_dev_runtime10.jsxDEV(Box_default, {
           children: [
-            /* @__PURE__ */ jsx_dev_runtime9.jsxDEV(Box_default, {
+            /* @__PURE__ */ jsx_dev_runtime10.jsxDEV(Box_default, {
               width: 2,
-              children: /* @__PURE__ */ jsx_dev_runtime9.jsxDEV(Text, {
+              children: /* @__PURE__ */ jsx_dev_runtime10.jsxDEV(Text, {
                 color: index === props.step ? "#d97757" : "gray",
                 children: index === props.step ? "\u203A" : " "
               }, undefined, false, undefined, this)
             }, undefined, false, undefined, this),
-            /* @__PURE__ */ jsx_dev_runtime9.jsxDEV(Box_default, {
+            /* @__PURE__ */ jsx_dev_runtime10.jsxDEV(Box_default, {
               width: 14,
-              children: /* @__PURE__ */ jsx_dev_runtime9.jsxDEV(Text, {
+              children: /* @__PURE__ */ jsx_dev_runtime10.jsxDEV(Text, {
                 color: index === props.step ? "white" : "gray",
                 children: [
                   field.label,
@@ -56371,20 +57671,20 @@ function ConnectAccountWizard(props) {
                 ]
               }, undefined, true, undefined, this)
             }, undefined, false, undefined, this),
-            /* @__PURE__ */ jsx_dev_runtime9.jsxDEV(Text, {
+            /* @__PURE__ */ jsx_dev_runtime10.jsxDEV(Text, {
               color: index === props.step ? "#d97757" : "#aab3cf",
               children: displayValue(props.draft[field.key] ?? "", Boolean(field.secret))
             }, undefined, false, undefined, this),
-            index === props.step && !props.saving && /* @__PURE__ */ jsx_dev_runtime9.jsxDEV(Text, {
+            index === props.step && !props.saving && /* @__PURE__ */ jsx_dev_runtime10.jsxDEV(Text, {
               inverse: true,
               children: " "
             }, undefined, false, undefined, this)
           ]
         }, field.key, true, undefined, this))
       }, undefined, false, undefined, this),
-      /* @__PURE__ */ jsx_dev_runtime9.jsxDEV(Box_default, {
+      /* @__PURE__ */ jsx_dev_runtime10.jsxDEV(Box_default, {
         marginTop: 1,
-        children: /* @__PURE__ */ jsx_dev_runtime9.jsxDEV(Text, {
+        children: /* @__PURE__ */ jsx_dev_runtime10.jsxDEV(Text, {
           color: "gray",
           children: props.saving ? "Saving account..." : `Editing ${current.label}. ${fieldHint(current)}`
         }, undefined, false, undefined, this)
@@ -56408,7 +57708,7 @@ function fieldHint(field) {
 }
 
 // src/ui/components/connect-source-selector.tsx
-var jsx_dev_runtime10 = __toESM(require_jsx_dev_runtime(), 1);
+var jsx_dev_runtime11 = __toESM(require_jsx_dev_runtime(), 1);
 function ConnectSourceSelector(props) {
   const entries = [
     ...props.connect.sources.map((source) => ({ label: source.label, description: source.description })),
@@ -56416,122 +57716,6 @@ function ConnectSourceSelector(props) {
   ];
   const activeMessage = props.status ?? (props.saving ? props.connect.sources[props.selected]?.savingMessage ?? undefined : undefined);
   const messageColor = activeMessage?.startsWith("Connect failed:") ? "#fca5a5" : "gray";
-  return /* @__PURE__ */ jsx_dev_runtime10.jsxDEV(Box_default, {
-    flexDirection: "column",
-    marginTop: 1,
-    children: [
-      /* @__PURE__ */ jsx_dev_runtime10.jsxDEV(Text, {
-        color: "#aab3cf",
-        children: "\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500"
-      }, undefined, false, undefined, this),
-      /* @__PURE__ */ jsx_dev_runtime10.jsxDEV(Box_default, {
-        marginTop: 1,
-        children: [
-          /* @__PURE__ */ jsx_dev_runtime10.jsxDEV(Text, {
-            bold: true,
-            color: "#c7d2fe",
-            children: props.connect.title
-          }, undefined, false, undefined, this),
-          /* @__PURE__ */ jsx_dev_runtime10.jsxDEV(Text, {
-            color: "gray",
-            children: "  \u2191/\u2193 choose \xB7 Enter continue \xB7 Esc cancel"
-          }, undefined, false, undefined, this)
-        ]
-      }, undefined, true, undefined, this),
-      /* @__PURE__ */ jsx_dev_runtime10.jsxDEV(Box_default, {
-        marginTop: 1,
-        flexDirection: "column",
-        children: entries.map((entry, index) => /* @__PURE__ */ jsx_dev_runtime10.jsxDEV(Box_default, {
-          children: [
-            /* @__PURE__ */ jsx_dev_runtime10.jsxDEV(Box_default, {
-              width: 4,
-              children: /* @__PURE__ */ jsx_dev_runtime10.jsxDEV(Text, {
-                color: index === props.selected ? "#d97757" : "gray",
-                children: [
-                  index === props.selected ? "\u203A" : " ",
-                  index + 1,
-                  "."
-                ]
-              }, undefined, true, undefined, this)
-            }, undefined, false, undefined, this),
-            /* @__PURE__ */ jsx_dev_runtime10.jsxDEV(Box_default, {
-              width: 32,
-              children: /* @__PURE__ */ jsx_dev_runtime10.jsxDEV(Text, {
-                color: index === props.selected ? "white" : "#aab3cf",
-                children: entry.label
-              }, undefined, false, undefined, this)
-            }, undefined, false, undefined, this),
-            /* @__PURE__ */ jsx_dev_runtime10.jsxDEV(Text, {
-              color: "gray",
-              children: entry.description
-            }, undefined, false, undefined, this)
-          ]
-        }, entry.label, true, undefined, this))
-      }, undefined, false, undefined, this),
-      props.progress?.verificationUri && props.progress?.userCode && /* @__PURE__ */ jsx_dev_runtime10.jsxDEV(Box_default, {
-        marginTop: 1,
-        flexDirection: "column",
-        borderStyle: "round",
-        borderColor: "#3b82f6",
-        paddingX: 1,
-        paddingY: 1,
-        children: [
-          /* @__PURE__ */ jsx_dev_runtime10.jsxDEV(Text, {
-            bold: true,
-            color: "#93c5fd",
-            children: "Device code login"
-          }, undefined, false, undefined, this),
-          props.progress.message && /* @__PURE__ */ jsx_dev_runtime10.jsxDEV(Text, {
-            color: "gray",
-            children: props.progress.message
-          }, undefined, false, undefined, this),
-          /* @__PURE__ */ jsx_dev_runtime10.jsxDEV(Box_default, {
-            marginTop: 1,
-            flexDirection: "column",
-            children: [
-              /* @__PURE__ */ jsx_dev_runtime10.jsxDEV(Text, {
-                color: "gray",
-                children: "Open this URL in your browser:"
-              }, undefined, false, undefined, this),
-              /* @__PURE__ */ jsx_dev_runtime10.jsxDEV(Text, {
-                color: "#67e8f9",
-                children: props.progress.verificationUri
-              }, undefined, false, undefined, this)
-            ]
-          }, undefined, true, undefined, this),
-          /* @__PURE__ */ jsx_dev_runtime10.jsxDEV(Box_default, {
-            marginTop: 1,
-            flexDirection: "column",
-            children: [
-              /* @__PURE__ */ jsx_dev_runtime10.jsxDEV(Text, {
-                color: "gray",
-                children: "Enter this code:"
-              }, undefined, false, undefined, this),
-              /* @__PURE__ */ jsx_dev_runtime10.jsxDEV(Text, {
-                bold: true,
-                color: "white",
-                children: props.progress.userCode
-              }, undefined, false, undefined, this)
-            ]
-          }, undefined, true, undefined, this)
-        ]
-      }, undefined, true, undefined, this),
-      activeMessage && /* @__PURE__ */ jsx_dev_runtime10.jsxDEV(Box_default, {
-        marginTop: 1,
-        children: /* @__PURE__ */ jsx_dev_runtime10.jsxDEV(Text, {
-          color: props.saving ? "gray" : messageColor,
-          children: activeMessage
-        }, undefined, false, undefined, this)
-      }, undefined, false, undefined, this)
-    ]
-  }, undefined, true, undefined, this);
-}
-
-// src/ui/components/endpoint-share-wizard.tsx
-var jsx_dev_runtime11 = __toESM(require_jsx_dev_runtime(), 1);
-function EndpointShareWizard(props) {
-  const selectedEndpoint = props.endpointOptions[props.selectedEndpoint];
-  const selectedSource = props.sourceOptions[props.selectedSource];
   return /* @__PURE__ */ jsx_dev_runtime11.jsxDEV(Box_default, {
     flexDirection: "column",
     marginTop: 1,
@@ -56546,7 +57730,7 @@ function EndpointShareWizard(props) {
           /* @__PURE__ */ jsx_dev_runtime11.jsxDEV(Text, {
             bold: true,
             color: "#c7d2fe",
-            children: "Endpoint share"
+            children: props.connect.title
           }, undefined, false, undefined, this),
           /* @__PURE__ */ jsx_dev_runtime11.jsxDEV(Text, {
             color: "gray",
@@ -56556,31 +57740,147 @@ function EndpointShareWizard(props) {
       }, undefined, true, undefined, this),
       /* @__PURE__ */ jsx_dev_runtime11.jsxDEV(Box_default, {
         marginTop: 1,
+        flexDirection: "column",
+        children: entries.map((entry, index) => /* @__PURE__ */ jsx_dev_runtime11.jsxDEV(Box_default, {
+          children: [
+            /* @__PURE__ */ jsx_dev_runtime11.jsxDEV(Box_default, {
+              width: 4,
+              children: /* @__PURE__ */ jsx_dev_runtime11.jsxDEV(Text, {
+                color: index === props.selected ? "#d97757" : "gray",
+                children: [
+                  index === props.selected ? "\u203A" : " ",
+                  index + 1,
+                  "."
+                ]
+              }, undefined, true, undefined, this)
+            }, undefined, false, undefined, this),
+            /* @__PURE__ */ jsx_dev_runtime11.jsxDEV(Box_default, {
+              width: 32,
+              children: /* @__PURE__ */ jsx_dev_runtime11.jsxDEV(Text, {
+                color: index === props.selected ? "white" : "#aab3cf",
+                children: entry.label
+              }, undefined, false, undefined, this)
+            }, undefined, false, undefined, this),
+            /* @__PURE__ */ jsx_dev_runtime11.jsxDEV(Text, {
+              color: "gray",
+              children: entry.description
+            }, undefined, false, undefined, this)
+          ]
+        }, entry.label, true, undefined, this))
+      }, undefined, false, undefined, this),
+      props.progress?.verificationUri && /* @__PURE__ */ jsx_dev_runtime11.jsxDEV(Box_default, {
+        marginTop: 1,
+        flexDirection: "column",
+        borderStyle: "round",
+        borderColor: "#3b82f6",
+        paddingX: 1,
+        paddingY: 1,
         children: [
           /* @__PURE__ */ jsx_dev_runtime11.jsxDEV(Text, {
+            bold: true,
+            color: "#93c5fd",
+            children: props.progress.userCode ? "Device code login" : "Browser login"
+          }, undefined, false, undefined, this),
+          props.progress.message && /* @__PURE__ */ jsx_dev_runtime11.jsxDEV(Text, {
+            color: "gray",
+            children: props.progress.message
+          }, undefined, false, undefined, this),
+          /* @__PURE__ */ jsx_dev_runtime11.jsxDEV(Box_default, {
+            marginTop: 1,
+            flexDirection: "column",
+            children: [
+              /* @__PURE__ */ jsx_dev_runtime11.jsxDEV(Text, {
+                color: "gray",
+                children: "Open this URL in your browser:"
+              }, undefined, false, undefined, this),
+              /* @__PURE__ */ jsx_dev_runtime11.jsxDEV(Text, {
+                color: "#67e8f9",
+                children: props.progress.verificationUri
+              }, undefined, false, undefined, this)
+            ]
+          }, undefined, true, undefined, this),
+          props.progress.userCode && /* @__PURE__ */ jsx_dev_runtime11.jsxDEV(Box_default, {
+            marginTop: 1,
+            flexDirection: "column",
+            children: [
+              /* @__PURE__ */ jsx_dev_runtime11.jsxDEV(Text, {
+                color: "gray",
+                children: "Enter this code:"
+              }, undefined, false, undefined, this),
+              /* @__PURE__ */ jsx_dev_runtime11.jsxDEV(Text, {
+                bold: true,
+                color: "white",
+                children: props.progress.userCode
+              }, undefined, false, undefined, this)
+            ]
+          }, undefined, true, undefined, this)
+        ]
+      }, undefined, true, undefined, this),
+      activeMessage && /* @__PURE__ */ jsx_dev_runtime11.jsxDEV(Box_default, {
+        marginTop: 1,
+        children: /* @__PURE__ */ jsx_dev_runtime11.jsxDEV(Text, {
+          color: props.saving ? "gray" : messageColor,
+          children: activeMessage
+        }, undefined, false, undefined, this)
+      }, undefined, false, undefined, this)
+    ]
+  }, undefined, true, undefined, this);
+}
+
+// src/ui/components/endpoint-share-wizard.tsx
+var jsx_dev_runtime12 = __toESM(require_jsx_dev_runtime(), 1);
+function EndpointShareWizard(props) {
+  const selectedEndpoint = props.endpointOptions[props.selectedEndpoint];
+  const selectedSource = props.sourceOptions[props.selectedSource];
+  return /* @__PURE__ */ jsx_dev_runtime12.jsxDEV(Box_default, {
+    flexDirection: "column",
+    marginTop: 1,
+    children: [
+      /* @__PURE__ */ jsx_dev_runtime12.jsxDEV(Text, {
+        color: "#aab3cf",
+        children: "\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500"
+      }, undefined, false, undefined, this),
+      /* @__PURE__ */ jsx_dev_runtime12.jsxDEV(Box_default, {
+        marginTop: 1,
+        children: [
+          /* @__PURE__ */ jsx_dev_runtime12.jsxDEV(Text, {
+            bold: true,
+            color: "#c7d2fe",
+            children: "Endpoint share"
+          }, undefined, false, undefined, this),
+          /* @__PURE__ */ jsx_dev_runtime12.jsxDEV(Text, {
+            color: "gray",
+            children: "  \u2191/\u2193 choose \xB7 Enter continue \xB7 Esc cancel"
+          }, undefined, false, undefined, this)
+        ]
+      }, undefined, true, undefined, this),
+      /* @__PURE__ */ jsx_dev_runtime12.jsxDEV(Box_default, {
+        marginTop: 1,
+        children: [
+          /* @__PURE__ */ jsx_dev_runtime12.jsxDEV(Text, {
             color: "gray",
             children: "Current provider: "
           }, undefined, false, undefined, this),
-          /* @__PURE__ */ jsx_dev_runtime11.jsxDEV(Text, {
+          /* @__PURE__ */ jsx_dev_runtime12.jsxDEV(Text, {
             bold: true,
             color: "#f8fafc",
             children: providerLabel(props.providerMode)
           }, undefined, false, undefined, this)
         ]
       }, undefined, true, undefined, this),
-      props.step === 0 && /* @__PURE__ */ jsx_dev_runtime11.jsxDEV(Box_default, {
+      props.step === 0 && /* @__PURE__ */ jsx_dev_runtime12.jsxDEV(Box_default, {
         marginTop: 1,
         flexDirection: "column",
         children: [
-          /* @__PURE__ */ jsx_dev_runtime11.jsxDEV(Text, {
+          /* @__PURE__ */ jsx_dev_runtime12.jsxDEV(Text, {
             color: "gray",
             children: "Select the endpoint to proxy."
           }, undefined, false, undefined, this),
-          props.endpointOptions.map((option, index) => /* @__PURE__ */ jsx_dev_runtime11.jsxDEV(Box_default, {
+          props.endpointOptions.map((option, index) => /* @__PURE__ */ jsx_dev_runtime12.jsxDEV(Box_default, {
             children: [
-              /* @__PURE__ */ jsx_dev_runtime11.jsxDEV(Box_default, {
+              /* @__PURE__ */ jsx_dev_runtime12.jsxDEV(Box_default, {
                 width: 4,
-                children: /* @__PURE__ */ jsx_dev_runtime11.jsxDEV(Text, {
+                children: /* @__PURE__ */ jsx_dev_runtime12.jsxDEV(Text, {
                   color: index === props.selectedEndpoint ? "#d97757" : "gray",
                   children: [
                     index === props.selectedEndpoint ? "\u203A" : " ",
@@ -56589,14 +57889,14 @@ function EndpointShareWizard(props) {
                   ]
                 }, undefined, true, undefined, this)
               }, undefined, false, undefined, this),
-              /* @__PURE__ */ jsx_dev_runtime11.jsxDEV(Box_default, {
+              /* @__PURE__ */ jsx_dev_runtime12.jsxDEV(Box_default, {
                 width: 24,
-                children: /* @__PURE__ */ jsx_dev_runtime11.jsxDEV(Text, {
+                children: /* @__PURE__ */ jsx_dev_runtime12.jsxDEV(Text, {
                   color: index === props.selectedEndpoint ? "white" : "#aab3cf",
                   children: option.label
                 }, undefined, false, undefined, this)
               }, undefined, false, undefined, this),
-              /* @__PURE__ */ jsx_dev_runtime11.jsxDEV(Text, {
+              /* @__PURE__ */ jsx_dev_runtime12.jsxDEV(Text, {
                 color: option.value === "Unavailable" ? "red" : "gray",
                 children: option.value
               }, undefined, false, undefined, this)
@@ -56604,11 +57904,11 @@ function EndpointShareWizard(props) {
           }, option.endpoint, true, undefined, this))
         ]
       }, undefined, true, undefined, this),
-      props.step === 1 && /* @__PURE__ */ jsx_dev_runtime11.jsxDEV(Box_default, {
+      props.step === 1 && /* @__PURE__ */ jsx_dev_runtime12.jsxDEV(Box_default, {
         marginTop: 1,
         flexDirection: "column",
         children: [
-          /* @__PURE__ */ jsx_dev_runtime11.jsxDEV(Text, {
+          /* @__PURE__ */ jsx_dev_runtime12.jsxDEV(Text, {
             color: "gray",
             children: [
               "Select the source provider for ",
@@ -56616,11 +57916,11 @@ function EndpointShareWizard(props) {
               "."
             ]
           }, undefined, true, undefined, this),
-          props.sourceOptions.map((option, index) => /* @__PURE__ */ jsx_dev_runtime11.jsxDEV(Box_default, {
+          props.sourceOptions.map((option, index) => /* @__PURE__ */ jsx_dev_runtime12.jsxDEV(Box_default, {
             children: [
-              /* @__PURE__ */ jsx_dev_runtime11.jsxDEV(Box_default, {
+              /* @__PURE__ */ jsx_dev_runtime12.jsxDEV(Box_default, {
                 width: 4,
-                children: /* @__PURE__ */ jsx_dev_runtime11.jsxDEV(Text, {
+                children: /* @__PURE__ */ jsx_dev_runtime12.jsxDEV(Text, {
                   color: index === props.selectedSource ? "#d97757" : "gray",
                   children: [
                     index === props.selectedSource ? "\u203A" : " ",
@@ -56629,9 +57929,9 @@ function EndpointShareWizard(props) {
                   ]
                 }, undefined, true, undefined, this)
               }, undefined, false, undefined, this),
-              /* @__PURE__ */ jsx_dev_runtime11.jsxDEV(Box_default, {
+              /* @__PURE__ */ jsx_dev_runtime12.jsxDEV(Box_default, {
                 width: 16,
-                children: /* @__PURE__ */ jsx_dev_runtime11.jsxDEV(Text, {
+                children: /* @__PURE__ */ jsx_dev_runtime12.jsxDEV(Text, {
                   color: index === props.selectedSource ? "white" : option.available ? "#aab3cf" : "gray",
                   children: [
                     option.label,
@@ -56640,7 +57940,7 @@ function EndpointShareWizard(props) {
                   ]
                 }, undefined, true, undefined, this)
               }, undefined, false, undefined, this),
-              /* @__PURE__ */ jsx_dev_runtime11.jsxDEV(Text, {
+              /* @__PURE__ */ jsx_dev_runtime12.jsxDEV(Text, {
                 color: option.available ? "gray" : "red",
                 children: option.description
               }, undefined, false, undefined, this)
@@ -56648,7 +57948,7 @@ function EndpointShareWizard(props) {
           }, `${option.target}-${index}`, true, undefined, this))
         ]
       }, undefined, true, undefined, this),
-      props.step === 2 && /* @__PURE__ */ jsx_dev_runtime11.jsxDEV(Box_default, {
+      props.step === 2 && /* @__PURE__ */ jsx_dev_runtime12.jsxDEV(Box_default, {
         marginTop: 1,
         flexDirection: "column",
         borderStyle: "round",
@@ -56656,43 +57956,43 @@ function EndpointShareWizard(props) {
         paddingX: 1,
         paddingY: 1,
         children: [
-          /* @__PURE__ */ jsx_dev_runtime11.jsxDEV(Text, {
+          /* @__PURE__ */ jsx_dev_runtime12.jsxDEV(Text, {
             bold: true,
             color: "#d97757",
             children: "Confirm route proxy"
           }, undefined, false, undefined, this),
-          /* @__PURE__ */ jsx_dev_runtime11.jsxDEV(Box_default, {
+          /* @__PURE__ */ jsx_dev_runtime12.jsxDEV(Box_default, {
             marginTop: 1,
             children: [
-              /* @__PURE__ */ jsx_dev_runtime11.jsxDEV(Text, {
+              /* @__PURE__ */ jsx_dev_runtime12.jsxDEV(Text, {
                 color: "gray",
                 children: "Endpoint: "
               }, undefined, false, undefined, this),
-              /* @__PURE__ */ jsx_dev_runtime11.jsxDEV(Text, {
+              /* @__PURE__ */ jsx_dev_runtime12.jsxDEV(Text, {
                 bold: true,
                 color: "#f8fafc",
                 children: selectedEndpoint?.label ?? "Unknown"
               }, undefined, false, undefined, this),
-              /* @__PURE__ */ jsx_dev_runtime11.jsxDEV(Text, {
+              /* @__PURE__ */ jsx_dev_runtime12.jsxDEV(Text, {
                 color: "gray",
                 children: " \u2192 "
               }, undefined, false, undefined, this),
-              /* @__PURE__ */ jsx_dev_runtime11.jsxDEV(Text, {
+              /* @__PURE__ */ jsx_dev_runtime12.jsxDEV(Text, {
                 bold: true,
                 color: "#f8fafc",
                 children: selectedSource?.label ?? "Unknown"
               }, undefined, false, undefined, this)
             ]
           }, undefined, true, undefined, this),
-          /* @__PURE__ */ jsx_dev_runtime11.jsxDEV(Box_default, {
+          /* @__PURE__ */ jsx_dev_runtime12.jsxDEV(Box_default, {
             marginTop: 1,
             flexDirection: "column",
             children: [
-              /* @__PURE__ */ jsx_dev_runtime11.jsxDEV(Text, {
+              /* @__PURE__ */ jsx_dev_runtime12.jsxDEV(Text, {
                 color: "yellow",
                 children: "This will update provider-state.json and restart the runtime."
               }, undefined, false, undefined, this),
-              /* @__PURE__ */ jsx_dev_runtime11.jsxDEV(Text, {
+              /* @__PURE__ */ jsx_dev_runtime12.jsxDEV(Text, {
                 color: "gray",
                 children: "Only OpenAI-compatible routes are affected."
               }, undefined, false, undefined, this)
@@ -56700,9 +58000,9 @@ function EndpointShareWizard(props) {
           }, undefined, true, undefined, this)
         ]
       }, undefined, true, undefined, this),
-      props.status && /* @__PURE__ */ jsx_dev_runtime11.jsxDEV(Box_default, {
+      props.status && /* @__PURE__ */ jsx_dev_runtime12.jsxDEV(Box_default, {
         marginTop: 1,
-        children: /* @__PURE__ */ jsx_dev_runtime11.jsxDEV(Text, {
+        children: /* @__PURE__ */ jsx_dev_runtime12.jsxDEV(Text, {
           color: props.saving ? "gray" : props.status.startsWith("Failed") ? "red" : "gray",
           children: props.status
         }, undefined, false, undefined, this)
@@ -56715,26 +58015,26 @@ function providerLabel(mode) {
 }
 
 // src/ui/components/account-info-panel.tsx
-var jsx_dev_runtime12 = __toESM(require_jsx_dev_runtime(), 1);
+var jsx_dev_runtime13 = __toESM(require_jsx_dev_runtime(), 1);
 function AccountInfoPanel(props) {
   const mode = props.providerMode ?? "codex";
   if (mode === "kiro") {
     const info = props.kiroInfo;
     const tierLabel = info?.subscriptionTier ? formatTier(info.subscriptionTier) : undefined;
-    return /* @__PURE__ */ jsx_dev_runtime12.jsxDEV(Box_default, {
+    return /* @__PURE__ */ jsx_dev_runtime13.jsxDEV(Box_default, {
       flexDirection: "column",
       children: [
-        /* @__PURE__ */ jsx_dev_runtime12.jsxDEV(Text, {
+        /* @__PURE__ */ jsx_dev_runtime13.jsxDEV(Text, {
           bold: true,
           color: "#a58a86",
           children: "Account info"
         }, undefined, false, undefined, this),
-        /* @__PURE__ */ jsx_dev_runtime12.jsxDEV(Text, {
+        /* @__PURE__ */ jsx_dev_runtime13.jsxDEV(Text, {
           color: "#aab3cf",
           wrap: "truncate-end",
           children: info?.email ?? props.account?.name ?? "unknown"
         }, undefined, false, undefined, this),
-        /* @__PURE__ */ jsx_dev_runtime12.jsxDEV(Text, {
+        /* @__PURE__ */ jsx_dev_runtime13.jsxDEV(Text, {
           color: "#aab3cf",
           wrap: "truncate-end",
           children: [
@@ -56742,7 +58042,7 @@ function AccountInfoPanel(props) {
             tierLabel ? ` \xB7 ${tierLabel}` : ""
           ]
         }, undefined, true, undefined, this),
-        /* @__PURE__ */ jsx_dev_runtime12.jsxDEV(Text, {
+        /* @__PURE__ */ jsx_dev_runtime13.jsxDEV(Text, {
           color: "#aab3cf",
           wrap: "truncate-end",
           children: [
@@ -56750,7 +58050,7 @@ function AccountInfoPanel(props) {
             info?.region ?? "unknown"
           ]
         }, undefined, true, undefined, this),
-        info?.profileArn && /* @__PURE__ */ jsx_dev_runtime12.jsxDEV(Text, {
+        info?.profileArn && /* @__PURE__ */ jsx_dev_runtime13.jsxDEV(Text, {
           color: "#aab3cf",
           wrap: "truncate-end",
           children: [
@@ -56763,20 +58063,20 @@ function AccountInfoPanel(props) {
   }
   if (mode === "copilot") {
     const info = props.copilotInfo;
-    return /* @__PURE__ */ jsx_dev_runtime12.jsxDEV(Box_default, {
+    return /* @__PURE__ */ jsx_dev_runtime13.jsxDEV(Box_default, {
       flexDirection: "column",
       children: [
-        /* @__PURE__ */ jsx_dev_runtime12.jsxDEV(Text, {
+        /* @__PURE__ */ jsx_dev_runtime13.jsxDEV(Text, {
           bold: true,
           color: "#a58a86",
           children: "Account info"
         }, undefined, false, undefined, this),
-        /* @__PURE__ */ jsx_dev_runtime12.jsxDEV(Text, {
+        /* @__PURE__ */ jsx_dev_runtime13.jsxDEV(Text, {
           color: "#aab3cf",
           wrap: "truncate-end",
           children: info?.email ?? props.account?.name ?? "unknown"
         }, undefined, false, undefined, this),
-        /* @__PURE__ */ jsx_dev_runtime12.jsxDEV(Text, {
+        /* @__PURE__ */ jsx_dev_runtime13.jsxDEV(Text, {
           color: "#aab3cf",
           wrap: "truncate-end",
           children: [
@@ -56784,7 +58084,7 @@ function AccountInfoPanel(props) {
             info?.plan ? ` \xB7 ${formatPlan(info.plan)}` : ""
           ]
         }, undefined, true, undefined, this),
-        /* @__PURE__ */ jsx_dev_runtime12.jsxDEV(Text, {
+        /* @__PURE__ */ jsx_dev_runtime13.jsxDEV(Text, {
           color: "#aab3cf",
           wrap: "truncate-end",
           children: [
@@ -56792,7 +58092,7 @@ function AccountInfoPanel(props) {
             info?.accountType ?? "individual"
           ]
         }, undefined, true, undefined, this),
-        info?.authFilePath && /* @__PURE__ */ jsx_dev_runtime12.jsxDEV(Text, {
+        info?.authFilePath && /* @__PURE__ */ jsx_dev_runtime13.jsxDEV(Text, {
           color: "#aab3cf",
           wrap: "truncate-end",
           children: [
@@ -56803,15 +58103,15 @@ function AccountInfoPanel(props) {
       ]
     }, undefined, true, undefined, this);
   }
-  return /* @__PURE__ */ jsx_dev_runtime12.jsxDEV(Box_default, {
+  return /* @__PURE__ */ jsx_dev_runtime13.jsxDEV(Box_default, {
     flexDirection: "column",
     children: [
-      /* @__PURE__ */ jsx_dev_runtime12.jsxDEV(Text, {
+      /* @__PURE__ */ jsx_dev_runtime13.jsxDEV(Text, {
         bold: true,
         color: "#a58a86",
         children: "Account info"
       }, undefined, false, undefined, this),
-      /* @__PURE__ */ jsx_dev_runtime12.jsxDEV(Text, {
+      /* @__PURE__ */ jsx_dev_runtime13.jsxDEV(Text, {
         color: "#aab3cf",
         wrap: "truncate-end",
         children: accountInfo(props.account, props.info)
@@ -56836,47 +58136,47 @@ function formatPlan(raw) {
 
 // src/ui/components/limits-panel.tsx
 var import_react34 = __toESM(require_react(), 1);
-var jsx_dev_runtime13 = __toESM(require_jsx_dev_runtime(), 1);
+var jsx_dev_runtime14 = __toESM(require_jsx_dev_runtime(), 1);
 function LimitsPanel(props) {
   const mode = props.providerMode ?? "codex";
   const spinner = useSpinner(props.loading);
   if (mode === "kiro") {
     const hasLimits = props.limitGroups.length > 0;
-    return /* @__PURE__ */ jsx_dev_runtime13.jsxDEV(Box_default, {
+    return /* @__PURE__ */ jsx_dev_runtime14.jsxDEV(Box_default, {
       flexDirection: "column",
       marginTop: 1,
       children: [
-        /* @__PURE__ */ jsx_dev_runtime13.jsxDEV(Box_default, {
+        /* @__PURE__ */ jsx_dev_runtime14.jsxDEV(Box_default, {
           children: [
-            /* @__PURE__ */ jsx_dev_runtime13.jsxDEV(Text, {
+            /* @__PURE__ */ jsx_dev_runtime14.jsxDEV(Text, {
               bold: true,
               color: "#a58a86",
               children: "Limits"
             }, undefined, false, undefined, this),
-            /* @__PURE__ */ jsx_dev_runtime13.jsxDEV(Box_default, {
+            /* @__PURE__ */ jsx_dev_runtime14.jsxDEV(Box_default, {
               marginLeft: 1,
-              children: /* @__PURE__ */ jsx_dev_runtime13.jsxDEV(Text, {
+              children: /* @__PURE__ */ jsx_dev_runtime14.jsxDEV(Text, {
                 color: "#aab3cf",
                 children: spinner
               }, undefined, false, undefined, this)
             }, undefined, false, undefined, this)
           ]
         }, undefined, true, undefined, this),
-        props.error && /* @__PURE__ */ jsx_dev_runtime13.jsxDEV(Text, {
+        props.error && /* @__PURE__ */ jsx_dev_runtime14.jsxDEV(Text, {
           color: "yellow",
           wrap: "truncate-end",
           children: props.error
         }, undefined, false, undefined, this),
-        hasLimits && props.limitGroups.map((group, groupIndex) => /* @__PURE__ */ jsx_dev_runtime13.jsxDEV(Box_default, {
+        hasLimits && props.limitGroups.map((group, groupIndex) => /* @__PURE__ */ jsx_dev_runtime14.jsxDEV(Box_default, {
           flexDirection: "column",
           marginTop: group.title && groupIndex > 0 ? 1 : 0,
           children: [
-            group.title && /* @__PURE__ */ jsx_dev_runtime13.jsxDEV(Text, {
+            group.title && /* @__PURE__ */ jsx_dev_runtime14.jsxDEV(Text, {
               color: "gray",
               wrap: "truncate-end",
               children: group.title
             }, undefined, false, undefined, this),
-            group.rows.map((row) => /* @__PURE__ */ jsx_dev_runtime13.jsxDEV(LimitRow, {
+            group.rows.map((row) => /* @__PURE__ */ jsx_dev_runtime14.jsxDEV(LimitRow, {
               label: row.label,
               used: row.used,
               left: row.left,
@@ -56886,7 +58186,7 @@ function LimitsPanel(props) {
             }, `kiro-${group.title ?? "default"}-${row.label}`, false, undefined, this))
           ]
         }, `kiro-${group.title ?? "default"}-${groupIndex}`, true, undefined, this)),
-        !props.loading && !hasLimits && !props.error && /* @__PURE__ */ jsx_dev_runtime13.jsxDEV(Text, {
+        !props.loading && !hasLimits && !props.error && /* @__PURE__ */ jsx_dev_runtime14.jsxDEV(Text, {
           color: "gray",
           wrap: "truncate-end",
           children: "No account credit limits available"
@@ -56894,44 +58194,44 @@ function LimitsPanel(props) {
       ]
     }, undefined, true, undefined, this);
   }
-  return /* @__PURE__ */ jsx_dev_runtime13.jsxDEV(Box_default, {
+  return /* @__PURE__ */ jsx_dev_runtime14.jsxDEV(Box_default, {
     flexDirection: "column",
     marginTop: 1,
     children: [
-      /* @__PURE__ */ jsx_dev_runtime13.jsxDEV(Box_default, {
+      /* @__PURE__ */ jsx_dev_runtime14.jsxDEV(Box_default, {
         children: [
-          /* @__PURE__ */ jsx_dev_runtime13.jsxDEV(Text, {
+          /* @__PURE__ */ jsx_dev_runtime14.jsxDEV(Text, {
             bold: true,
             color: "#a58a86",
             children: "Limits"
           }, undefined, false, undefined, this),
-          /* @__PURE__ */ jsx_dev_runtime13.jsxDEV(Box_default, {
+          /* @__PURE__ */ jsx_dev_runtime14.jsxDEV(Box_default, {
             marginLeft: 1,
-            children: /* @__PURE__ */ jsx_dev_runtime13.jsxDEV(Text, {
+            children: /* @__PURE__ */ jsx_dev_runtime14.jsxDEV(Text, {
               color: "#aab3cf",
               children: spinner
             }, undefined, false, undefined, this)
           }, undefined, false, undefined, this)
         ]
       }, undefined, true, undefined, this),
-      props.error && /* @__PURE__ */ jsx_dev_runtime13.jsxDEV(Text, {
+      props.error && /* @__PURE__ */ jsx_dev_runtime14.jsxDEV(Text, {
         color: "red",
         children: props.error
       }, undefined, false, undefined, this),
-      !props.loading && !props.error && !props.limitGroups.length && /* @__PURE__ */ jsx_dev_runtime13.jsxDEV(Text, {
+      !props.loading && !props.error && !props.limitGroups.length && /* @__PURE__ */ jsx_dev_runtime14.jsxDEV(Text, {
         color: "gray",
         children: "No limits available"
       }, undefined, false, undefined, this),
-      props.limitGroups.map((group, groupIndex) => /* @__PURE__ */ jsx_dev_runtime13.jsxDEV(Box_default, {
+      props.limitGroups.map((group, groupIndex) => /* @__PURE__ */ jsx_dev_runtime14.jsxDEV(Box_default, {
         flexDirection: "column",
         marginTop: group.title && groupIndex > 0 ? 1 : 0,
         children: [
-          group.title && /* @__PURE__ */ jsx_dev_runtime13.jsxDEV(Text, {
+          group.title && /* @__PURE__ */ jsx_dev_runtime14.jsxDEV(Text, {
             color: "gray",
             wrap: "truncate-end",
             children: group.title
           }, undefined, false, undefined, this),
-          group.rows.map((row) => /* @__PURE__ */ jsx_dev_runtime13.jsxDEV(LimitRow, {
+          group.rows.map((row) => /* @__PURE__ */ jsx_dev_runtime14.jsxDEV(LimitRow, {
             label: row.label,
             used: row.used,
             left: row.left,
@@ -56948,22 +58248,22 @@ function LimitRow(props) {
   const labelWidth = props.compact ? Math.max(12, Math.min(18, Math.floor((props.width ?? 48) * 0.35))) : 21;
   const leftWidth = props.compact ? Math.max(10, Math.min(18, Math.floor((props.width ?? 48) * 0.35))) : 16;
   if (props.compact) {
-    return /* @__PURE__ */ jsx_dev_runtime13.jsxDEV(Box_default, {
+    return /* @__PURE__ */ jsx_dev_runtime14.jsxDEV(Box_default, {
       flexDirection: "column",
       children: [
-        /* @__PURE__ */ jsx_dev_runtime13.jsxDEV(Box_default, {
+        /* @__PURE__ */ jsx_dev_runtime14.jsxDEV(Box_default, {
           children: [
-            /* @__PURE__ */ jsx_dev_runtime13.jsxDEV(Box_default, {
+            /* @__PURE__ */ jsx_dev_runtime14.jsxDEV(Box_default, {
               width: labelWidth,
-              children: /* @__PURE__ */ jsx_dev_runtime13.jsxDEV(Text, {
+              children: /* @__PURE__ */ jsx_dev_runtime14.jsxDEV(Text, {
                 color: "gray",
                 wrap: "truncate-end",
                 children: props.label
               }, undefined, false, undefined, this)
             }, undefined, false, undefined, this),
-            /* @__PURE__ */ jsx_dev_runtime13.jsxDEV(Box_default, {
+            /* @__PURE__ */ jsx_dev_runtime14.jsxDEV(Box_default, {
               width: leftWidth,
-              children: /* @__PURE__ */ jsx_dev_runtime13.jsxDEV(Text, {
+              children: /* @__PURE__ */ jsx_dev_runtime14.jsxDEV(Text, {
                 bold: true,
                 wrap: "truncate-end",
                 children: props.left
@@ -56971,7 +58271,7 @@ function LimitRow(props) {
             }, undefined, false, undefined, this)
           ]
         }, undefined, true, undefined, this),
-        /* @__PURE__ */ jsx_dev_runtime13.jsxDEV(Text, {
+        /* @__PURE__ */ jsx_dev_runtime14.jsxDEV(Text, {
           color: "gray",
           wrap: "truncate-end",
           children: [
@@ -56983,22 +58283,22 @@ function LimitRow(props) {
       ]
     }, undefined, true, undefined, this);
   }
-  return /* @__PURE__ */ jsx_dev_runtime13.jsxDEV(Box_default, {
+  return /* @__PURE__ */ jsx_dev_runtime14.jsxDEV(Box_default, {
     flexDirection: "column",
     children: [
-      /* @__PURE__ */ jsx_dev_runtime13.jsxDEV(Box_default, {
+      /* @__PURE__ */ jsx_dev_runtime14.jsxDEV(Box_default, {
         children: [
-          /* @__PURE__ */ jsx_dev_runtime13.jsxDEV(Box_default, {
+          /* @__PURE__ */ jsx_dev_runtime14.jsxDEV(Box_default, {
             width: labelWidth,
-            children: /* @__PURE__ */ jsx_dev_runtime13.jsxDEV(Text, {
+            children: /* @__PURE__ */ jsx_dev_runtime14.jsxDEV(Text, {
               color: "gray",
               wrap: "truncate-end",
               children: props.label
             }, undefined, false, undefined, this)
           }, undefined, false, undefined, this),
-          /* @__PURE__ */ jsx_dev_runtime13.jsxDEV(Box_default, {
+          /* @__PURE__ */ jsx_dev_runtime14.jsxDEV(Box_default, {
             width: leftWidth,
-            children: /* @__PURE__ */ jsx_dev_runtime13.jsxDEV(Text, {
+            children: /* @__PURE__ */ jsx_dev_runtime14.jsxDEV(Text, {
               bold: true,
               wrap: "truncate-end",
               children: props.left
@@ -57006,7 +58306,7 @@ function LimitRow(props) {
           }, undefined, false, undefined, this)
         ]
       }, undefined, true, undefined, this),
-      /* @__PURE__ */ jsx_dev_runtime13.jsxDEV(Text, {
+      /* @__PURE__ */ jsx_dev_runtime14.jsxDEV(Text, {
         color: "gray",
         wrap: "truncate-end",
         children: [
@@ -57034,8 +58334,237 @@ function useSpinner(active) {
   return active ? frames[index] : " ";
 }
 
+// src/ui/components/rotation-panel.tsx
+var jsx_dev_runtime15 = __toESM(require_jsx_dev_runtime(), 1);
+var STATUS_COLOR = {
+  active: "#98c379",
+  ready: "#aab3cf",
+  resting: "#e5c07b"
+};
+function accountDetail2(account) {
+  return [account.detail, account.quota].filter(Boolean).join(" \xB7 ");
+}
+function RotationAccountsPanel(props) {
+  const keyWidth = Math.min(28, Math.max(12, ...props.view.accounts.map((account) => account.key.length)));
+  return /* @__PURE__ */ jsx_dev_runtime15.jsxDEV(Box_default, {
+    flexDirection: "column",
+    marginTop: 1,
+    children: [
+      /* @__PURE__ */ jsx_dev_runtime15.jsxDEV(Box_default, {
+        children: [
+          /* @__PURE__ */ jsx_dev_runtime15.jsxDEV(Text, {
+            bold: true,
+            color: "#a58a86",
+            children: "Rotation "
+          }, undefined, false, undefined, this),
+          /* @__PURE__ */ jsx_dev_runtime15.jsxDEV(Text, {
+            bold: true,
+            color: "#d97757",
+            children: "ON"
+          }, undefined, false, undefined, this),
+          /* @__PURE__ */ jsx_dev_runtime15.jsxDEV(Text, {
+            color: "gray",
+            children: [
+              " \xB7 ",
+              props.view.accounts.length,
+              " accounts \xB7 ",
+              props.view.restingCount,
+              " resting"
+            ]
+          }, undefined, true, undefined, this)
+        ]
+      }, undefined, true, undefined, this),
+      props.view.accounts.map((account) => /* @__PURE__ */ jsx_dev_runtime15.jsxDEV(Box_default, {
+        flexDirection: "column",
+        children: [
+          /* @__PURE__ */ jsx_dev_runtime15.jsxDEV(Box_default, {
+            children: [
+              /* @__PURE__ */ jsx_dev_runtime15.jsxDEV(Box_default, {
+                width: 2,
+                children: /* @__PURE__ */ jsx_dev_runtime15.jsxDEV(Text, {
+                  color: account.status === "active" ? "#d97757" : "gray",
+                  children: account.status === "active" ? "\u203A" : " "
+                }, undefined, false, undefined, this)
+              }, undefined, false, undefined, this),
+              /* @__PURE__ */ jsx_dev_runtime15.jsxDEV(Box_default, {
+                width: keyWidth + 1,
+                children: /* @__PURE__ */ jsx_dev_runtime15.jsxDEV(Text, {
+                  color: account.status === "resting" ? "gray" : "#c0caf5",
+                  wrap: "truncate-end",
+                  children: account.key
+                }, undefined, false, undefined, this)
+              }, undefined, false, undefined, this),
+              /* @__PURE__ */ jsx_dev_runtime15.jsxDEV(Text, {
+                color: STATUS_COLOR[account.status],
+                children: account.status
+              }, undefined, false, undefined, this)
+            ]
+          }, undefined, true, undefined, this),
+          accountDetail2(account) && /* @__PURE__ */ jsx_dev_runtime15.jsxDEV(Box_default, {
+            marginLeft: 2,
+            children: /* @__PURE__ */ jsx_dev_runtime15.jsxDEV(Text, {
+              color: "gray",
+              wrap: "truncate-end",
+              children: accountDetail2(account)
+            }, undefined, false, undefined, this)
+          }, undefined, false, undefined, this)
+        ]
+      }, account.key, true, undefined, this)),
+      props.loading && props.view.accounts.every((account) => !account.quota) && /* @__PURE__ */ jsx_dev_runtime15.jsxDEV(Text, {
+        color: "gray",
+        children: "Loading quota\u2026"
+      }, undefined, false, undefined, this)
+    ]
+  }, undefined, true, undefined, this);
+}
+function RotationStatus(props) {
+  if (!props.view)
+    return null;
+  const accounts = props.view.accounts.length;
+  return /* @__PURE__ */ jsx_dev_runtime15.jsxDEV(Box_default, {
+    marginTop: 1,
+    flexDirection: "column",
+    children: [
+      /* @__PURE__ */ jsx_dev_runtime15.jsxDEV(Box_default, {
+        children: [
+          /* @__PURE__ */ jsx_dev_runtime15.jsxDEV(Text, {
+            bold: true,
+            color: "#a58a86",
+            children: "Rotation: "
+          }, undefined, false, undefined, this),
+          /* @__PURE__ */ jsx_dev_runtime15.jsxDEV(Text, {
+            bold: true,
+            color: props.view.enabled ? "#d97757" : "gray",
+            children: props.view.enabled ? "ON" : "OFF"
+          }, undefined, false, undefined, this),
+          /* @__PURE__ */ jsx_dev_runtime15.jsxDEV(Text, {
+            color: "gray",
+            children: [
+              " \xB7 ",
+              accounts,
+              " account",
+              accounts === 1 ? "" : "s"
+            ]
+          }, undefined, true, undefined, this)
+        ]
+      }, undefined, true, undefined, this),
+      props.view.enabled && !props.view.rotatable && /* @__PURE__ */ jsx_dev_runtime15.jsxDEV(Text, {
+        color: "#e5c07b",
+        wrap: "truncate-end",
+        children: "Idle until a second account is connected"
+      }, undefined, false, undefined, this)
+    ]
+  }, undefined, true, undefined, this);
+}
+function RotationSelector(props) {
+  const options = [
+    { label: "on", description: "Retry on the next account when one fails" },
+    { label: "off", description: "Fail the request on the active account" }
+  ];
+  return /* @__PURE__ */ jsx_dev_runtime15.jsxDEV(Box_default, {
+    borderStyle: "round",
+    borderColor: "#7f4f45",
+    flexDirection: "column",
+    paddingX: 2,
+    paddingY: 1,
+    children: [
+      /* @__PURE__ */ jsx_dev_runtime15.jsxDEV(Text, {
+        bold: true,
+        color: "#d97757",
+        children: "Account rotation"
+      }, undefined, false, undefined, this),
+      props.view ? /* @__PURE__ */ jsx_dev_runtime15.jsxDEV(Text, {
+        color: "gray",
+        children: [
+          "Current: ",
+          props.view.enabled ? "on" : "off",
+          " \xB7 active ",
+          props.view.activeAccount
+        ]
+      }, undefined, true, undefined, this) : /* @__PURE__ */ jsx_dev_runtime15.jsxDEV(Text, {
+        color: "#e5c07b",
+        children: "No account is connected yet. Add one with /connect."
+      }, undefined, false, undefined, this),
+      props.view && !props.view.rotatable && /* @__PURE__ */ jsx_dev_runtime15.jsxDEV(Text, {
+        color: "#e5c07b",
+        children: "Only one account connected \u2014 rotation stays idle until you add another."
+      }, undefined, false, undefined, this),
+      /* @__PURE__ */ jsx_dev_runtime15.jsxDEV(Box_default, {
+        marginTop: 1,
+        flexDirection: "column",
+        children: options.map((option, index) => /* @__PURE__ */ jsx_dev_runtime15.jsxDEV(Box_default, {
+          children: [
+            /* @__PURE__ */ jsx_dev_runtime15.jsxDEV(Box_default, {
+              width: 3,
+              children: /* @__PURE__ */ jsx_dev_runtime15.jsxDEV(Text, {
+                color: props.selected === index ? "#d97757" : "gray",
+                children: props.selected === index ? ">" : " "
+              }, undefined, false, undefined, this)
+            }, undefined, false, undefined, this),
+            /* @__PURE__ */ jsx_dev_runtime15.jsxDEV(Box_default, {
+              width: 8,
+              children: /* @__PURE__ */ jsx_dev_runtime15.jsxDEV(Text, {
+                bold: props.selected === index,
+                children: option.label
+              }, undefined, false, undefined, this)
+            }, undefined, false, undefined, this),
+            /* @__PURE__ */ jsx_dev_runtime15.jsxDEV(Text, {
+              color: "#aab3cf",
+              children: option.description
+            }, undefined, false, undefined, this)
+          ]
+        }, option.label, true, undefined, this))
+      }, undefined, false, undefined, this),
+      props.view && /* @__PURE__ */ jsx_dev_runtime15.jsxDEV(Box_default, {
+        marginTop: 1,
+        flexDirection: "column",
+        children: [
+          /* @__PURE__ */ jsx_dev_runtime15.jsxDEV(Text, {
+            color: "#7aa2f7",
+            children: "\u2500\u2500 Accounts \u2500\u2500"
+          }, undefined, false, undefined, this),
+          props.view.accounts.map((account) => /* @__PURE__ */ jsx_dev_runtime15.jsxDEV(Box_default, {
+            children: [
+              /* @__PURE__ */ jsx_dev_runtime15.jsxDEV(Box_default, {
+                width: 30,
+                children: /* @__PURE__ */ jsx_dev_runtime15.jsxDEV(Text, {
+                  color: account.status === "resting" ? "gray" : "#c0caf5",
+                  wrap: "truncate-end",
+                  children: [
+                    "  ",
+                    account.key
+                  ]
+                }, undefined, true, undefined, this)
+              }, undefined, false, undefined, this),
+              /* @__PURE__ */ jsx_dev_runtime15.jsxDEV(Box_default, {
+                width: 10,
+                children: /* @__PURE__ */ jsx_dev_runtime15.jsxDEV(Text, {
+                  color: STATUS_COLOR[account.status],
+                  children: account.status
+                }, undefined, false, undefined, this)
+              }, undefined, false, undefined, this),
+              /* @__PURE__ */ jsx_dev_runtime15.jsxDEV(Text, {
+                color: "gray",
+                wrap: "truncate-end",
+                children: accountDetail2(account) || (props.loading ? "loading\u2026" : "")
+              }, undefined, false, undefined, this)
+            ]
+          }, account.key, true, undefined, this))
+        ]
+      }, undefined, true, undefined, this),
+      /* @__PURE__ */ jsx_dev_runtime15.jsxDEV(Box_default, {
+        marginTop: 1,
+        children: /* @__PURE__ */ jsx_dev_runtime15.jsxDEV(Text, {
+          color: "gray",
+          children: "\u2191/\u2193 move \xB7 Enter apply \xB7 Esc cancel"
+        }, undefined, false, undefined, this)
+      }, undefined, false, undefined, this)
+    ]
+  }, undefined, true, undefined, this);
+}
+
 // src/ui/components/welcome-panel.tsx
-var jsx_dev_runtime14 = __toESM(require_jsx_dev_runtime(), 1);
+var jsx_dev_runtime16 = __toESM(require_jsx_dev_runtime(), 1);
 function WelcomePanel(props) {
   const width = props.width ?? 42;
   const mode = props.providerMode ?? "codex";
@@ -57046,93 +58575,93 @@ function WelcomePanel(props) {
   const localUrl = `http://${displayHostname}:${props.port}`;
   const networkIp = getLocalNetworkIp();
   const networkUrl = networkIp ? `http://${networkIp}:${props.port}` : undefined;
-  return /* @__PURE__ */ jsx_dev_runtime14.jsxDEV(Box_default, {
+  return /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Box_default, {
     width,
     flexDirection: "column",
     paddingX: 1,
     children: [
-      /* @__PURE__ */ jsx_dev_runtime14.jsxDEV(Text, {
+      /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Text, {
         bold: true,
         wrap: "truncate-end",
         children: title
       }, undefined, false, undefined, this),
-      /* @__PURE__ */ jsx_dev_runtime14.jsxDEV(Box_default, {
+      /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Box_default, {
         marginTop: 1,
         flexDirection: "column",
         children: [
-          /* @__PURE__ */ jsx_dev_runtime14.jsxDEV(Text, {
+          /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Text, {
             bold: true,
             color: "#a58a86",
             children: "Connect"
           }, undefined, false, undefined, this),
-          /* @__PURE__ */ jsx_dev_runtime14.jsxDEV(InfoLine, {
+          /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(InfoLine, {
             label: "Local",
             value: localUrl
           }, undefined, false, undefined, this),
-          networkUrl && /* @__PURE__ */ jsx_dev_runtime14.jsxDEV(InfoLine, {
+          networkUrl && /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(InfoLine, {
             label: "Network",
             value: networkUrl
           }, undefined, false, undefined, this),
-          /* @__PURE__ */ jsx_dev_runtime14.jsxDEV(InfoLine, {
+          /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(InfoLine, {
             label: "Auth",
             value: props.apiPassword ? "enabled" : "none"
           }, undefined, false, undefined, this)
         ]
       }, undefined, true, undefined, this),
-      /* @__PURE__ */ jsx_dev_runtime14.jsxDEV(Box_default, {
+      /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Box_default, {
         marginTop: 1,
         flexDirection: "column",
         children: [
-          /* @__PURE__ */ jsx_dev_runtime14.jsxDEV(Text, {
+          /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Text, {
             bold: true,
             color: "#a58a86",
             children: "Supported endpoints"
           }, undefined, false, undefined, this),
-          endpoints.map((endpoint, index) => /* @__PURE__ */ jsx_dev_runtime14.jsxDEV(InfoLine, {
+          endpoints.map((endpoint, index) => /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(InfoLine, {
             label: endpoint.label,
             value: endpoint.value
           }, `${endpoint.label}-${endpoint.value}-${index}`, false, undefined, this))
         ]
       }, undefined, true, undefined, this),
-      !!endpointProxyLines.length && /* @__PURE__ */ jsx_dev_runtime14.jsxDEV(Box_default, {
+      !!endpointProxyLines.length && /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Box_default, {
         marginTop: 1,
         flexDirection: "column",
         children: [
-          /* @__PURE__ */ jsx_dev_runtime14.jsxDEV(Text, {
+          /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Text, {
             bold: true,
             color: "#a58a86",
             children: "Endpoint proxy"
           }, undefined, false, undefined, this),
-          endpointProxyLines.map((endpoint, index) => /* @__PURE__ */ jsx_dev_runtime14.jsxDEV(Box_default, {
+          endpointProxyLines.map((endpoint, index) => /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Box_default, {
             flexDirection: "column",
             marginTop: index === 0 ? 0 : 1,
             children: [
-              /* @__PURE__ */ jsx_dev_runtime14.jsxDEV(Box_default, {
+              /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Box_default, {
                 children: [
-                  /* @__PURE__ */ jsx_dev_runtime14.jsxDEV(Box_default, {
+                  /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Box_default, {
                     width: 14,
-                    children: /* @__PURE__ */ jsx_dev_runtime14.jsxDEV(Text, {
+                    children: /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Text, {
                       color: "gray",
                       children: `${endpoint.label}:`
                     }, undefined, false, undefined, this)
                   }, undefined, false, undefined, this),
-                  /* @__PURE__ */ jsx_dev_runtime14.jsxDEV(Text, {
+                  /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Text, {
                     color: endpoint.available ? "#aab3cf" : "gray",
                     wrap: "truncate-end",
                     children: endpoint.available ? `\u2192 ${endpoint.source}` : endpoint.source
                   }, undefined, false, undefined, this)
                 ]
               }, undefined, true, undefined, this),
-              endpoint.available && /* @__PURE__ */ jsx_dev_runtime14.jsxDEV(Box_default, {
+              endpoint.available && /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Box_default, {
                 children: [
-                  /* @__PURE__ */ jsx_dev_runtime14.jsxDEV(Box_default, {
+                  /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Box_default, {
                     width: 14,
-                    children: /* @__PURE__ */ jsx_dev_runtime14.jsxDEV(Text, {
+                    children: /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Text, {
                       color: "gray",
                       children: "Path:"
                     }, undefined, false, undefined, this)
                   }, undefined, false, undefined, this),
-                  /* @__PURE__ */ jsx_dev_runtime14.jsxDEV(Text, {
+                  /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Text, {
                     color: "#aab3cf",
                     wrap: "truncate-end",
                     children: endpoint.path
@@ -57180,16 +58709,16 @@ function welcomeEndpointLines(mode) {
   ];
 }
 function InfoLine(props) {
-  return /* @__PURE__ */ jsx_dev_runtime14.jsxDEV(Box_default, {
+  return /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Box_default, {
     children: [
-      /* @__PURE__ */ jsx_dev_runtime14.jsxDEV(Box_default, {
+      /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Box_default, {
         width: 10,
-        children: /* @__PURE__ */ jsx_dev_runtime14.jsxDEV(Text, {
+        children: /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Text, {
           color: "gray",
           children: props.label ? `${props.label}:` : ""
         }, undefined, false, undefined, this)
       }, undefined, false, undefined, this),
-      /* @__PURE__ */ jsx_dev_runtime14.jsxDEV(Text, {
+      /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Text, {
         color: "#aab3cf",
         wrap: "truncate-end",
         children: props.value
@@ -57199,11 +58728,12 @@ function InfoLine(props) {
 }
 
 // src/ui/components/provider-dashboard.tsx
-var jsx_dev_runtime15 = __toESM(require_jsx_dev_runtime(), 1);
+var jsx_dev_runtime17 = __toESM(require_jsx_dev_runtime(), 1);
 function ProviderDashboard(props) {
   const leftWidth = props.compact ? props.innerWidth : 42;
   const detailsWidth = props.compact ? props.innerWidth : Math.min(58, Math.max(42, props.contentWidth - 48));
-  return /* @__PURE__ */ jsx_dev_runtime15.jsxDEV(Box_default, {
+  const rotating = props.rotation?.enabled && props.rotation.rotatable ? props.rotation : undefined;
+  return /* @__PURE__ */ jsx_dev_runtime17.jsxDEV(Box_default, {
     borderStyle: "round",
     borderColor: "#d97757",
     minHeight: props.compact ? undefined : 13,
@@ -57211,7 +58741,7 @@ function ProviderDashboard(props) {
     alignSelf: props.compact ? undefined : "flex-start",
     flexDirection: props.compact ? "column" : "row",
     children: [
-      /* @__PURE__ */ jsx_dev_runtime15.jsxDEV(WelcomePanel, {
+      /* @__PURE__ */ jsx_dev_runtime17.jsxDEV(WelcomePanel, {
         hostname: props.hostname,
         port: props.port,
         compact: props.compact,
@@ -57220,31 +58750,38 @@ function ProviderDashboard(props) {
         apiPassword: props.apiPassword,
         endpointProxyLines: props.endpointProxyLines
       }, undefined, false, undefined, this),
-      props.compact ? /* @__PURE__ */ jsx_dev_runtime15.jsxDEV(Text, {
+      props.compact ? /* @__PURE__ */ jsx_dev_runtime17.jsxDEV(Text, {
         color: "#7f4f45",
         children: "\u2500".repeat(props.innerWidth)
-      }, undefined, false, undefined, this) : /* @__PURE__ */ jsx_dev_runtime15.jsxDEV(Box_default, {
+      }, undefined, false, undefined, this) : /* @__PURE__ */ jsx_dev_runtime17.jsxDEV(Box_default, {
         width: 1,
         borderStyle: "single",
         borderColor: "#7f4f45"
       }, undefined, false, undefined, this),
-      /* @__PURE__ */ jsx_dev_runtime15.jsxDEV(Box_default, {
+      /* @__PURE__ */ jsx_dev_runtime17.jsxDEV(Box_default, {
         flexDirection: "column",
         paddingX: props.compact ? 1 : 2,
         marginTop: props.compact ? 1 : 0,
         width: detailsWidth,
         children: [
-          /* @__PURE__ */ jsx_dev_runtime15.jsxDEV(AccountInfoPanel, {
+          rotating ? /* @__PURE__ */ jsx_dev_runtime17.jsxDEV(RotationAccountsPanel, {
+            view: rotating,
+            width: detailsWidth,
+            loading: props.rotationLoading
+          }, undefined, false, undefined, this) : /* @__PURE__ */ jsx_dev_runtime17.jsxDEV(AccountInfoPanel, {
             account: props.account,
             info: props.activeAccountInfo,
             providerMode: props.providerMode,
             kiroInfo: props.providerInfo.mode === "kiro" ? props.providerInfo : undefined,
             copilotInfo: props.providerInfo.mode === "copilot" ? props.providerInfo : undefined
           }, undefined, false, undefined, this),
-          props.providerMode === "codex" && /* @__PURE__ */ jsx_dev_runtime15.jsxDEV(CodexFastModeStatus, {
+          props.providerMode === "codex" && /* @__PURE__ */ jsx_dev_runtime17.jsxDEV(CodexFastModeStatus, {
             enabled: props.codexFastMode
           }, undefined, false, undefined, this),
-          /* @__PURE__ */ jsx_dev_runtime15.jsxDEV(LimitsPanel, {
+          !rotating && /* @__PURE__ */ jsx_dev_runtime17.jsxDEV(RotationStatus, {
+            view: props.rotation
+          }, undefined, false, undefined, this),
+          !rotating && /* @__PURE__ */ jsx_dev_runtime17.jsxDEV(LimitsPanel, {
             limitGroups: props.limitGroups,
             loading: props.limitsLoading,
             error: props.limitsError,
@@ -57260,7 +58797,7 @@ function ProviderDashboard(props) {
 
 // src/ui/components/request-logs-panel.tsx
 var import_react35 = __toESM(require_react(), 1);
-var jsx_dev_runtime16 = __toESM(require_jsx_dev_runtime(), 1);
+var jsx_dev_runtime18 = __toESM(require_jsx_dev_runtime(), 1);
 var LOG_HEIGHT = 15;
 var REQUEST_LOG_DETAIL_HEIGHT = 16;
 var REQUEST_LOG_DETAIL_SCROLL_STEP = 1;
@@ -57295,41 +58832,41 @@ function RequestLogsPanel(props) {
   const errorCount = props.logs.filter((l) => l.error !== "-" || l.proxy?.error !== undefined && l.proxy.error !== "-").length;
   const loadingFrame = useSpinner2(pendingCount > 0);
   const now2 = useNow(pendingCount > 0);
-  return /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Box_default, {
+  return /* @__PURE__ */ jsx_dev_runtime18.jsxDEV(Box_default, {
     flexDirection: "column",
     marginTop: 1,
     children: [
-      /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Text, {
+      /* @__PURE__ */ jsx_dev_runtime18.jsxDEV(Text, {
         color: "#aab3cf",
         children: "\u2500".repeat(table.width)
       }, undefined, false, undefined, this),
-      /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Box_default, {
+      /* @__PURE__ */ jsx_dev_runtime18.jsxDEV(Box_default, {
         width: table.width,
         flexDirection: "column",
         alignItems: "center",
         marginTop: 1,
         children: [
-          /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Text, {
+          /* @__PURE__ */ jsx_dev_runtime18.jsxDEV(Text, {
             bold: true,
             color: "#c7d2fe",
             children: "Request logs"
           }, undefined, false, undefined, this),
-          /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Box_default, {
+          /* @__PURE__ */ jsx_dev_runtime18.jsxDEV(Box_default, {
             width: table.width,
             justifyContent: "center",
-            children: /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Text, {
+            children: /* @__PURE__ */ jsx_dev_runtime18.jsxDEV(Text, {
               color: "gray",
               wrap: "truncate-end",
               children: table.shortcuts
             }, undefined, false, undefined, this)
           }, undefined, false, undefined, this),
-          /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Box_default, {
+          /* @__PURE__ */ jsx_dev_runtime18.jsxDEV(Box_default, {
             children: [
-              props.autoFollow && /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Text, {
+              props.autoFollow && /* @__PURE__ */ jsx_dev_runtime18.jsxDEV(Text, {
                 color: "#22c55e",
                 children: " \u25CF FOLLOW"
               }, undefined, false, undefined, this),
-              props.requestLogMode && /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Text, {
+              props.requestLogMode && /* @__PURE__ */ jsx_dev_runtime18.jsxDEV(Text, {
                 color: props.requestLogMode === "sync" ? "#facc15" : "#22c55e",
                 children: [
                   " \u25CF ",
@@ -57340,34 +58877,34 @@ function RequestLogsPanel(props) {
           }, undefined, true, undefined, this)
         ]
       }, undefined, true, undefined, this),
-      props.clearConfirm && /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Text, {
+      props.clearConfirm && /* @__PURE__ */ jsx_dev_runtime18.jsxDEV(Text, {
         color: "yellow",
         children: "Clear all request logs? y confirm \xB7 n/Esc cancel"
       }, undefined, false, undefined, this),
-      props.fileError && /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Text, {
+      props.fileError && /* @__PURE__ */ jsx_dev_runtime18.jsxDEV(Text, {
         color: "red",
         children: [
           "\u26A0 ",
           props.fileError
         ]
       }, undefined, true, undefined, this),
-      props.copyStatus && /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Text, {
+      props.copyStatus && /* @__PURE__ */ jsx_dev_runtime18.jsxDEV(Text, {
         color: props.copyStatus.type === "success" ? "green" : "red",
         children: props.copyStatus.message
       }, undefined, false, undefined, this),
-      /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Box_default, {
+      /* @__PURE__ */ jsx_dev_runtime18.jsxDEV(Box_default, {
         marginTop: 1,
-        children: /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Text, {
+        children: /* @__PURE__ */ jsx_dev_runtime18.jsxDEV(Text, {
           color: "#6b7280",
           wrap: "truncate-end",
           children: tableHeader(table)
         }, undefined, false, undefined, this)
       }, undefined, false, undefined, this),
-      /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Text, {
+      /* @__PURE__ */ jsx_dev_runtime18.jsxDEV(Text, {
         color: "#374151",
         children: "\u2500".repeat(table.width)
       }, undefined, false, undefined, this),
-      hasMoreAbove && /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Text, {
+      hasMoreAbove && /* @__PURE__ */ jsx_dev_runtime18.jsxDEV(Text, {
         color: "gray",
         children: [
           "   \u2191 ",
@@ -57377,18 +58914,18 @@ function RequestLogsPanel(props) {
       }, undefined, true, undefined, this),
       rows.length ? rows.map((log, index) => {
         const globalIndex = start + index;
-        return /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(LogRow, {
+        return /* @__PURE__ */ jsx_dev_runtime18.jsxDEV(LogRow, {
           log,
           selected: globalIndex === selected,
           table,
           loadingFrame,
           now: now2
         }, `${log.id}-${log.at}`, false, undefined, this);
-      }) : /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Text, {
+      }) : /* @__PURE__ */ jsx_dev_runtime18.jsxDEV(Text, {
         color: "gray",
         children: "  No requests yet"
       }, undefined, false, undefined, this),
-      hasMoreBelow && /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Text, {
+      hasMoreBelow && /* @__PURE__ */ jsx_dev_runtime18.jsxDEV(Text, {
         color: "gray",
         children: [
           "   \u2193 ",
@@ -57396,23 +58933,23 @@ function RequestLogsPanel(props) {
           " more below"
         ]
       }, undefined, true, undefined, this),
-      /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Text, {
+      /* @__PURE__ */ jsx_dev_runtime18.jsxDEV(Text, {
         color: "#374151",
         children: "\u2500".repeat(table.width)
       }, undefined, false, undefined, this),
-      /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Box_default, {
+      /* @__PURE__ */ jsx_dev_runtime18.jsxDEV(Box_default, {
         children: [
-          /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Text, {
+          /* @__PURE__ */ jsx_dev_runtime18.jsxDEV(Text, {
             color: "#6b7280",
             children: "Total: "
           }, undefined, false, undefined, this),
-          /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Text, {
+          /* @__PURE__ */ jsx_dev_runtime18.jsxDEV(Text, {
             color: "#aab3cf",
             children: props.logs.length
           }, undefined, false, undefined, this),
-          pendingCount > 0 && /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(jsx_dev_runtime16.Fragment, {
+          pendingCount > 0 && /* @__PURE__ */ jsx_dev_runtime18.jsxDEV(jsx_dev_runtime18.Fragment, {
             children: [
-              /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Text, {
+              /* @__PURE__ */ jsx_dev_runtime18.jsxDEV(Text, {
                 color: "#6b7280",
                 children: [
                   "  ",
@@ -57420,31 +58957,31 @@ function RequestLogsPanel(props) {
                   " Pending: "
                 ]
               }, undefined, true, undefined, this),
-              /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Text, {
+              /* @__PURE__ */ jsx_dev_runtime18.jsxDEV(Text, {
                 color: "yellow",
                 children: pendingCount
               }, undefined, false, undefined, this)
             ]
           }, undefined, true, undefined, this),
-          errorCount > 0 && /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(jsx_dev_runtime16.Fragment, {
+          errorCount > 0 && /* @__PURE__ */ jsx_dev_runtime18.jsxDEV(jsx_dev_runtime18.Fragment, {
             children: [
-              /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Text, {
+              /* @__PURE__ */ jsx_dev_runtime18.jsxDEV(Text, {
                 color: "#6b7280",
                 children: "  \u2717 Errors: "
               }, undefined, false, undefined, this),
-              /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Text, {
+              /* @__PURE__ */ jsx_dev_runtime18.jsxDEV(Text, {
                 color: "red",
                 children: errorCount
               }, undefined, false, undefined, this)
             ]
           }, undefined, true, undefined, this),
-          pendingCount === 0 && errorCount === 0 && props.logs.length > 0 && /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(jsx_dev_runtime16.Fragment, {
+          pendingCount === 0 && errorCount === 0 && props.logs.length > 0 && /* @__PURE__ */ jsx_dev_runtime18.jsxDEV(jsx_dev_runtime18.Fragment, {
             children: [
-              /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Text, {
+              /* @__PURE__ */ jsx_dev_runtime18.jsxDEV(Text, {
                 color: "#6b7280",
                 children: "  "
               }, undefined, false, undefined, this),
-              /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Text, {
+              /* @__PURE__ */ jsx_dev_runtime18.jsxDEV(Text, {
                 color: "green",
                 children: "\u2713 All OK"
               }, undefined, false, undefined, this)
@@ -57452,7 +58989,7 @@ function RequestLogsPanel(props) {
           }, undefined, true, undefined, this)
         ]
       }, undefined, true, undefined, this),
-      props.detailOpen && detail && /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(LogDetailDialog, {
+      props.detailOpen && detail && /* @__PURE__ */ jsx_dev_runtime18.jsxDEV(LogDetailDialog, {
         log: detail,
         scroll: props.detailScroll ?? 0,
         width: table.width
@@ -57472,58 +59009,58 @@ function LogRow(props) {
   const clientStr = pending ? "..." : String(props.log.status);
   const proxyStr = props.log.proxy ? String(props.log.proxy.status) : pending ? "..." : "-";
   const durationMs = pending ? elapsedDurationMs(props.log.at, props.now) : props.log.durationMs;
-  const durationStr = formatDuration(durationMs);
+  const durationStr = formatDuration2(durationMs);
   const summaryStr = summaryText(props.log, props.loadingFrame);
   const summaryTruncated = truncate3(summaryStr, props.table.summaryWidth);
-  return /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Box_default, {
+  return /* @__PURE__ */ jsx_dev_runtime18.jsxDEV(Box_default, {
     width: props.table.width,
     children: [
-      /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Text, {
+      /* @__PURE__ */ jsx_dev_runtime18.jsxDEV(Text, {
         color: props.selected ? "#d97757" : isNew ? "#facc15" : "gray",
         wrap: "truncate-end",
         children: col(iconStr, COL_ICON)
       }, undefined, false, undefined, this),
-      props.table.showId && /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Text, {
+      props.table.showId && /* @__PURE__ */ jsx_dev_runtime18.jsxDEV(Text, {
         color: props.selected ? "#d97757" : isNew ? "#facc15" : "gray",
         wrap: "truncate-end",
         children: col(idStr, COL_ID)
       }, undefined, false, undefined, this),
-      props.table.showTime && /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Text, {
+      props.table.showTime && /* @__PURE__ */ jsx_dev_runtime18.jsxDEV(Text, {
         color: isNew ? "#facc15" : "#aab3cf",
         wrap: "truncate-end",
         children: col(timeStr, COL_TIME)
       }, undefined, false, undefined, this),
-      /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Text, {
+      /* @__PURE__ */ jsx_dev_runtime18.jsxDEV(Text, {
         color: isNew ? "#facc15" : undefined,
         wrap: "truncate-end",
         children: col(methodStr, COL_METHOD)
       }, undefined, false, undefined, this),
-      /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Text, {
+      /* @__PURE__ */ jsx_dev_runtime18.jsxDEV(Text, {
         color: isNew ? "#facc15" : "#aab3cf",
         wrap: "truncate-end",
         children: col(pathStr, props.table.pathWidth)
       }, undefined, false, undefined, this),
-      props.table.showModel && /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Text, {
+      props.table.showModel && /* @__PURE__ */ jsx_dev_runtime18.jsxDEV(Text, {
         color: modelStr === "-" ? "gray" : "#aab3cf",
         wrap: "truncate-end",
         children: col(modelStr, COL_MODEL)
       }, undefined, false, undefined, this),
-      /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Text, {
+      /* @__PURE__ */ jsx_dev_runtime18.jsxDEV(Text, {
         color: pending ? "yellow" : statusColor(props.log.status),
         wrap: "truncate-end",
         children: col(clientStr, COL_CLIENT)
       }, undefined, false, undefined, this),
-      props.table.showProxy && /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Text, {
+      props.table.showProxy && /* @__PURE__ */ jsx_dev_runtime18.jsxDEV(Text, {
         color: props.log.proxy ? statusColor(props.log.proxy.status) : "gray",
         wrap: "truncate-end",
         children: col(proxyStr, COL_PROXY)
       }, undefined, false, undefined, this),
-      props.table.showDuration && /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Text, {
+      props.table.showDuration && /* @__PURE__ */ jsx_dev_runtime18.jsxDEV(Text, {
         color: durationColor(durationMs),
         wrap: "truncate-end",
         children: col(durationStr, COL_DURATION)
       }, undefined, false, undefined, this),
-      /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Text, {
+      /* @__PURE__ */ jsx_dev_runtime18.jsxDEV(Text, {
         color: summaryColor(props.log),
         wrap: "truncate-end",
         children: col(summaryTruncated, props.table.summaryWidth)
@@ -57537,7 +59074,7 @@ function LogDetailDialog(props) {
   const maxScroll = Math.max(0, lines.length - REQUEST_LOG_DETAIL_HEIGHT);
   const scroll = Math.max(0, Math.min(props.scroll, maxScroll));
   const visibleLines = lines.slice(scroll, scroll + REQUEST_LOG_DETAIL_HEIGHT);
-  return /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Box_default, {
+  return /* @__PURE__ */ jsx_dev_runtime18.jsxDEV(Box_default, {
     width: props.width,
     flexDirection: "column",
     marginTop: 1,
@@ -57546,50 +59083,50 @@ function LogDetailDialog(props) {
     paddingX: 1,
     paddingY: 1,
     children: [
-      /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Box_default, {
+      /* @__PURE__ */ jsx_dev_runtime18.jsxDEV(Box_default, {
         children: [
-          /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Text, {
+          /* @__PURE__ */ jsx_dev_runtime18.jsxDEV(Text, {
             bold: true,
             color: "#c7d2fe",
             children: "Request detail"
           }, undefined, false, undefined, this),
-          /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Text, {
+          /* @__PURE__ */ jsx_dev_runtime18.jsxDEV(Text, {
             color: "gray",
             wrap: "truncate-end",
             children: "  \u2191/\u2193 scroll \xB7 PgUp/PgDn fast \xB7 Home/End \xB7 Enter/Esc close"
           }, undefined, false, undefined, this)
         ]
       }, undefined, true, undefined, this),
-      /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Box_default, {
+      /* @__PURE__ */ jsx_dev_runtime18.jsxDEV(Box_default, {
         marginTop: 1,
         children: [
-          /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Text, {
+          /* @__PURE__ */ jsx_dev_runtime18.jsxDEV(Text, {
             color: "#d97757",
             children: "[c]"
           }, undefined, false, undefined, this),
-          /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Text, {
+          /* @__PURE__ */ jsx_dev_runtime18.jsxDEV(Text, {
             color: "gray",
             children: " copy request"
           }, undefined, false, undefined, this),
-          /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Text, {
+          /* @__PURE__ */ jsx_dev_runtime18.jsxDEV(Text, {
             color: "#d97757",
             children: "  [l]"
           }, undefined, false, undefined, this),
-          /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Text, {
+          /* @__PURE__ */ jsx_dev_runtime18.jsxDEV(Text, {
             color: "gray",
             children: " copy all logs"
           }, undefined, false, undefined, this),
-          /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Text, {
+          /* @__PURE__ */ jsx_dev_runtime18.jsxDEV(Text, {
             color: "#d97757",
             children: "  [x]"
           }, undefined, false, undefined, this),
-          /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Text, {
+          /* @__PURE__ */ jsx_dev_runtime18.jsxDEV(Text, {
             color: "gray",
             children: " clear logs"
           }, undefined, false, undefined, this)
         ]
       }, undefined, true, undefined, this),
-      /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Text, {
+      /* @__PURE__ */ jsx_dev_runtime18.jsxDEV(Text, {
         color: "gray",
         children: [
           "Rows ",
@@ -57600,7 +59137,7 @@ function LogDetailDialog(props) {
           lines.length
         ]
       }, undefined, true, undefined, this),
-      visibleLines.map((line, index) => /* @__PURE__ */ jsx_dev_runtime16.jsxDEV(Text, {
+      visibleLines.map((line, index) => /* @__PURE__ */ jsx_dev_runtime18.jsxDEV(Text, {
         color: line.color,
         wrap: "truncate-end",
         children: line.text
@@ -57718,7 +59255,7 @@ function durationColor(ms) {
     return "yellow";
   return "red";
 }
-function formatDuration(ms) {
+function formatDuration2(ms) {
   if (ms < 1000)
     return `${ms}ms`;
   return `${(ms / 1000).toFixed(1)}s`;
@@ -57894,7 +59431,7 @@ function formatResourceUsageHeader(usage) {
 }
 
 // src/ui/components/resource-usage-header.tsx
-var jsx_dev_runtime17 = __toESM(require_jsx_dev_runtime(), 1);
+var jsx_dev_runtime19 = __toESM(require_jsx_dev_runtime(), 1);
 var RESOURCE_REFRESH_INTERVAL_MS = 2000;
 var MIN_RULE_WIDTH = 6;
 function StatusHeader(props) {
@@ -57915,36 +59452,36 @@ function StatusHeader(props) {
     }, props.intervalMs ?? RESOURCE_REFRESH_INTERVAL_MS);
     return () => clearInterval(timer);
   }, [props.intervalMs]);
-  return /* @__PURE__ */ jsx_dev_runtime17.jsxDEV(Box_default, {
+  return /* @__PURE__ */ jsx_dev_runtime19.jsxDEV(Box_default, {
     width: props.width,
     children: [
-      /* @__PURE__ */ jsx_dev_runtime17.jsxDEV(Text, {
+      /* @__PURE__ */ jsx_dev_runtime19.jsxDEV(Text, {
         color: "#d97757",
         children: "\u2500".repeat(leftRuleWidth)
       }, undefined, false, undefined, this),
-      /* @__PURE__ */ jsx_dev_runtime17.jsxDEV(Text, {
+      /* @__PURE__ */ jsx_dev_runtime19.jsxDEV(Text, {
         children: " "
       }, undefined, false, undefined, this),
-      /* @__PURE__ */ jsx_dev_runtime17.jsxDEV(Box_default, {
+      /* @__PURE__ */ jsx_dev_runtime19.jsxDEV(Box_default, {
         width: textWidth,
-        children: /* @__PURE__ */ jsx_dev_runtime17.jsxDEV(Text, {
+        children: /* @__PURE__ */ jsx_dev_runtime19.jsxDEV(Text, {
           color: "#aab3cf",
           wrap: "truncate-end",
           children: props.text
         }, undefined, false, undefined, this)
       }, undefined, false, undefined, this),
-      resourceWidth > 0 && /* @__PURE__ */ jsx_dev_runtime17.jsxDEV(Box_default, {
+      resourceWidth > 0 && /* @__PURE__ */ jsx_dev_runtime19.jsxDEV(Box_default, {
         width: resourceWidth,
-        children: /* @__PURE__ */ jsx_dev_runtime17.jsxDEV(Text, {
+        children: /* @__PURE__ */ jsx_dev_runtime19.jsxDEV(Text, {
           color: "#8f817e",
           wrap: "truncate-end",
           children: resourceText
         }, undefined, false, undefined, this)
       }, undefined, false, undefined, this),
-      /* @__PURE__ */ jsx_dev_runtime17.jsxDEV(Text, {
+      /* @__PURE__ */ jsx_dev_runtime19.jsxDEV(Text, {
         children: " "
       }, undefined, false, undefined, this),
-      /* @__PURE__ */ jsx_dev_runtime17.jsxDEV(Text, {
+      /* @__PURE__ */ jsx_dev_runtime19.jsxDEV(Text, {
         color: "#d97757",
         children: "\u2500".repeat(rightRuleWidth)
       }, undefined, false, undefined, this)
@@ -57953,86 +59490,86 @@ function StatusHeader(props) {
 }
 
 // src/ui/components/switch-provider-confirm.tsx
-var jsx_dev_runtime18 = __toESM(require_jsx_dev_runtime(), 1);
+var jsx_dev_runtime20 = __toESM(require_jsx_dev_runtime(), 1);
 function SwitchProviderConfirm(props) {
-  return /* @__PURE__ */ jsx_dev_runtime18.jsxDEV(Box_default, {
+  return /* @__PURE__ */ jsx_dev_runtime20.jsxDEV(Box_default, {
     borderStyle: "round",
     borderColor: "#7f4f45",
     flexDirection: "column",
     paddingX: 2,
     paddingY: 1,
     children: [
-      /* @__PURE__ */ jsx_dev_runtime18.jsxDEV(Text, {
+      /* @__PURE__ */ jsx_dev_runtime20.jsxDEV(Text, {
         bold: true,
         color: "#d97757",
         children: "Switch upstream provider"
       }, undefined, false, undefined, this),
-      /* @__PURE__ */ jsx_dev_runtime18.jsxDEV(Box_default, {
+      /* @__PURE__ */ jsx_dev_runtime20.jsxDEV(Box_default, {
         marginTop: 1,
-        children: /* @__PURE__ */ jsx_dev_runtime18.jsxDEV(Text, {
+        children: /* @__PURE__ */ jsx_dev_runtime20.jsxDEV(Text, {
           color: "#aab3cf",
           children: [
             "Current: ",
-            /* @__PURE__ */ jsx_dev_runtime18.jsxDEV(Text, {
+            /* @__PURE__ */ jsx_dev_runtime20.jsxDEV(Text, {
               bold: true,
               children: props.currentLabel
             }, undefined, false, undefined, this)
           ]
         }, undefined, true, undefined, this)
       }, undefined, false, undefined, this),
-      /* @__PURE__ */ jsx_dev_runtime18.jsxDEV(Box_default, {
+      /* @__PURE__ */ jsx_dev_runtime20.jsxDEV(Box_default, {
         marginTop: 1,
         flexDirection: "column",
-        children: props.options.map((option, index) => /* @__PURE__ */ jsx_dev_runtime18.jsxDEV(Box_default, {
+        children: props.options.map((option, index) => /* @__PURE__ */ jsx_dev_runtime20.jsxDEV(Box_default, {
           children: [
-            /* @__PURE__ */ jsx_dev_runtime18.jsxDEV(Box_default, {
+            /* @__PURE__ */ jsx_dev_runtime20.jsxDEV(Box_default, {
               width: 4,
-              children: /* @__PURE__ */ jsx_dev_runtime18.jsxDEV(Text, {
+              children: /* @__PURE__ */ jsx_dev_runtime20.jsxDEV(Text, {
                 color: props.selected === index ? "#d97757" : "gray",
                 children: props.selected === index ? "\u203A" : " "
               }, undefined, false, undefined, this)
             }, undefined, false, undefined, this),
-            /* @__PURE__ */ jsx_dev_runtime18.jsxDEV(Box_default, {
+            /* @__PURE__ */ jsx_dev_runtime20.jsxDEV(Box_default, {
               width: 14,
-              children: /* @__PURE__ */ jsx_dev_runtime18.jsxDEV(Text, {
+              children: /* @__PURE__ */ jsx_dev_runtime20.jsxDEV(Text, {
                 bold: props.selected === index,
                 children: option.label
               }, undefined, false, undefined, this)
             }, undefined, false, undefined, this),
-            /* @__PURE__ */ jsx_dev_runtime18.jsxDEV(Text, {
+            /* @__PURE__ */ jsx_dev_runtime20.jsxDEV(Text, {
               color: option.current ? "#aab3cf" : "gray",
               children: option.current ? "current" : "switch target"
             }, undefined, false, undefined, this)
           ]
         }, option.label, true, undefined, this))
       }, undefined, false, undefined, this),
-      /* @__PURE__ */ jsx_dev_runtime18.jsxDEV(Box_default, {
+      /* @__PURE__ */ jsx_dev_runtime20.jsxDEV(Box_default, {
         marginTop: 1,
-        children: /* @__PURE__ */ jsx_dev_runtime18.jsxDEV(Text, {
+        children: /* @__PURE__ */ jsx_dev_runtime20.jsxDEV(Text, {
           color: "yellow",
           children: "\u26A0 The runtime will restart and active connections will be interrupted."
         }, undefined, false, undefined, this)
       }, undefined, false, undefined, this),
-      /* @__PURE__ */ jsx_dev_runtime18.jsxDEV(Box_default, {
+      /* @__PURE__ */ jsx_dev_runtime20.jsxDEV(Box_default, {
         marginTop: 1,
         children: [
-          /* @__PURE__ */ jsx_dev_runtime18.jsxDEV(Text, {
+          /* @__PURE__ */ jsx_dev_runtime20.jsxDEV(Text, {
             color: "gray",
             children: "\u2191/\u2193 choose \xB7 "
           }, undefined, false, undefined, this),
-          /* @__PURE__ */ jsx_dev_runtime18.jsxDEV(Text, {
+          /* @__PURE__ */ jsx_dev_runtime20.jsxDEV(Text, {
             bold: true,
             children: "Enter"
           }, undefined, false, undefined, this),
-          /* @__PURE__ */ jsx_dev_runtime18.jsxDEV(Text, {
+          /* @__PURE__ */ jsx_dev_runtime20.jsxDEV(Text, {
             color: "gray",
             children: " switch \xB7 "
           }, undefined, false, undefined, this),
-          /* @__PURE__ */ jsx_dev_runtime18.jsxDEV(Text, {
+          /* @__PURE__ */ jsx_dev_runtime20.jsxDEV(Text, {
             bold: true,
             children: "Escape"
           }, undefined, false, undefined, this),
-          /* @__PURE__ */ jsx_dev_runtime18.jsxDEV(Text, {
+          /* @__PURE__ */ jsx_dev_runtime20.jsxDEV(Text, {
             color: "gray",
             children: " cancel"
           }, undefined, false, undefined, this)
@@ -58426,6 +59963,117 @@ function errorMessage4(error) {
   return error instanceof Error ? error.message : String(error);
 }
 
+// src/upstream/codex/browser-login.ts
+var CODEX_LOGIN_PORT = 1455;
+var CODEX_LOGIN_REDIRECT_PATH = "/auth/callback";
+var CODEX_LOGIN_SCOPE = "openid profile email offline_access";
+var CODEX_LOGIN_TIMEOUT_MS = 5 * 60000;
+function codexLoginRedirectUri(port = CODEX_LOGIN_PORT) {
+  return `http://localhost:${port}${CODEX_LOGIN_REDIRECT_PATH}`;
+}
+function codexAuthorizeUrl(options) {
+  const params = new URLSearchParams({
+    response_type: "code",
+    client_id: options.clientId ?? DEFAULT_CLIENT_ID,
+    redirect_uri: codexLoginRedirectUri(options.port),
+    scope: CODEX_LOGIN_SCOPE,
+    code_challenge: options.challenge,
+    code_challenge_method: "S256",
+    state: options.state
+  });
+  return `${options.issuer ?? DEFAULT_ISSUER}/oauth/authorize?${params.toString()}`;
+}
+async function runCodexBrowserLogin(options = {}) {
+  const port = options.port ?? CODEX_LOGIN_PORT;
+  const verifier = randomUrlSafe(32);
+  const challenge = await pkceChallenge(verifier);
+  const state = randomUrlSafe(16);
+  const authorizeUrl = codexAuthorizeUrl({ ...options, challenge, state });
+  const code = await waitForAuthorizationCode({ ...options, port, state, authorizeUrl });
+  return exchangeAuthorizationCode(code, verifier, { ...options, port });
+}
+async function waitForAuthorizationCode(options) {
+  const serve = options.serve ?? Bun.serve;
+  let settle;
+  const result2 = new Promise((resolve) => {
+    settle = resolve;
+  });
+  let server;
+  try {
+    server = serve({
+      port: options.port,
+      hostname: "127.0.0.1",
+      fetch(request) {
+        const url = new URL(request.url);
+        if (url.pathname !== CODEX_LOGIN_REDIRECT_PATH)
+          return new Response("Not found", { status: 404 });
+        const fail = (message) => {
+          queueMicrotask(() => settle({ error: new Error(message) }));
+          return htmlResponse("Sign-in failed. You can close this tab and try again.");
+        };
+        const error = url.searchParams.get("error");
+        if (error)
+          return fail(`Sign-in failed: ${url.searchParams.get("error_description") ?? error}`);
+        if (url.searchParams.get("state") !== options.state)
+          return fail("Sign-in failed: state mismatch");
+        const code = url.searchParams.get("code");
+        if (!code)
+          return fail("Sign-in failed: callback did not include a code");
+        queueMicrotask(() => settle({ code }));
+        return htmlResponse("Signed in. You can close this tab and return to Codex2ClaudeCode.");
+      }
+    });
+  } catch (error) {
+    throw new Error(`Could not listen on ${codexLoginRedirectUri(options.port)} \u2014 is another login already running? (${error instanceof Error ? error.message : String(error)})`);
+  }
+  const timeout = setTimeout(() => settle({ error: new Error("Sign-in timed out") }), options.timeoutMs ?? CODEX_LOGIN_TIMEOUT_MS);
+  const onAbort = () => settle({ error: new Error("Sign-in cancelled") });
+  options.signal?.addEventListener("abort", onAbort, { once: true });
+  try {
+    options.onAuthorizeUrl?.(options.authorizeUrl);
+    await options.openBrowser?.(options.authorizeUrl);
+    const settled = await result2;
+    if (settled.error)
+      throw settled.error;
+    return settled.code;
+  } finally {
+    clearTimeout(timeout);
+    options.signal?.removeEventListener("abort", onAbort);
+    server.stop();
+  }
+}
+async function exchangeAuthorizationCode(code, verifier, options) {
+  const response = await (options.fetch ?? fetch)(`${options.issuer ?? DEFAULT_ISSUER}/oauth/token`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      grant_type: "authorization_code",
+      code,
+      client_id: options.clientId ?? DEFAULT_CLIENT_ID,
+      redirect_uri: codexLoginRedirectUri(options.port),
+      code_verifier: verifier
+    }).toString()
+  });
+  if (!response.ok)
+    throw new Error(`Token exchange failed: ${response.status} ${await response.text()}`);
+  const tokens = await response.json();
+  if (!tokens.access_token || !tokens.refresh_token)
+    throw new Error("Token exchange did not return a refresh token");
+  return tokens;
+}
+function htmlResponse(message) {
+  return new Response(`<!doctype html><meta charset="utf-8"><title>Codex2ClaudeCode</title><body style="font-family:system-ui;padding:3rem"><p>${message}</p></body>`, {
+    headers: { "content-type": "text/html; charset=utf-8" }
+  });
+}
+function randomUrlSafe(bytes) {
+  return Buffer.from(crypto.getRandomValues(new Uint8Array(bytes))).toString("base64url");
+}
+async function pkceChallenge(verifier) {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier));
+  return Buffer.from(digest).toString("base64url");
+}
+
 // src/upstream/codex/connect-account.ts
 async function connectAccount(authFile, draft, options) {
   return saveConnectedAuth(authFile, await connectedAuthEntry(draft, options), options);
@@ -58444,6 +60092,19 @@ async function connectAccountFromCodexAuth(authFile, source = DEFAULT_CODEX_CLI_
     ...options,
     codexAuthFile: sourceAuthFile
   });
+}
+async function connectAccountFromBrowserLogin(authFile, options) {
+  const tokens = await runCodexBrowserLogin(options);
+  const accountId = extractAccountId(tokens);
+  if (!accountId)
+    throw new Error("Sign-in succeeded but the account id is missing from the token");
+  return saveConnectedAuth(authFile, {
+    type: "oauth",
+    access: cleanToken4(tokens.access_token),
+    refresh: cleanToken4(tokens.refresh_token),
+    expires: Date.now() + (tokens.expires_in ?? 3600) * 1000,
+    accountId
+  }, { ...options, syncCodexCli: false });
 }
 async function connectedAuthEntry(draft, options) {
   const refreshToken = cleanToken4(draft.refreshToken);
@@ -58478,13 +60139,15 @@ async function saveConnectedAuth(authFile, auth3, options) {
 `);
     await writeAccountInfoFile(authFile, nextEntries, auth3.accountId);
   }
-  await syncCodexCliAuthTokens({
-    accountId: auth3.accountId,
-    accessToken: auth3.access,
-    refreshToken: auth3.refresh,
-    path: auth3.sourceAuthFile ?? options?.codexAuthFile,
-    sourceAccountKey: auth3.sourceAccountKey
-  }).catch(() => false);
+  if (options?.syncCodexCli !== false) {
+    await syncCodexCliAuthTokens({
+      accountId: auth3.accountId,
+      accessToken: auth3.access,
+      refreshToken: auth3.refresh,
+      path: auth3.sourceAuthFile ?? options?.codexAuthFile,
+      sourceAccountKey: auth3.sourceAccountKey
+    }).catch(() => false);
+  }
   return {
     accountId: auth3.accountId,
     data: nextEntries
@@ -58584,6 +60247,21 @@ var codexProviderDefinition = {
       title: "Connect Codex account",
       sources: [
         {
+          label: "Login with browser",
+          description: "Sign in to ChatGPT and store the account here only",
+          savingMessage: "Opening the ChatGPT sign-in page...",
+          import: async (authFile, context) => {
+            const result2 = await connectAccountFromBrowserLogin(authFile, {
+              onAuthorizeUrl: (url) => {
+                context?.reportProgress?.({ message: "Waiting for the browser sign-in to finish...", verificationUri: url });
+                context?.report?.("Waiting for the browser sign-in to finish...");
+              },
+              openBrowser: openInBrowser
+            });
+            return { accountKey: requireAccountKey(result2.accountId), data: result2.data };
+          }
+        },
+        {
           label: "Add from ~/.codex/auth.json",
           description: "Import ChatGPT tokens from Codex CLI auth file",
           savingMessage: "Importing from ~/.codex/auth.json...",
@@ -58634,6 +60312,12 @@ function persistCodexActiveAccount(authFile, data, accountKey) {
 }
 function errorMessage5(error) {
   return error instanceof Error ? error.message : String(error);
+}
+function openInBrowser(url) {
+  const command = process.platform === "darwin" ? ["open", url] : process.platform === "win32" ? ["cmd", "/c", "start", "", url] : ["xdg-open", url];
+  try {
+    Bun.spawn(command, { stdout: "ignore", stderr: "ignore" }).unref();
+  } catch {}
 }
 function requireAccountKey(accountKey) {
   if (!accountKey)
@@ -58886,11 +60570,11 @@ function useCodexFastMode(options) {
       return;
     }
     let active = true;
-    readCodexFastModeConfig(authFile).then((config2) => {
+    readCodexFastModeConfig(authFile).then((config3) => {
       if (!active)
         return;
-      setEnabled(config2.enabled);
-      setSelected(config2.enabled ? 0 : 1);
+      setEnabled(config3.enabled);
+      setSelected(config3.enabled ? 0 : 1);
     }).catch(() => {
       if (!active)
         return;
@@ -59258,7 +60942,7 @@ function useProviderRuntime(options) {
 }
 
 // src/ui/app.tsx
-var jsx_dev_runtime19 = __toESM(require_jsx_dev_runtime(), 1);
+var jsx_dev_runtime21 = __toESM(require_jsx_dev_runtime(), 1);
 function CodexCodeApp(props) {
   const app = use_app_default();
   const { stdout } = use_stdout_default();
@@ -59273,6 +60957,14 @@ function CodexCodeApp(props) {
   const [mode, setMode] = import_react40.useState("home");
   const [selectorIndex, setSelectorIndex] = import_react40.useState(0);
   const [switchProviderIndex, setSwitchProviderIndex] = import_react40.useState(0);
+  const [codexCliModels, setCodexCliModels] = import_react40.useState([]);
+  const [codexCliLoading, setCodexCliLoading] = import_react40.useState(false);
+  const [codexCliIndex, setCodexCliIndex] = import_react40.useState(0);
+  const [rotation, setRotation] = import_react40.useState();
+  const [rotationIndex, setRotationIndex] = import_react40.useState(0);
+  const [rotationUsage, setRotationUsage] = import_react40.useState({});
+  const [rotationLoading, setRotationLoading] = import_react40.useState(false);
+  const [rotationEnabledSetting, setRotationEnabledSetting] = import_react40.useState(false);
   const [requestLogs, setRequestLogs] = import_react40.useState([]);
   const [requestLogDetails, setRequestLogDetails] = import_react40.useState({});
   const [logsSelected, setLogsSelected] = import_react40.useState(0);
@@ -59386,6 +61078,43 @@ function CodexCodeApp(props) {
     onKiroInfo: updateKiroInfo,
     onMessage: setInputMessage
   });
+  import_react40.useEffect(() => {
+    let active = true;
+    readRotationConfig(providerMode).then((config3) => {
+      if (active)
+        setRotationEnabledSetting(config3.enabled);
+    }).catch(() => {
+      if (active)
+        setRotationEnabledSetting(false);
+    });
+    return () => {
+      active = false;
+    };
+  }, [providerMode]);
+  const accountKeys = import_react40.useMemo(() => accounts.map((item) => item.key), [accounts]);
+  const buildRotationView = import_react40.useCallback(() => rotationViewOrFallback(upstream, { enabled: rotationEnabledSetting, accounts: accountKeys, activeAccount: accountKey }, rotationUsage), [accountKey, accountKeys, rotationEnabledSetting, rotationUsage, upstream]);
+  import_react40.useEffect(() => {
+    setRotation(buildRotationView());
+    const timer = setInterval(() => setRotation(buildRotationView()), 5000);
+    return () => clearInterval(timer);
+  }, [buildRotationView]);
+  const refreshRotationUsage = import_react40.useCallback(async () => {
+    setRotationLoading(true);
+    try {
+      setRotationUsage(await loadRotationUsage(upstream));
+    } finally {
+      setRotationLoading(false);
+    }
+  }, [upstream]);
+  const rotationPoolActive = Boolean(rotation?.enabled && rotation.rotatable);
+  import_react40.useEffect(() => {
+    setRotationUsage({});
+    if (!rotationPoolActive)
+      return;
+    refreshRotationUsage();
+    const timer = setInterval(() => void refreshRotationUsage(), ROTATION_USAGE_REFRESH_INTERVAL_MS);
+    return () => clearInterval(timer);
+  }, [refreshRotationUsage, rotationPoolActive]);
   const resetForProviderSwitch = import_react40.useCallback((_targetMode) => {
     resetRuntimeLogs();
     resetLimits();
@@ -59765,6 +61494,18 @@ function CodexCodeApp(props) {
         setInputMessage("Codex fast mode unchanged");
         return;
       }
+      if (mode === "codex-cli-setup") {
+        setMode("home");
+        setCommandIndex(0);
+        setInputMessage("Codex CLI profile unchanged");
+        return;
+      }
+      if (mode === "rotation") {
+        setMode("home");
+        setCommandIndex(0);
+        setInputMessage("Account rotation unchanged");
+        return;
+      }
       if (mode === "account-selector") {
         setMode("home");
         setCommandIndex(0);
@@ -60016,10 +61757,31 @@ function CodexCodeApp(props) {
         setMode("claude-env-confirm");
         return;
       }
+      if (mode === "codex-cli-setup") {
+        setMode("home");
+        setCommandIndex(0);
+        setInputMessage("Codex CLI profile saved");
+        const outputRevision = beginCommandOutput();
+        applyCodexCliSetup(baseUrl(hostname, activePort), codexCliIndex === 1).then((output) => setCommandOutputForRevision(outputRevision, { title: `Set Codex CLI profile - ${codexCliProfilePath()}`, output })).catch((error) => setCommandOutputForRevision(outputRevision, { title: "Set Codex CLI profile failed", output: error instanceof Error ? error.message : String(error) }));
+        return;
+      }
       if (mode === "codex-fast-mode") {
         codexFastMode.saveSelection();
         setMode("home");
         setCommandIndex(0);
+        return;
+      }
+      if (mode === "rotation") {
+        const enabled = rotationIndex === 0;
+        setMode("home");
+        setCommandIndex(0);
+        if (!rotation) {
+          setInputMessage("Connect an account before enabling rotation");
+          return;
+        }
+        setRotationEnabledSetting(enabled);
+        setInputMessage(enabled && !rotation.rotatable ? "Account rotation ON \u2014 idle until a second account is connected" : `Account rotation ${enabled ? "ON" : "OFF"}`);
+        setRotationEnabled(providerMode, upstream, enabled).catch((error) => setInputMessage(`Account rotation save failed: ${error instanceof Error ? error.message : String(error)}`));
         return;
       }
       if (mode === "account-selector") {
@@ -60126,6 +61888,25 @@ function CodexCodeApp(props) {
           setCommandIndex(0);
           return;
         }
+        if (command.name === "/rotation") {
+          const current = buildRotationView();
+          setRotation(current);
+          setRotationIndex(current?.enabled ? 0 : 1);
+          setMode("rotation");
+          setCommandIndex(0);
+          setInputMessage(current ? "Select account rotation" : "Connect an account before enabling rotation");
+          if (current?.rotatable)
+            refreshRotationUsage();
+          return;
+        }
+        if (command.name === "/set-codex-cli") {
+          loadCodexCliModels();
+          setCodexCliIndex(0);
+          setMode("codex-cli-setup");
+          setCommandIndex(0);
+          setInputMessage("Enter to write the Codex CLI profile");
+          return;
+        }
         if (command.name === "/set-claude-env") {
           readClaudeEnvironmentConfig(authFile, providerMode).then((draft) => setClaudeEnvDraft(draft)).catch(() => setClaudeEnvDraft(defaultClaudeEnvironment(providerMode)));
           setClaudeEnvIndex(0);
@@ -60176,6 +61957,11 @@ function CodexCodeApp(props) {
     if (mode === "codex-fast-mode") {
       if (key.upArrow || key.downArrow)
         codexFastMode.setSelected((value) => (value + 1) % 2);
+      return;
+    }
+    if (mode === "rotation") {
+      if (key.upArrow || key.downArrow)
+        setRotationIndex((value) => (value + 1) % 2);
       return;
     }
     if (mode === "connect-source") {
@@ -60281,6 +62067,11 @@ function CodexCodeApp(props) {
         setClaudeEnvDraft((draft) => updateClaudeEnvDraft(draft, claudeEnvIndex, (value) => `${value}${input}`));
       return;
     }
+    if (mode === "codex-cli-setup") {
+      if (key.upArrow || key.downArrow)
+        setCodexCliIndex((value) => (value + 1) % 2);
+      return;
+    }
     if (mode === "connect-account") {
       if (input && !key.upArrow && !key.downArrow && !key.leftArrow && !key.rightArrow) {
         setConnectDraft((draft) => updateConnectDraft(draft, connectFields, connectStep, (value) => `${value}${input}`));
@@ -60321,17 +62112,17 @@ function CodexCodeApp(props) {
       }
     }
   });
-  return /* @__PURE__ */ jsx_dev_runtime19.jsxDEV(Box_default, {
+  return /* @__PURE__ */ jsx_dev_runtime21.jsxDEV(Box_default, {
     flexDirection: "column",
     paddingX: 1,
     paddingY: 1,
     children: [
-      /* @__PURE__ */ jsx_dev_runtime19.jsxDEV(StatusHeader, {
+      /* @__PURE__ */ jsx_dev_runtime21.jsxDEV(StatusHeader, {
         width: dashboardWidth,
         text: headerText,
         resourceWidth: headerResourceWidth
       }, undefined, false, undefined, this),
-      /* @__PURE__ */ jsx_dev_runtime19.jsxDEV(ProviderDashboard, {
+      /* @__PURE__ */ jsx_dev_runtime21.jsxDEV(ProviderDashboard, {
         hostname,
         port: activePort,
         contentWidth,
@@ -60346,31 +62137,38 @@ function CodexCodeApp(props) {
         limitsLoading,
         limitsError,
         apiPassword,
-        endpointProxyLines: endpointProxySummaryLines
+        endpointProxyLines: endpointProxySummaryLines,
+        rotation,
+        rotationLoading
       }, undefined, false, undefined, this),
-      mode === "home" && /* @__PURE__ */ jsx_dev_runtime19.jsxDEV(CommandInput, {
+      mode === "home" && /* @__PURE__ */ jsx_dev_runtime21.jsxDEV(CommandInput, {
         selected: commandIndex,
         message: inputMessage,
         commands
       }, undefined, false, undefined, this),
-      mode === "account-selector" && accountCapability && /* @__PURE__ */ jsx_dev_runtime19.jsxDEV(AccountSelector, {
+      mode === "account-selector" && accountCapability && /* @__PURE__ */ jsx_dev_runtime21.jsxDEV(AccountSelector, {
         accounts,
         selected: selectorIndex,
         title: accountCapability.selectorTitle,
         description: accountCapability.selectorDescription
       }, undefined, false, undefined, this),
-      mode === "codex-fast-mode" && providerMode === "codex" && /* @__PURE__ */ jsx_dev_runtime19.jsxDEV(CodexFastModeSelector, {
+      mode === "codex-fast-mode" && providerMode === "codex" && /* @__PURE__ */ jsx_dev_runtime21.jsxDEV(CodexFastModeSelector, {
         selected: codexFastMode.selected,
         current: codexFastMode.enabled
       }, undefined, false, undefined, this),
-      mode === "connect-source" && connectCapability && /* @__PURE__ */ jsx_dev_runtime19.jsxDEV(ConnectSourceSelector, {
+      mode === "rotation" && /* @__PURE__ */ jsx_dev_runtime21.jsxDEV(RotationSelector, {
+        selected: rotationIndex,
+        view: rotation,
+        loading: rotationLoading
+      }, undefined, false, undefined, this),
+      mode === "connect-source" && connectCapability && /* @__PURE__ */ jsx_dev_runtime21.jsxDEV(ConnectSourceSelector, {
         connect: connectCapability,
         selected: connectSourceIndex,
         saving: connectSaving,
         status: connectStatus,
         progress: connectProgress
       }, undefined, false, undefined, this),
-      mode === "connect-account" && connectCapability && /* @__PURE__ */ jsx_dev_runtime19.jsxDEV(ConnectAccountWizard, {
+      mode === "connect-account" && connectCapability && /* @__PURE__ */ jsx_dev_runtime21.jsxDEV(ConnectAccountWizard, {
         title: connectCapability.title,
         description: connectCapability.manualDescription,
         draft: connectDraft,
@@ -60378,7 +62176,7 @@ function CodexCodeApp(props) {
         step: connectStep,
         saving: connectSaving
       }, undefined, false, undefined, this),
-      mode === "endpoint-share" && /* @__PURE__ */ jsx_dev_runtime19.jsxDEV(EndpointShareWizard, {
+      mode === "endpoint-share" && /* @__PURE__ */ jsx_dev_runtime21.jsxDEV(EndpointShareWizard, {
         providerMode,
         step: endpointShareStep,
         endpointOptions: endpointShareEndpointOptionsList,
@@ -60388,7 +62186,7 @@ function CodexCodeApp(props) {
         saving: endpointShareSaving,
         status: endpointShareStatus
       }, undefined, false, undefined, this),
-      mode === "switch-provider" && /* @__PURE__ */ jsx_dev_runtime19.jsxDEV(SwitchProviderConfirm, {
+      mode === "switch-provider" && /* @__PURE__ */ jsx_dev_runtime21.jsxDEV(SwitchProviderConfirm, {
         currentLabel: providerInfo.label,
         selected: switchProviderIndex,
         options: switchProviderOptions.map((provider2) => ({
@@ -60396,7 +62194,7 @@ function CodexCodeApp(props) {
           current: provider2.mode === providerMode
         }))
       }, undefined, false, undefined, this),
-      mode === "logs" && /* @__PURE__ */ jsx_dev_runtime19.jsxDEV(RequestLogsPanel, {
+      mode === "logs" && /* @__PURE__ */ jsx_dev_runtime21.jsxDEV(RequestLogsPanel, {
         logs: visibleRequestLogs,
         selected: logsSelected,
         autoFollow: logsAutoFollow,
@@ -60407,15 +62205,15 @@ function CodexCodeApp(props) {
         fileError: logsFileError,
         requestLogMode: logsCaptureMode
       }, undefined, false, undefined, this),
-      mode === "claude-env-scope" && /* @__PURE__ */ jsx_dev_runtime19.jsxDEV(ClaudeEnvironmentScopeSelector, {
+      mode === "claude-env-scope" && /* @__PURE__ */ jsx_dev_runtime21.jsxDEV(ClaudeEnvironmentScopeSelector, {
         selected: claudeEnvScopeIndex,
         action: claudeEnvAction
       }, undefined, false, undefined, this),
-      mode === "claude-env-preset" && /* @__PURE__ */ jsx_dev_runtime19.jsxDEV(ClaudeEnvironmentPresetSelector, {
+      mode === "claude-env-preset" && /* @__PURE__ */ jsx_dev_runtime21.jsxDEV(ClaudeEnvironmentPresetSelector, {
         selected: claudeEnvPresetIndex,
         settingsTarget: claudeSettingsTarget
       }, undefined, false, undefined, this),
-      (mode === "claude-env-editor" || mode === "claude-env-confirm") && /* @__PURE__ */ jsx_dev_runtime19.jsxDEV(ClaudeEnvironmentEditor, {
+      (mode === "claude-env-editor" || mode === "claude-env-confirm") && /* @__PURE__ */ jsx_dev_runtime21.jsxDEV(ClaudeEnvironmentEditor, {
         draft: claudeEnvDraft,
         selected: claudeEnvIndex,
         baseUrl: baseUrl(hostname, activePort),
@@ -60424,17 +62222,32 @@ function CodexCodeApp(props) {
         settingsTarget: claudeSettingsTarget,
         apiPassword
       }, undefined, false, undefined, this),
-      mode === "claude-env-unset-confirm" && /* @__PURE__ */ jsx_dev_runtime19.jsxDEV(ClaudeEnvironmentUnsetConfirm, {
+      mode === "claude-env-unset-confirm" && /* @__PURE__ */ jsx_dev_runtime21.jsxDEV(ClaudeEnvironmentUnsetConfirm, {
         draft: claudeEnvDraft,
         shell: shell.kind === "unsupported" ? "posix" : shell.kind,
         settingsTarget: claudeSettingsTarget
       }, undefined, false, undefined, this),
-      commandOutput && /* @__PURE__ */ jsx_dev_runtime19.jsxDEV(CommandOutput, {
+      mode === "codex-cli-setup" && /* @__PURE__ */ jsx_dev_runtime21.jsxDEV(CodexCliSetup, {
+        baseUrl: baseUrl(hostname, activePort),
+        profilePath: codexCliProfilePath(),
+        models: codexCliModels,
+        selected: codexCliIndex,
+        loading: codexCliLoading
+      }, undefined, false, undefined, this),
+      commandOutput && /* @__PURE__ */ jsx_dev_runtime21.jsxDEV(CommandOutput, {
         title: commandOutput.title,
         output: commandOutput.output
       }, undefined, false, undefined, this)
     ]
   }, undefined, true, undefined, this);
+  async function loadCodexCliModels() {
+    setCodexCliLoading(true);
+    try {
+      setCodexCliModels(await codexCliModelIds(upstream));
+    } finally {
+      setCodexCliLoading(false);
+    }
+  }
   function applyConnectedAccount(data, nextAccountKey) {
     const nextAccounts = accountCapability?.toAccounts(data) ?? [];
     const nextSelected = Math.max(0, nextAccounts.findIndex((item) => item.key === nextAccountKey));
@@ -60501,9 +62314,9 @@ function upsertRequestLog(logs, entry) {
 }
 
 // src/ui/index.tsx
-var jsx_dev_runtime20 = __toESM(require_jsx_dev_runtime(), 1);
+var jsx_dev_runtime22 = __toESM(require_jsx_dev_runtime(), 1);
 function runUi(options) {
-  return render_default(/* @__PURE__ */ jsx_dev_runtime20.jsxDEV(CodexCodeApp, {
+  return render_default(/* @__PURE__ */ jsx_dev_runtime22.jsxDEV(CodexCodeApp, {
     port: options?.port,
     hostname: options?.hostname,
     apiPassword: options?.password
@@ -60513,7 +62326,7 @@ function runUi(options) {
 // index.ts
 if (import.meta.main) {
   const options = parseCliOptions();
-  Promise.resolve(process.env.CODEX_RUN_EXAMPLE === "1" ? runExample() : process.env.CODEX_NO_UI === "1" ? startRuntime({ port: options.port, hostname: options.hostname, apiPassword: options.password }) : runUi(options)).catch((error) => {
+  Promise.resolve(options.setupCodexCli ? setupCodexCli({ port: options.port, makeDefault: options.codexCliMakeDefault }) : process.env.CODEX_RUN_EXAMPLE === "1" ? runExample() : process.env.CODEX_NO_UI === "1" ? startRuntime({ port: options.port, hostname: options.hostname, apiPassword: options.password }) : runUi(options)).catch((error) => {
     console.error(error);
     process.exit(1);
   });

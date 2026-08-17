@@ -1,7 +1,7 @@
 import type { Canonical_InputMessage, Canonical_Request } from "../../core/canonical"
 import type { JsonObject } from "../../core/types"
-import { REASONING_EFFORT_BUDGETS, TOOL_DESCRIPTION_MAX_LENGTH, TOOL_NAME_MAX_LENGTH, kiroPayloadSizeLimitBytes } from "./constants"
-import type { KiroAuthType, KiroGeneratePayload, KiroHistoryEntry, KiroImage, KiroToolResult, KiroToolSpecification, KiroToolUse } from "./types"
+import { TOOL_DESCRIPTION_MAX_LENGTH, TOOL_NAME_MAX_LENGTH, kiroPayloadSizeLimitBytes } from "./constants"
+import type { KiroAuthType, KiroEffortSelection, KiroGeneratePayload, KiroHistoryEntry, KiroImage, KiroToolResult, KiroToolSpecification, KiroToolUse } from "./types"
 import { PayloadTooLargeError, ToolNameTooLongError } from "./types"
 
 interface ConvertOptions {
@@ -12,6 +12,7 @@ interface ConvertOptions {
   payloadSizeLimitBytes?: number
   payloadOverflowMode?: "trim" | "context_error"
   onTrim?: (notice: KiroPayloadTrimNotice) => void
+  effort?: KiroEffortSelection
 }
 
 export const CLAUDE_CONTEXT_LIMIT_MESSAGE = "Your input exceeds the context window of this model. Please adjust your input and try again."
@@ -57,9 +58,7 @@ export function convertCanonicalToKiroPayload(request: Canonical_Request, effect
   let currentMessage = repaired.currentMessage
   embedInstructions(historyMessages, currentMessage, baseInstructions)
   ensureHistoryContent(historyMessages)
-  const preserveCurrentThinkingPrefix = injectThinkingTags(currentMessage, request.reasoningEffort)
-
-  return trimPayload(buildPayload(historyMessages, currentMessage, tools, options), tools, options, baseInstructions, preserveCurrentThinkingPrefix)
+  return trimPayload(buildPayload(historyMessages, currentMessage, tools, options), tools, options, baseInstructions)
 }
 
 export function sanitizeToolSchema(schema: unknown): Record<string, unknown> {
@@ -264,34 +263,16 @@ function previousAssistant(messages: WorkingMessage[], index: number) {
   }
 }
 
-function embedInstructions(historyMessages: WorkingMessage[], currentMessage: WorkingMessage, instructions: string, preserveCurrentThinkingPrefix = false) {
+function embedInstructions(historyMessages: WorkingMessage[], currentMessage: WorkingMessage, instructions: string) {
   if (!instructions) return
   const target = historyMessages.find((message) => message.role === "user") ?? currentMessage
-  if (preserveCurrentThinkingPrefix && target === currentMessage) {
-    const { prefix, body } = splitThinkingPrefix(target.content)
-    target.content = `${prefix}${instructions}\n\n${body || "Continue"}`
-    return
-  }
   target.content = `${instructions}\n\n${target.content || "Continue"}`
-}
-
-function splitThinkingPrefix(content: string) {
-  const match = content.match(/^<thinking_mode>enabled<\/thinking_mode>\n<max_thinking_length>\d+<\/max_thinking_length>\n/)
-  return match ? { prefix: match[0], body: content.slice(match[0].length) } : { prefix: "", body: content }
 }
 
 function ensureHistoryContent(historyMessages: WorkingMessage[]) {
   for (const message of historyMessages) {
     if (!message.content) message.content = "(empty)"
   }
-}
-
-function injectThinkingTags(currentMessage: WorkingMessage, reasoningEffort?: string) {
-  if (!reasoningEffort) return false
-  const budget = REASONING_EFFORT_BUDGETS[reasoningEffort]
-  if (!budget) return false
-  currentMessage.content = `<thinking_mode>enabled</thinking_mode>\n<max_thinking_length>${budget}</max_thinking_length>\n${currentMessage.content}`
-  return true
 }
 
 function buildPayload(historyMessages: WorkingMessage[], currentMessage: WorkingMessage, tools: KiroToolSpecification[], options: ConvertOptions): KiroGeneratePayload {
@@ -316,8 +297,15 @@ function buildPayload(historyMessages: WorkingMessage[], currentMessage: Working
       ...(history.length ? { history } : {}),
     },
     ...(options.authType === "kiro_desktop" && options.profileArn ? { profileArn: options.profileArn } : {}),
+    ...(options.effort ? { additionalModelRequestFields: additionalModelRequestFields(options.effort) } : {}),
   }
   return payload
+}
+
+function additionalModelRequestFields(effort: KiroEffortSelection) {
+  return effort.schemaPath === "output_config"
+    ? { output_config: { effort: effort.level } }
+    : { reasoning: { effort: effort.level } }
 }
 
 function userHistory(message: WorkingMessage, modelId: string): KiroHistoryEntry {
@@ -342,7 +330,7 @@ function assistantHistory(message: WorkingMessage): KiroHistoryEntry {
   }
 }
 
-function trimPayload(payload: KiroGeneratePayload, tools: KiroToolSpecification[], options: ConvertOptions, instructions: string, preserveCurrentThinkingPrefix: boolean) {
+function trimPayload(payload: KiroGeneratePayload, tools: KiroToolSpecification[], options: ConvertOptions, instructions: string) {
   let current = payload
   const originalSize = payloadSize(current)
   let finalSize = originalSize
@@ -354,7 +342,7 @@ function trimPayload(payload: KiroGeneratePayload, tools: KiroToolSpecification[
   }
 
   if (originalSize > limit && originalHistoryEntries > 0) {
-    const trimmed = findTrimmedPayload(payload, tools, options, instructions, limit, preserveCurrentThinkingPrefix)
+    const trimmed = findTrimmedPayload(payload, tools, options, instructions, limit)
     current = trimmed.payload
     finalSize = trimmed.size
   }
@@ -375,7 +363,7 @@ function trimPayload(payload: KiroGeneratePayload, tools: KiroToolSpecification[
   return current
 }
 
-function findTrimmedPayload(payload: KiroGeneratePayload, tools: KiroToolSpecification[], options: ConvertOptions, instructions: string, limit: number, preserveCurrentThinkingPrefix: boolean): TrimmedPayloadCandidate {
+function findTrimmedPayload(payload: KiroGeneratePayload, tools: KiroToolSpecification[], options: ConvertOptions, instructions: string, limit: number): TrimmedPayloadCandidate {
   const history = payload.conversationState.history ?? []
   const trimPoints = historyTrimPoints(history)
   const lastStep = trimPoints.length - 1
@@ -385,12 +373,12 @@ function findTrimmedPayload(payload: KiroGeneratePayload, tools: KiroToolSpecifi
   const currentMessage = currentToWorking(payload)
   let lowerStep = 0
   let upperStep = 1
-  let best = buildTrimmedPayloadCandidate(historyMessages, currentMessage, trimPoints[upperStep], tools, options, instructions, preserveCurrentThinkingPrefix)
+  let best = buildTrimmedPayloadCandidate(historyMessages, currentMessage, trimPoints[upperStep], tools, options, instructions)
 
   while (best.size > limit && upperStep < lastStep) {
     lowerStep = upperStep
     upperStep = Math.min(upperStep * 2, lastStep)
-    best = buildTrimmedPayloadCandidate(historyMessages, currentMessage, trimPoints[upperStep], tools, options, instructions, preserveCurrentThinkingPrefix)
+    best = buildTrimmedPayloadCandidate(historyMessages, currentMessage, trimPoints[upperStep], tools, options, instructions)
   }
 
   if (best.size > limit) return best
@@ -399,7 +387,7 @@ function findTrimmedPayload(payload: KiroGeneratePayload, tools: KiroToolSpecifi
   let high = upperStep - 1
   while (low <= high) {
     const mid = Math.floor((low + high) / 2)
-    const candidate = buildTrimmedPayloadCandidate(historyMessages, currentMessage, trimPoints[mid], tools, options, instructions, preserveCurrentThinkingPrefix)
+    const candidate = buildTrimmedPayloadCandidate(historyMessages, currentMessage, trimPoints[mid], tools, options, instructions)
     if (candidate.size <= limit) {
       best = candidate
       high = mid - 1
@@ -411,10 +399,10 @@ function findTrimmedPayload(payload: KiroGeneratePayload, tools: KiroToolSpecifi
   return best
 }
 
-function buildTrimmedPayloadCandidate(historyMessages: WorkingMessage[], currentMessage: WorkingMessage, removedHistoryEntries: number, tools: KiroToolSpecification[], options: ConvertOptions, instructions: string, preserveCurrentThinkingPrefix: boolean): TrimmedPayloadCandidate {
+function buildTrimmedPayloadCandidate(historyMessages: WorkingMessage[], currentMessage: WorkingMessage, removedHistoryEntries: number, tools: KiroToolSpecification[], options: ConvertOptions, instructions: string): TrimmedPayloadCandidate {
   const candidateHistory = historyMessages.slice(removedHistoryEntries).map(cloneWorkingMessage)
   const repaired = repairOrphanedToolResults(candidateHistory, cloneWorkingMessage(currentMessage))
-  embedInstructions(repaired.historyMessages, repaired.currentMessage, instructions, preserveCurrentThinkingPrefix)
+  embedInstructions(repaired.historyMessages, repaired.currentMessage, instructions)
   ensureHistoryContent(repaired.historyMessages)
   const candidate = buildPayload(repaired.historyMessages, repaired.currentMessage, tools, options)
   return { payload: candidate, size: payloadSize(candidate) }

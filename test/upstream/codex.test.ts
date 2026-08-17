@@ -3,6 +3,7 @@ import { afterEach, describe, expect, test } from "bun:test"
 import { normalizeReasoningBody } from "../../src/core/reasoning"
 import { jwt, mkdtemp, path, rm, sse, tmpdir, writeFile } from "../helpers"
 import { Codex_Upstream_Provider } from "../../src/upstream/codex"
+import { CodexModelMetadataRegistry } from "../../src/upstream/codex/model-metadata"
 import { canonicalToCodexBody, collectCodexResponse } from "../../src/upstream/codex/parse"
 import type { Canonical_Event, Canonical_Request } from "../../src/core/canonical"
 import { writeCodexFastModeConfig } from "../../src/upstream/codex/fast-mode"
@@ -62,7 +63,7 @@ describe("Codex upstream translation", () => {
   test("property: translated bodies preserve structure across random canonical requests", () => {
     for (let iteration = 0; iteration < 100; iteration += 1) {
       const request = canonicalRequest({
-        model: iteration % 2 === 0 ? `gpt-5.4_${["none", "low", "medium", "high", "xhigh"][iteration % 5]}` : `model-${iteration}`,
+        model: iteration % 2 === 0 ? `gpt-5.4_${["none", "low", "medium", "high", "xhigh", "max", "ultra"][iteration % 7]}` : `model-${iteration}`,
         input: Array.from({ length: (iteration % 4) + 1 }, (_, index) => ({
           role: index % 2 === 0 ? "user" : "assistant",
           content: [{ type: index % 2 === 0 ? "input_text" : "output_text", text: `text-${iteration}-${index}` }],
@@ -73,12 +74,84 @@ describe("Codex upstream translation", () => {
       })
 
       const normalized = normalizeReasoningBody(canonicalToCodexBody(request))
-      expect(normalized.model).toBe(typeof request.model === "string" ? request.model.replace(/_(none|low|medium|high|xhigh)$/, "") : request.model)
+      expect(normalized.model).toBe(typeof request.model === "string" ? request.model.replace(/_(none|low|medium|high|xhigh|max|ultra)$/, "") : request.model)
       expect(Array.isArray(normalized.input) ? normalized.input.length : 0).toBe(request.input.length)
       expect(normalized.store).toBe(false)
       expect(normalized.stream).toBe(request.stream)
       expect(Array.isArray(normalized.tools) ? normalized.tools.length : 0).toBe(request.tools?.length ?? 0)
     }
+  })
+})
+
+describe("Codex model metadata", () => {
+  test("parses current Codex reasoning levels including max and ultra", () => {
+    const registry = new CodexModelMetadataRegistry()
+    registry.populate({
+      models: [{
+        slug: "gpt-5.6-sol",
+        display_name: "GPT-5.6-Sol",
+        description: "Frontier model",
+        context_window: 272_000,
+        max_output_tokens: 128_000,
+        default_reasoning_level: "low",
+        supported_reasoning_levels: [
+          { effort: "low", description: "Fast" },
+          { effort: "max", description: "Maximum" },
+          { effort: "ultra", description: "Maximum with delegation" },
+        ],
+        input_modalities: ["text", "image"],
+        multi_agent_version: "v2",
+      }],
+    })
+
+    expect(registry.get("gpt-5.6-sol")).toMatchObject({
+      title: "GPT-5.6-Sol",
+      maxTokens: 272_000,
+      maxOutputTokens: 128_000,
+      configurableThinkingEffort: true,
+      defaultThinkingEffort: "low",
+      multiAgentVersion: "v2",
+      supportsImages: true,
+      thinkingEfforts: [
+        { thinkingEffort: "low", description: "Fast" },
+        { thinkingEffort: "max", description: "Maximum" },
+        { thinkingEffort: "ultra", description: "Maximum with delegation" },
+      ],
+    })
+  })
+
+  test("returns current effort capabilities as Claude model descriptors", async () => {
+    const provider = new Codex_Upstream_Provider({
+      client: {
+        modelsRaw: async () => Response.json({
+          models: [{
+            slug: "gpt-5.6-sol",
+            display_name: "GPT-5.6-Sol",
+            context_window: 272_000,
+            default_reasoning_level: "low",
+            supported_reasoning_levels: [
+              { effort: "low" },
+              { effort: "max" },
+              { effort: "ultra" },
+            ],
+            input_modalities: ["text", "image"],
+          }],
+        }),
+      } as any,
+    })
+
+    expect(await provider.listModelDescriptors()).toEqual([{
+      id: "gpt-5.6-sol",
+      displayName: "GPT-5.6-Sol",
+      maxInputTokens: 272_000,
+      maxOutputTokens: 128_000,
+      supportsImages: true,
+      effort: {
+        schemaPath: "reasoning",
+        levels: ["low", "max", "ultra"],
+        defaultLevel: "low",
+      },
+    }])
   })
 })
 

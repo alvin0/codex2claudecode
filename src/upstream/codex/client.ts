@@ -5,8 +5,9 @@ import { normalizeReasoningBody } from "../../core/reasoning"
 import type { HealthStatus, JsonObject, RequestOptions } from "../../core/types"
 import { accountInfoKey, writeAccountInfoFile } from "./account-info"
 import { extractAccountId, readAuthFileData, selectAuthEntry } from "./auth"
-import { DEFAULT_CLIENT_ID, DEFAULT_CODEX_ENDPOINT, DEFAULT_ISSUER, CODEX_MODELS_ENDPOINT, OPENAI_RESPONSES_INPUT_TOKENS_ENDPOINT, REFRESH_SAFETY_MARGIN_MS, WHAM_ENVIRONMENTS_ENDPOINT, WHAM_USAGE_ENDPOINT } from "./constants"
+import { CODEX_WEBSOCKET_BETA, DEFAULT_CLIENT_ID, DEFAULT_CODEX_ENDPOINT, DEFAULT_ISSUER, CODEX_MODELS_ENDPOINT, OPENAI_RESPONSES_INPUT_TOKENS_ENDPOINT, REFRESH_SAFETY_MARGIN_MS, WHAM_ENVIRONMENTS_ENDPOINT, WHAM_USAGE_ENDPOINT } from "./constants"
 import { pullCodexCliAuthTokens, syncCodexCliAuthTokens } from "./codex-auth"
+import { CodexWebSocketTransport } from "./websocket"
 import type { AuthFileContent, AuthFileData, ChatCompletionRequest, CodexClientOptions, CodexClientTokens, InputTokensRequest, ResponsesRequest, TokenResponse } from "./types"
 
 export class CodexStandaloneClient {
@@ -25,6 +26,7 @@ export class CodexStandaloneClient {
   private readonly authFile?: string
   private readonly codexAuthFile?: string
   private readonly openAiApiKey?: string
+  private readonly webSocket?: CodexWebSocketTransport
   private sourceAuthFile?: string
   private sourceAccountKey?: string
   private authEntryIndex?: number
@@ -44,6 +46,12 @@ export class CodexStandaloneClient {
     this.authFile = options.authFile
     this.codexAuthFile = options.codexAuthFile
     this.openAiApiKey = options.openAiApiKey ?? process.env.OPENAI_API_KEY
+    if (options.useWebSocket ?? process.env.CODEX_WIRE_API === "responses_websocket") {
+      this.webSocket = new CodexWebSocketTransport({
+        endpoint: options.codexWebSocketEndpoint,
+        webSocket: options.webSocket,
+      })
+    }
     this.sourceAuthFile = options.sourceAuthFile
     this.sourceAccountKey = options.sourceAccountKey
   }
@@ -194,12 +202,31 @@ export class CodexStandaloneClient {
   }
 
   private async request(body: JsonObject, options?: RequestOptions) {
+    const normalized = normalizeReasoningBody(body)
+    const webSocket = this.webSocket
+
+    if (webSocket && normalized.stream === true) {
+      try {
+        return await this.streamOverWebSocket(webSocket, normalized, options)
+      } catch {
+        // The upstream WebSocket endpoint is beta — fall back to HTTP.
+      }
+    }
+
     return this.requestUpstream(
       this.codexEndpoint,
       "POST",
       options,
-      JSON.stringify(normalizeReasoningBody(body)),
+      JSON.stringify(normalized),
     )
+  }
+
+  private async streamOverWebSocket(webSocket: CodexWebSocketTransport, body: JsonObject, options?: RequestOptions) {
+    await this.refreshIfExpired()
+    const headers = this.headers(options?.headers)
+    headers.delete("content-type")
+    headers.set("OpenAI-Beta", CODEX_WEBSOCKET_BETA)
+    return webSocket.stream(body, headers, options?.signal)
   }
 
   private async requestUpstream(url: string, method: string, options?: RequestOptions, body?: string) {

@@ -178,7 +178,7 @@ function countClaudeChatTokens(
 
 function resolveTokenizerModel(model: unknown): Parameters<typeof encodeChat>[1] {
   if (typeof model !== "string") return
-  const normalized = model.replace(/_(none|low|medium|high|xhigh)$/, "")
+  const normalized = model.replace(/_(none|low|medium|high|xhigh|max|ultra)$/, "")
 
   if (/^gpt-5(?:\.[^-_]+)?-codex$/.test(normalized)) return "gpt-5-codex"
   if (/^gpt-5(?:\.[^-_]+)?-mini$/.test(normalized)) return "gpt-5-mini"

@@ -10,11 +10,12 @@ import { claudeUpstreamErrorMessage } from "./context-limit"
 import { claudeErrorResponse } from "./errors"
 import { canonicalResponseToClaudeMessage, claudeCanonicalStreamResponse } from "./response"
 import { Model_Catalog, claudeSettingsModelResolver } from "./models"
+import type { ModelResolverFn } from "./models"
 import type { ClaudeMessagesRequest } from "./types"
 
 export interface ClaudeInboundProviderOptions {
   name?: string
-  modelResolver?: () => Promise<string[]>
+  modelResolver?: ModelResolverFn
   upstreamLogLabel?: string
   inputTokensLogLabel?: string
   expectedUpstreamKind?: UpstreamProviderKind
@@ -27,14 +28,14 @@ export class Claude_Inbound_Provider implements Inbound_Provider {
   readonly name: string
   private readonly routeDescriptors: Route_Descriptor[]
   private readonly modelCatalog: Model_Catalog
-  private readonly modelResolver: () => Promise<string[]>
+  private readonly modelResolver: ModelResolverFn
   private readonly upstreamLogLabel: string
   private readonly inputTokensLogLabel: string
   private readonly expectedUpstreamKind?: UpstreamProviderKind
   private readonly localCountTokens: boolean
   private readonly countTokens: (body: ClaudeMessagesRequest) => number
 
-  constructor(optionsOrModelResolver: ClaudeInboundProviderOptions | (() => Promise<string[]>) = {}) {
+  constructor(optionsOrModelResolver: ClaudeInboundProviderOptions | ModelResolverFn = {}) {
     const options = typeof optionsOrModelResolver === "function" ? { modelResolver: optionsOrModelResolver } : optionsOrModelResolver
     this.name = options.name ?? "claude"
     this.routeDescriptors = options.routes ?? [
@@ -85,7 +86,7 @@ export class Claude_Inbound_Provider implements Inbound_Provider {
     if (route.path === "/v1/models/:model_id") {
       const pathname = new URL(request.url).pathname
       const modelId = decodeURIComponent(pathname.slice("/v1/models/".length))
-      const model = this.modelCatalog.getModel(modelId)
+      const model = await this.modelCatalog.resolveModel(modelId, this.modelResolver)
       if (!model) {
         return Response.json(
           {

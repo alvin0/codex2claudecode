@@ -1,4 +1,5 @@
 import { classifyHttpError, classifyNetworkError, type KiroErrorCategory } from "./errors"
+import type { KiroEffortSchemaPath } from "./model-metadata"
 
 export type KiroAuthType = "kiro_desktop" | "aws_sso_oidc"
 
@@ -108,6 +109,16 @@ export interface KiroImage {
 export interface KiroGeneratePayload {
   conversationState: KiroConversationState
   profileArn?: string
+  additionalModelRequestFields?: KiroAdditionalModelRequestFields
+}
+
+export type KiroAdditionalModelRequestFields =
+  | { output_config: { effort: string } }
+  | { reasoning: { effort: string } }
+
+export interface KiroEffortSelection {
+  schemaPath: KiroEffortSchemaPath
+  level: string
 }
 
 export interface KiroContentEvent {

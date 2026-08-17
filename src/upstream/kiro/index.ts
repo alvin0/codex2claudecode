@@ -12,6 +12,7 @@ import { convertCanonicalToKiroPayload, trimNoticeText } from "./payload"
 import { collectKiroResponse, streamKiroResponse } from "./parse"
 import { FirstTokenTimeoutError, streamWithFirstTokenRetry } from "./stream-retry"
 import { KiroHttpError, KiroMcpError, KiroNetworkError, PayloadTooLargeError, ToolNameTooLongError } from "./types"
+import type { KiroEffortSelection } from "./types"
 import { KiroModelMetadataRegistry } from "./model-metadata"
 
 interface KiroClientOptions extends KiroAuthManagerOptions {
@@ -58,6 +59,10 @@ export class Kiro_Upstream_Provider implements Upstream_Provider {
       return clientToolCallResponse(request, model, clientAllowedDirectoriesCall)
     }
 
+    const effortResult = await this.resolveRequestedEffort(model, request.reasoningEffort)
+    if ("error" in effortResult) return canonicalError(effortResult.status, effortResult.error)
+    const effort = effortResult.effort
+
     const fallbackWebSearchQuery = effective.webSearch ? inferWebSearchFallbackQuery(request) : undefined
     const shouldPreflightWebSearch = Boolean(effective.webSearch && explicitWebSearch && fallbackWebSearchQuery)
     const signalClaudeContextLimit = shouldSignalClaudeContextLimit(request)
@@ -73,6 +78,7 @@ export class Kiro_Upstream_Provider implements Upstream_Provider {
           profileArn: this.auth.getProfileArn(),
           instructions: requestForContextCheck.instructions,
           payloadOverflowMode: "context_error",
+          effort,
         })
       } catch (error) {
         if (error instanceof ToolNameTooLongError) return canonicalError(400, error.message)
@@ -81,7 +87,7 @@ export class Kiro_Upstream_Provider implements Upstream_Provider {
       }
     }
     if (request.stream && shouldPreflightWebSearch && fallbackWebSearchQuery && !signalClaudeContextLimit) {
-      return this.streamWithWebSearchPreflight(request, options, effective.tools, model, fallbackWebSearchQuery)
+      return this.streamWithWebSearchPreflight(request, options, effective.tools, model, fallbackWebSearchQuery, effort)
     }
 
     let preflightWebSearch: Awaited<ReturnType<Kiro_Client["callMcpWebSearch"]>> | undefined
@@ -108,6 +114,7 @@ export class Kiro_Upstream_Provider implements Upstream_Provider {
         profileArn: this.auth.getProfileArn(),
         instructions: requestForPayload.instructions,
         payloadOverflowMode: signalClaudeContextLimit ? "context_error" : "trim",
+        effort,
         onTrim: (notice) => {
           payloadTrimWarning = `${trimNoticeText(notice)}\n\n`
         },
@@ -148,6 +155,7 @@ export class Kiro_Upstream_Provider implements Upstream_Provider {
     effectiveTools: JsonObject[],
     model: string,
     query: string,
+    effort?: KiroEffortSelection,
   ): UpstreamResult {
     const client = this.client
     const authType = this.auth.getAuthType()
@@ -194,6 +202,7 @@ export class Kiro_Upstream_Provider implements Upstream_Provider {
               profileArn,
               instructions: requestForPayload.instructions,
               payloadOverflowMode: shouldSignalClaudeContextLimit(request) ? "context_error" : "trim",
+              effort,
               onTrim: (notice) => {
                 payloadTrimWarning = `${trimNoticeText(notice)}\n\n`
               },
@@ -276,6 +285,22 @@ export class Kiro_Upstream_Provider implements Upstream_Provider {
     }
   }
 
+  async listModelDescriptors() {
+    const modelIds = await this.listModels()
+    return modelIds.map((id) => {
+      const metadata = this.modelMetadata.get(id)
+      if (!metadata?.richMetadata) return id
+      return {
+        id,
+        displayName: metadata.modelName,
+        maxInputTokens: metadata.maxInputTokens,
+        maxOutputTokens: metadata.maxOutputTokens,
+        supportsImages: metadata.supportsImages,
+        ...(metadata.effort ? { effort: { ...metadata.effort, levels: [...metadata.effort.levels] } } : {}),
+      }
+    })
+  }
+
   /**
    * Refresh model metadata from the Kiro API.
    * Called at startup and can be called on account switch.
@@ -289,6 +314,29 @@ export class Kiro_Upstream_Provider implements Upstream_Provider {
     } catch {
       // Non-fatal — metadata will use defaults
     }
+  }
+
+  private async resolveRequestedEffort(model: string, requested?: string): Promise<
+    | { effort?: KiroEffortSelection }
+    | { error: string; status: number }
+  > {
+    if (!requested) return {}
+    if (!this.modelMetadata.isPopulated) await this.refreshModelMetadata()
+    if (!this.modelMetadata.isPopulated) {
+      return { status: 503, error: `Unable to load Kiro model metadata required to validate effort '${requested}' for '${model}'` }
+    }
+
+    const metadata = this.modelMetadata.get(model)
+    if (!metadata?.effort) {
+      return { status: 400, error: `Kiro model '${model}' does not support configurable effort` }
+    }
+    if (!metadata.effort.levels.includes(requested)) {
+      return {
+        status: 400,
+        error: `Kiro model '${model}' does not support effort '${requested}'; supports: ${metadata.effort.levels.join(", ")}`,
+      }
+    }
+    return { effort: { schemaPath: metadata.effort.schemaPath, level: requested } }
   }
 
   async listModelsRaw(): Promise<Response> {

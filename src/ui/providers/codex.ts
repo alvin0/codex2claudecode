@@ -1,7 +1,7 @@
 import { ensureCodexAuthFile, readAccountInfoFile, refreshActiveAccountInfo, writeAccountInfoFile, writeActiveAccountInfo, type AccountInfo } from "../../upstream/codex/account-info"
 import { readAuthFileData } from "../../upstream/codex/auth"
 import { CodexStandaloneClient } from "../../upstream/codex/client"
-import { connectAccount, connectAccountFromCodexAuth, type ConnectAccountDraft } from "../../upstream/codex/connect-account"
+import { connectAccount, connectAccountFromBrowserLogin, connectAccountFromCodexAuth, type ConnectAccountDraft } from "../../upstream/codex/connect-account"
 import { resolveAuthFile } from "../../core/paths"
 import { providerStatePath } from "../../core/provider-state"
 import type { AuthFileData } from "../../upstream/codex/types"
@@ -33,6 +33,21 @@ export const codexProviderDefinition: UiProviderDefinition = {
     connect: {
       title: "Connect Codex account",
       sources: [
+        {
+          label: "Login with browser",
+          description: "Sign in to ChatGPT and store the account here only",
+          savingMessage: "Opening the ChatGPT sign-in page...",
+          import: async (authFile, context) => {
+            const result = await connectAccountFromBrowserLogin(authFile, {
+              onAuthorizeUrl: (url) => {
+                context?.reportProgress?.({ message: "Waiting for the browser sign-in to finish...", verificationUri: url })
+                context?.report?.("Waiting for the browser sign-in to finish...")
+              },
+              openBrowser: openInBrowser,
+            })
+            return { accountKey: requireAccountKey(result.accountId), data: result.data }
+          },
+        },
         {
           label: "Add from ~/.codex/auth.json",
           description: "Import ChatGPT tokens from Codex CLI auth file",
@@ -88,6 +103,16 @@ export function persistCodexActiveAccount(authFile: string, data: AuthFileData, 
 
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error)
+}
+
+/** Best effort: the URL is also printed, so a headless machine can still finish the login. */
+function openInBrowser(url: string) {
+  const command = process.platform === "darwin" ? ["open", url] : process.platform === "win32" ? ["cmd", "/c", "start", "", url] : ["xdg-open", url]
+  try {
+    Bun.spawn(command, { stdout: "ignore", stderr: "ignore" }).unref()
+  } catch {
+    // Leave the user with the printed URL.
+  }
 }
 
 function requireAccountKey(accountKey?: string) {

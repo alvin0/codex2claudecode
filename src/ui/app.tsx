@@ -20,7 +20,10 @@ import {
   type ClaudeSettingsScope,
   type ClaudeEnvironmentDraft,
 } from "./claude-env"
+import { applyCodexCliSetup, codexCliModelIds, codexCliProfilePath } from "./codex-cli"
 import { getCommands } from "./commands"
+import { loadRotationUsage, rotationViewOrFallback, ROTATION_USAGE_REFRESH_INTERVAL_MS, setRotationEnabled, type RotationUsageMap, type RotationView } from "./rotation"
+import { readRotationConfig } from "../app/rotation-config"
 import { writeClipboard } from "./clipboard"
 import { AccountSelector } from "./components/account-selector"
 import { ClaudeEnvironmentEditor } from "./components/claude-environment-editor"
@@ -29,11 +32,13 @@ import { ClaudeEnvironmentScopeSelector } from "./components/claude-environment-
 import { ClaudeEnvironmentUnsetConfirm } from "./components/claude-environment-unset-confirm"
 import { CommandInput } from "./components/command-input"
 import { CommandOutput } from "./components/command-output"
+import { CodexCliSetup } from "./components/codex-cli-setup"
 import { CodexFastModeSelector } from "./components/codex-fast-mode"
 import { ConnectAccountWizard } from "./components/connect-account-wizard"
 import { ConnectSourceSelector } from "./components/connect-source-selector"
 import { EndpointShareWizard } from "./components/endpoint-share-wizard"
 import { ProviderDashboard } from "./components/provider-dashboard"
+import { RotationSelector } from "./components/rotation-panel"
 import {
   formatAllRequestLogs,
   formatRequestLogDetail,
@@ -79,9 +84,19 @@ export function CodexCodeApp(props: { port?: number; hostname?: string; apiPassw
     | "connect-account"
     | "switch-provider"
     | "endpoint-share"
+    | "codex-cli-setup"
+    | "rotation"
   >("home")
   const [selectorIndex, setSelectorIndex] = useState(0)
   const [switchProviderIndex, setSwitchProviderIndex] = useState(0)
+  const [codexCliModels, setCodexCliModels] = useState<string[]>([])
+  const [codexCliLoading, setCodexCliLoading] = useState(false)
+  const [codexCliIndex, setCodexCliIndex] = useState(0)
+  const [rotation, setRotation] = useState<RotationView>()
+  const [rotationIndex, setRotationIndex] = useState(0)
+  const [rotationUsage, setRotationUsage] = useState<RotationUsageMap>({})
+  const [rotationLoading, setRotationLoading] = useState(false)
+  const [rotationEnabledSetting, setRotationEnabledSetting] = useState(false)
   const [requestLogs, setRequestLogs] = useState<RequestLogEntry[]>([])
   const [requestLogDetails, setRequestLogDetails] = useState<Record<string, RequestLogEntry>>({})
   const [logsSelected, setLogsSelected] = useState(0)
@@ -193,6 +208,39 @@ export function CodexCodeApp(props: { port?: number; hostname?: string; apiPassw
     onKiroInfo: updateKiroInfo,
     onMessage: setInputMessage,
   })
+  useEffect(() => {
+    let active = true
+    void readRotationConfig(providerMode)
+      .then((config) => { if (active) setRotationEnabledSetting(config.enabled) })
+      .catch(() => { if (active) setRotationEnabledSetting(false) })
+    return () => { active = false }
+  }, [providerMode])
+  const accountKeys = useMemo(() => accounts.map((item) => item.key), [accounts])
+  const buildRotationView = useCallback(
+    () => rotationViewOrFallback(upstream, { enabled: rotationEnabledSetting, accounts: accountKeys, activeAccount: accountKey }, rotationUsage),
+    [accountKey, accountKeys, rotationEnabledSetting, rotationUsage, upstream],
+  )
+  useEffect(() => {
+    setRotation(buildRotationView())
+    const timer = setInterval(() => setRotation(buildRotationView()), 5000)
+    return () => clearInterval(timer)
+  }, [buildRotationView])
+  const refreshRotationUsage = useCallback(async () => {
+    setRotationLoading(true)
+    try {
+      setRotationUsage(await loadRotationUsage(upstream))
+    } finally {
+      setRotationLoading(false)
+    }
+  }, [upstream])
+  const rotationPoolActive = Boolean(rotation?.enabled && rotation.rotatable)
+  useEffect(() => {
+    setRotationUsage({})
+    if (!rotationPoolActive) return
+    void refreshRotationUsage()
+    const timer = setInterval(() => void refreshRotationUsage(), ROTATION_USAGE_REFRESH_INTERVAL_MS)
+    return () => clearInterval(timer)
+  }, [refreshRotationUsage, rotationPoolActive])
   const resetForProviderSwitch = useCallback((_targetMode: ProviderMode) => {
     resetRuntimeLogs()
     resetLimits()
@@ -601,6 +649,18 @@ export function CodexCodeApp(props: { port?: number; hostname?: string; apiPassw
         setInputMessage("Codex fast mode unchanged")
         return
       }
+      if (mode === "codex-cli-setup") {
+        setMode("home")
+        setCommandIndex(0)
+        setInputMessage("Codex CLI profile unchanged")
+        return
+      }
+      if (mode === "rotation") {
+        setMode("home")
+        setCommandIndex(0)
+        setInputMessage("Account rotation unchanged")
+        return
+      }
       if (mode === "account-selector") {
         setMode("home")
         setCommandIndex(0)
@@ -860,10 +920,36 @@ export function CodexCodeApp(props: { port?: number; hostname?: string; apiPassw
         setMode("claude-env-confirm")
         return
       }
+      if (mode === "codex-cli-setup") {
+        setMode("home")
+        setCommandIndex(0)
+        setInputMessage("Codex CLI profile saved")
+        const outputRevision = beginCommandOutput()
+        void applyCodexCliSetup(baseUrl(hostname, activePort), codexCliIndex === 1)
+          .then((output) => setCommandOutputForRevision(outputRevision, { title: `Set Codex CLI profile - ${codexCliProfilePath()}`, output }))
+          .catch((error) => setCommandOutputForRevision(outputRevision, { title: "Set Codex CLI profile failed", output: error instanceof Error ? error.message : String(error) }))
+        return
+      }
       if (mode === "codex-fast-mode") {
         codexFastMode.saveSelection()
         setMode("home")
         setCommandIndex(0)
+        return
+      }
+      if (mode === "rotation") {
+        const enabled = rotationIndex === 0
+        setMode("home")
+        setCommandIndex(0)
+        if (!rotation) {
+          setInputMessage("Connect an account before enabling rotation")
+          return
+        }
+        setRotationEnabledSetting(enabled)
+        setInputMessage(enabled && !rotation.rotatable
+          ? "Account rotation ON — idle until a second account is connected"
+          : `Account rotation ${enabled ? "ON" : "OFF"}`)
+        void setRotationEnabled(providerMode, upstream, enabled)
+          .catch((error) => setInputMessage(`Account rotation save failed: ${error instanceof Error ? error.message : String(error)}`))
         return
       }
       if (mode === "account-selector") {
@@ -968,6 +1054,24 @@ export function CodexCodeApp(props: { port?: number; hostname?: string; apiPassw
           setCommandIndex(0)
           return
         }
+        if (command.name === "/rotation") {
+          const current = buildRotationView()
+          setRotation(current)
+          setRotationIndex(current?.enabled ? 0 : 1)
+          setMode("rotation")
+          setCommandIndex(0)
+          setInputMessage(current ? "Select account rotation" : "Connect an account before enabling rotation")
+          if (current?.rotatable) void refreshRotationUsage()
+          return
+        }
+        if (command.name === "/set-codex-cli") {
+          void loadCodexCliModels()
+          setCodexCliIndex(0)
+          setMode("codex-cli-setup")
+          setCommandIndex(0)
+          setInputMessage("Enter to write the Codex CLI profile")
+          return
+        }
         if (command.name === "/set-claude-env") {
           void readClaudeEnvironmentConfig(authFile, providerMode)
             .then((draft) => setClaudeEnvDraft(draft))
@@ -1017,6 +1121,10 @@ export function CodexCodeApp(props: { port?: number; hostname?: string; apiPassw
     }
     if (mode === "codex-fast-mode") {
       if (key.upArrow || key.downArrow) codexFastMode.setSelected((value) => (value + 1) % 2)
+      return
+    }
+    if (mode === "rotation") {
+      if (key.upArrow || key.downArrow) setRotationIndex((value) => (value + 1) % 2)
       return
     }
     if (mode === "connect-source") {
@@ -1119,6 +1227,10 @@ export function CodexCodeApp(props: { port?: number; hostname?: string; apiPassw
       else if (input && !key.leftArrow && !key.rightArrow) setClaudeEnvDraft((draft) => updateClaudeEnvDraft(draft, claudeEnvIndex, (value) => `${value}${input}`))
       return
     }
+    if (mode === "codex-cli-setup") {
+      if (key.upArrow || key.downArrow) setCodexCliIndex((value) => (value + 1) % 2)
+      return
+    }
     if (mode === "connect-account") {
       if (input && !key.upArrow && !key.downArrow && !key.leftArrow && !key.rightArrow) {
         setConnectDraft((draft) => updateConnectDraft(draft, connectFields, connectStep, (value) => `${value}${input}`))
@@ -1179,10 +1291,13 @@ export function CodexCodeApp(props: { port?: number; hostname?: string; apiPassw
         limitsError={limitsError}
         apiPassword={apiPassword}
         endpointProxyLines={endpointProxySummaryLines}
+        rotation={rotation}
+        rotationLoading={rotationLoading}
       />
       {mode === "home" && <CommandInput selected={commandIndex} message={inputMessage} commands={commands} />}
       {mode === "account-selector" && accountCapability && <AccountSelector accounts={accounts} selected={selectorIndex} title={accountCapability.selectorTitle} description={accountCapability.selectorDescription} />}
       {mode === "codex-fast-mode" && providerMode === "codex" && <CodexFastModeSelector selected={codexFastMode.selected} current={codexFastMode.enabled} />}
+      {mode === "rotation" && <RotationSelector selected={rotationIndex} view={rotation} loading={rotationLoading} />}
       {mode === "connect-source" && connectCapability && <ConnectSourceSelector connect={connectCapability} selected={connectSourceIndex} saving={connectSaving} status={connectStatus} progress={connectProgress} />}
       {mode === "connect-account" && connectCapability && <ConnectAccountWizard title={connectCapability.title} description={connectCapability.manualDescription} draft={connectDraft} fields={connectFields} step={connectStep} saving={connectSaving} />}
       {mode === "endpoint-share" && (
@@ -1226,9 +1341,21 @@ export function CodexCodeApp(props: { port?: number; hostname?: string; apiPassw
         <ClaudeEnvironmentEditor draft={claudeEnvDraft} selected={claudeEnvIndex} baseUrl={baseUrl(hostname, activePort)} confirm={mode === "claude-env-confirm"} shell={shell.kind === "unsupported" ? "posix" : shell.kind} settingsTarget={claudeSettingsTarget} apiPassword={apiPassword} />
       )}
       {mode === "claude-env-unset-confirm" && <ClaudeEnvironmentUnsetConfirm draft={claudeEnvDraft} shell={shell.kind === "unsupported" ? "posix" : shell.kind} settingsTarget={claudeSettingsTarget} />}
+      {mode === "codex-cli-setup" && (
+        <CodexCliSetup baseUrl={baseUrl(hostname, activePort)} profilePath={codexCliProfilePath()} models={codexCliModels} selected={codexCliIndex} loading={codexCliLoading} />
+      )}
       {commandOutput && <CommandOutput title={commandOutput.title} output={commandOutput.output} />}
     </Box>
   )
+
+  async function loadCodexCliModels() {
+    setCodexCliLoading(true)
+    try {
+      setCodexCliModels(await codexCliModelIds(upstream))
+    } finally {
+      setCodexCliLoading(false)
+    }
+  }
 
   function applyConnectedAccount(data: ProviderAccountData, nextAccountKey: string) {
     const nextAccounts = accountCapability?.toAccounts(data) ?? []

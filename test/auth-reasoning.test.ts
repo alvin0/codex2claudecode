@@ -91,6 +91,20 @@ describe("request normalization", () => {
       model: "gpt-5.4",
       reasoning: { effort: "none", summary: "auto" },
     })
+    expect(normalizeReasoningBody({ model: "gpt-5.6-sol_max", input: "hi" })).toEqual({
+      model: "gpt-5.6-sol",
+      input: "hi",
+      reasoning: { effort: "max" },
+    })
+    expect(normalizeReasoningBody({ model: "gpt-5.6-sol_ultra", input: "hi" })).toEqual({
+      model: "gpt-5.6-sol",
+      input: "hi",
+      reasoning: { effort: "max" },
+    })
+    expect(normalizeReasoningBody({ model: "gpt-5.6-sol", reasoning_effort: "ultra" })).toEqual({
+      model: "gpt-5.6-sol",
+      reasoning: { effort: "max" },
+    })
     expect(normalizeReasoningBody({ model: "gpt-4.1", reasoning_effort: "high" })).toEqual({ model: "gpt-4.1" })
     expect(normalizeReasoningBody({ input: "no model" })).toEqual({ input: "no model" })
   })

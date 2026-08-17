@@ -114,6 +114,19 @@ describe("Claude → Canonical_Request edge cases", () => {
     expect(request.reasoningEffort).toBe("high")
   })
 
+  test("output_config accepts max and ultra effort levels", () => {
+    expect(claudeToCanonicalRequest({
+      model: "gpt-5.6-sol",
+      messages: [{ role: "user", content: "hello" }],
+      output_config: { effort: "max" },
+    }).reasoningEffort).toBe("max")
+    expect(claudeToCanonicalRequest({
+      model: "gpt-5.6-sol",
+      messages: [{ role: "user", content: "hello" }],
+      output_config: { effort: "ultra" },
+    }).reasoningEffort).toBe("ultra")
+  })
+
   test("tools without input_schema get default object parameters", () => {
     const request = claudeToCanonicalRequest({
       model: "gpt-5.4",
@@ -1256,6 +1269,8 @@ describe("Model_Catalog edge cases", () => {
   test("resolveAlias returns input unchanged for non-alias", () => {
     const catalog = new Model_Catalog()
     expect(catalog.resolveAlias("gpt-5.4")).toBe("gpt-5.4")
+    expect(catalog.resolveAlias("gpt-5.6")).toBe("gpt-5.6-sol")
+    expect(catalog.resolveAlias("gpt-5.6-latest")).toBe("gpt-5.6-sol")
   })
 
   test("listModels with resolver that returns empty array returns empty data", async () => {
@@ -1280,6 +1295,72 @@ describe("Model_Catalog edge cases", () => {
     expect(result.data[0].capabilities.image_input.supported).toBe(true)
     expect(result.data[0].capabilities.pdf_input.supported).toBe(true)
     expect(result.data[0].capabilities.structured_outputs.supported).toBe(true)
+  })
+
+  test("listModels uses dynamic effort capabilities and limits from Kiro metadata", async () => {
+    const catalog = new Model_Catalog()
+    const result = await catalog.listModels(async () => [{
+      id: "gpt-5.6-luna",
+      displayName: "GPT 5.6 Luna",
+      maxInputTokens: 272_000,
+      maxOutputTokens: 128_000,
+      supportsImages: true,
+      effort: {
+        schemaPath: "reasoning",
+        levels: ["none", "low", "medium", "high", "xhigh", "max"],
+        defaultLevel: "high",
+      },
+    }])
+
+    expect(result.data[0]).toMatchObject({
+      id: "gpt-5.6-luna",
+      display_name: "GPT 5.6 Luna",
+      max_input_tokens: 272_000,
+      max_tokens: 128_000,
+    })
+    expect(result.data[0].capabilities.effort).toEqual({
+      high: { supported: true },
+      low: { supported: true },
+      max: { supported: true },
+      medium: { supported: true },
+      none: { supported: true },
+      supported: true,
+      ultra: { supported: false },
+      xhigh: { supported: true },
+    })
+  })
+
+  test("listModels advertises ultra only when the Codex descriptor supports it", async () => {
+    const catalog = new Model_Catalog()
+    const result = await catalog.listModels(async () => [{
+      id: "gpt-5.6-sol",
+      displayName: "GPT-5.6-Sol",
+      maxInputTokens: 272_000,
+      maxOutputTokens: 128_000,
+      supportsImages: true,
+      effort: {
+        schemaPath: "reasoning",
+        levels: ["low", "medium", "high", "xhigh", "max", "ultra"],
+        defaultLevel: "low",
+      },
+    }])
+
+    expect(result.data[0].capabilities.effort.max.supported).toBe(true)
+    expect(result.data[0].capabilities.effort.ultra.supported).toBe(true)
+  })
+
+  test("listModels does not advertise effort for dynamic models without an effort schema", async () => {
+    const catalog = new Model_Catalog()
+    const result = await catalog.listModels(async () => [{
+      id: "deepseek-3.2",
+      displayName: "DeepSeek 3.2",
+      maxInputTokens: 164_000,
+      maxOutputTokens: 64_000,
+      supportsImages: true,
+    }])
+
+    expect(result.data[0].capabilities.effort.supported).toBe(false)
+    expect(result.data[0].capabilities.effort.max.supported).toBe(false)
   })
 
   test("listModels resolves OpenRouter Codex model metadata from the Codex catalog", async () => {

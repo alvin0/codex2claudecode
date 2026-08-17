@@ -61,6 +61,26 @@ describe("CodexStandaloneClient", () => {
     expect(headers.has("host")).toBe(false)
   })
 
+  test("maps Codex ultra compatibility effort to the API-supported max level", async () => {
+    const calls: RequestInit[] = []
+    const client = new CodexStandaloneClient({
+      accessToken: "a",
+      refreshToken: "r",
+      accountId: "acct",
+      fetch: ((_url, init) => {
+        calls.push(init ?? {})
+        return Promise.resolve(Response.json({ ok: true }))
+      }) as unknown as typeof fetch,
+    })
+
+    await client.proxy({ model: "gpt-5.6-sol_ultra", input: "hi" })
+    expect(JSON.parse(String(calls[0].body))).toEqual({
+      model: "gpt-5.6-sol",
+      input: "hi",
+      reasoning: { effort: "max" },
+    })
+  })
+
   test("refreshes expired tokens once and retries after a 401", async () => {
     const calls: string[] = []
     const file = await authFile({ type: "oauth", access: "old", refresh: "refresh", expires: Date.now() - 1, accountId: "old_acct" })
@@ -512,5 +532,20 @@ describe("CodexStandaloneClient", () => {
       fetch: (() => Promise.reject(new Error("network down"))) as unknown as typeof fetch,
     })
     expect(await broken.checkHealth()).toMatchObject({ ok: false, error: "network down" })
+  })
+
+  test("loads the Codex model catalog endpoint that exposes reasoning levels", async () => {
+    let requestedUrl = ""
+    const client = new CodexStandaloneClient({
+      accessToken: "a",
+      refreshToken: "r",
+      fetch: ((url) => {
+        requestedUrl = String(url)
+        return Promise.resolve(Response.json({ models: [] }))
+      }) as unknown as typeof fetch,
+    })
+
+    expect(await (await client.modelsRaw()).json()).toEqual({ models: [] })
+    expect(requestedUrl).toBe("https://chatgpt.com/backend-api/codex/models?client_version=0.0.0")
   })
 })

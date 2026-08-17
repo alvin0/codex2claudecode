@@ -35,11 +35,17 @@ function registerClaudeProvider(mode: ProviderMode, upstream: ProviderRuntimeRes
   }
 
   if (mode === "kiro") {
-    registry.register(new Claude_Kiro_Inbound_Adapter(() => upstreamWithModels.listModels(), CLAUDE_MODEL_ROUTES))
+    registry.register(new Claude_Kiro_Inbound_Adapter(
+      () => upstreamWithModels.listModelDescriptors?.() ?? upstreamWithModels.listModels(),
+      CLAUDE_MODEL_ROUTES,
+    ))
     return
   }
 
-  registry.register(new Claude_Codex_Inbound_Adapter(() => upstreamWithModels.listModels(), CLAUDE_MODEL_ROUTES))
+  registry.register(new Claude_Codex_Inbound_Adapter(
+    () => upstreamWithModels.listModelDescriptors?.() ?? upstreamWithModels.listModels(),
+    CLAUDE_MODEL_ROUTES,
+  ))
 }
 
 async function registerEndpointProxyProviders(

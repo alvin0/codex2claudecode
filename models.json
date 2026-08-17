@@ -1,11 +1,13 @@
 {
   "clientDefaults": {
-    "ANTHROPIC_MODEL": "gpt-5.3-codex-spark",
-    "ANTHROPIC_DEFAULT_OPUS_MODEL": "gpt-5.4",
-    "ANTHROPIC_DEFAULT_SONNET_MODEL": "gpt-5.3-codex-spark",
-    "ANTHROPIC_DEFAULT_HAIKU_MODEL": "gpt-5.4-mini"
+    "ANTHROPIC_MODEL": "gpt-5.6-sol",
+    "ANTHROPIC_DEFAULT_OPUS_MODEL": "gpt-5.6-sol",
+    "ANTHROPIC_DEFAULT_SONNET_MODEL": "gpt-5.6-terra",
+    "ANTHROPIC_DEFAULT_HAIKU_MODEL": "gpt-5.6-luna"
   },
   "aliases": {
+    "gpt-5.6": "gpt-5.6-sol",
+    "gpt-5.6-latest": "gpt-5.6-sol",
     "gpt-5.5-latest": "gpt-5.5",
     "gpt-5.4-latest": "gpt-5.4",
     "gpt-5.4-mini-latest": "gpt-5.4-mini",

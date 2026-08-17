@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test"
 
 import type { Canonical_Request } from "../../../src/core/canonical"
-import { PAYLOAD_SIZE_LIMIT_BYTES, REASONING_EFFORT_BUDGETS, kiroPayloadSizeLimitBytes } from "../../../src/upstream/kiro/constants"
+import { PAYLOAD_SIZE_LIMIT_BYTES, kiroPayloadSizeLimitBytes } from "../../../src/upstream/kiro/constants"
 import { CLAUDE_CONTEXT_LIMIT_MESSAGE, convertCanonicalToKiroPayload, sanitizeToolSchema, trimNoticeText, type KiroPayloadTrimNotice } from "../../../src/upstream/kiro"
 import { PayloadTooLargeError, ToolNameTooLongError } from "../../../src/upstream/kiro/types"
 
@@ -276,12 +276,22 @@ describe("Kiro payload conversion", () => {
     expect(payload.conversationState.history?.[1]).toEqual({ assistantResponseMessage: { content: "done" } })
   })
 
-  test("injects thinking tags for supported reasoningEffort values", () => {
-    for (const [reasoningEffort, budget] of Object.entries(REASONING_EFFORT_BUDGETS)) {
-      const payload = convertCanonicalToKiroPayload(request({ reasoningEffort }), [], { modelId: "m", authType: "aws_sso_oidc" })
-      expect(payload.conversationState.currentMessage.userInputMessage.content).toContain("<thinking_mode>enabled</thinking_mode>")
-      expect(payload.conversationState.currentMessage.userInputMessage.content).toContain(`<max_thinking_length>${budget}</max_thinking_length>`)
-    }
+  test("writes model-specific effort fields without injecting legacy thinking tags", () => {
+    const claude = convertCanonicalToKiroPayload(request({ reasoningEffort: "xhigh" }), [], {
+      modelId: "claude-sonnet-5",
+      authType: "aws_sso_oidc",
+      effort: { schemaPath: "output_config", level: "xhigh" },
+    })
+    const gpt = convertCanonicalToKiroPayload(request({ reasoningEffort: "none" }), [], {
+      modelId: "gpt-5.6-luna",
+      authType: "aws_sso_oidc",
+      effort: { schemaPath: "reasoning", level: "none" },
+    })
+
+    expect(claude.additionalModelRequestFields).toEqual({ output_config: { effort: "xhigh" } })
+    expect(gpt.additionalModelRequestFields).toEqual({ reasoning: { effort: "none" } })
+    expect(claude.conversationState.currentMessage.userInputMessage.content).not.toContain("<thinking_mode>")
+    expect(gpt.conversationState.currentMessage.userInputMessage.content).not.toContain("<thinking_mode>")
   })
 
   test("logs warnings for stripped server-tool content and unsupported attachments", () => {
@@ -463,7 +473,7 @@ describe("Kiro payload conversion", () => {
     expect(payload.conversationState.currentMessage.userInputMessage.userInputMessageContext?.toolResults).toEqual([{ toolUseId: "call_1", content: [{ text: "ok" }], status: "success" }])
   })
 
-  test("trimming keeps thinking tags before re-embedded instructions", () => {
+  test("trimming preserves additional model effort fields", () => {
     const oldText = "x".repeat(230_000)
     const originalWarn = console.warn
     console.warn = () => {}
@@ -479,14 +489,21 @@ describe("Kiro payload conversion", () => {
           ],
         }),
         [],
-        { modelId: "m", authType: "aws_sso_oidc", instructions: "System prompt", payloadSizeLimitBytes: 400_000 },
+        {
+          modelId: "m",
+          authType: "aws_sso_oidc",
+          instructions: "System prompt",
+          payloadSizeLimitBytes: 400_000,
+          effort: { schemaPath: "output_config", level: "low" },
+        },
       )
     } finally {
       console.warn = originalWarn
     }
 
     const content = payload.conversationState.currentMessage.userInputMessage.content
-    expect(content).toBe(`<thinking_mode>enabled</thinking_mode>\n<max_thinking_length>${REASONING_EFFORT_BUDGETS.low}</max_thinking_length>\nSystem prompt\n\ncurrent-user`)
+    expect(content).toBe("System prompt\n\ncurrent-user")
+    expect(payload.additionalModelRequestFields).toEqual({ output_config: { effort: "low" } })
     expect(content.match(/System prompt/g)).toHaveLength(1)
   })
 

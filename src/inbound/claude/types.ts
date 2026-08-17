@@ -48,7 +48,7 @@ export interface ClaudeMessagesRequest extends JsonObject {
   temperature?: number
   top_p?: number
   output_config?: {
-    effort?: "none" | "low" | "medium" | "high" | "xhigh" | string
+    effort?: "none" | "low" | "medium" | "high" | "xhigh" | "max" | "ultra" | string
     format?: {
       type?: "json_schema" | string
       name?: string

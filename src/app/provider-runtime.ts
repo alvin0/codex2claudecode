@@ -12,10 +12,14 @@ import { ensureKiroAuthFile } from "../upstream/kiro/account-store"
 import { kiroAuthEntries, readKiroAuthFileData } from "../upstream/kiro/account-store"
 import { KIRO_AUTH_TOKEN_PATH, KIRO_STATE_FILE_NAME } from "../upstream/kiro/constants"
 import { copilotAuthEntries, readCopilotAuthFileData } from "../upstream/copilot/account-store"
+import { readAccountRoster } from "./account-roster"
+import { readRotationConfig } from "./rotation-config"
+import { Rotating_Upstream_Provider } from "./rotating-upstream"
 
 export interface ProviderRuntimeOptions {
   authFile?: string
   authAccount?: string
+  rotateAccounts?: boolean
 }
 
 export interface ProviderRuntimeResult {
@@ -48,21 +52,46 @@ export async function createProviderRuntime(mode: ProviderMode, options?: Provid
   if (mode === "copilot") {
     const authFile = resolveProviderAuthFile(mode, options)
     const ensuredAuthFile = await ensureCopilotAuthFile(authFile)
-    const upstream = await Copilot_Upstream_Provider.fromAuthFile(ensuredAuthFile, { authAccount })
+    const create = (account?: string) => Copilot_Upstream_Provider.fromAuthFile(ensuredAuthFile, { authAccount: account })
+    const upstream = await withAccountRotation(mode, ensuredAuthFile, authAccount, options, create)
     return { authFile: ensuredAuthFile, authAccount, upstream }
   }
 
   if (mode === "kiro") {
     const authFile = resolveProviderAuthFile(mode, options)
     const ensuredAuthFile = await ensureKiroAuthFile(authFile)
-    const upstream = await Kiro_Upstream_Provider.fromAuthFile(ensuredAuthFile, { authAccount })
+    const create = (account?: string) => Kiro_Upstream_Provider.fromAuthFile(ensuredAuthFile, { authAccount: account })
+    const upstream = await withAccountRotation(mode, ensuredAuthFile, authAccount, options, create)
     return { authFile: ensuredAuthFile, authAccount, upstream }
   }
 
   const authFile = resolveProviderAuthFile(mode, options)
   await ensureCodexAuthFile(authFile)
-  const upstream = await Codex_Upstream_Provider.fromAuthFile(authFile, { authAccount })
+  const create = (account?: string) => Codex_Upstream_Provider.fromAuthFile(authFile, { authAccount: account })
+  const upstream = await withAccountRotation(mode, authFile, authAccount, options, create)
   return { authFile, authAccount, upstream }
+}
+
+/**
+ * Installs the rotating wrapper whenever the provider has several accounts, so the
+ * rotation screen can turn it on and off without restarting the runtime. The stored
+ * setting only decides whether it starts enabled.
+ */
+async function withAccountRotation(
+  mode: ProviderMode,
+  authFile: string,
+  authAccount: string | undefined,
+  options: ProviderRuntimeOptions | undefined,
+  create: (account?: string) => Promise<Upstream_Provider>,
+): Promise<Upstream_Provider> {
+  const upstream = await create(authAccount)
+
+  const roster = await readAccountRoster(mode, authFile).catch(() => undefined)
+  if (!roster || roster.accounts.length < 2) return upstream
+
+  const enabled = options?.rotateAccounts ?? (await readRotationConfig(mode)).enabled
+  const active = authAccount ?? roster.activeAccount ?? roster.accounts[0]!
+  return Rotating_Upstream_Provider.create({ mode, roster, enabled, create: (account) => create(account) }, active, upstream)
 }
 
 export async function providerHasConnectedAccounts(mode: ProviderMode, options?: ProviderRuntimeOptions) {

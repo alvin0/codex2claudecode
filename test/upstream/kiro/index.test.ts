@@ -33,11 +33,82 @@ function realProvider(response = new Response('{"content":"ok"}')) {
   return new Kiro_Upstream_Provider({ auth: manager, client })
 }
 
-function providerWithClient(client: Pick<Kiro_Client, "generateAssistantResponse" | "listAvailableModels" | "checkHealth"> & Partial<Pick<Kiro_Client, "callMcpWebSearch">>) {
+function providerWithClient(client: Pick<Kiro_Client, "generateAssistantResponse" | "listAvailableModels" | "checkHealth"> & Partial<Pick<Kiro_Client, "callMcpWebSearch" | "listAvailableModelsFull">>) {
   return new Kiro_Upstream_Provider({ auth: auth(), client: client as Kiro_Client })
 }
 
 describe("Kiro upstream provider", () => {
+  test("sends validated effort through the model-specific additional request field", async () => {
+    let payload: any
+    const provider = providerWithClient({
+      generateAssistantResponse: (body) => {
+        payload = body
+        return Promise.resolve(new Response('{"content":"ok"}'))
+      },
+      listAvailableModels: () => Promise.resolve(["gpt-5.6-luna"]),
+      listAvailableModelsFull: () => Promise.resolve({
+        models: [{
+          modelId: "gpt-5.6-luna",
+          additionalModelRequestFieldsSchema: {
+            properties: { reasoning: { properties: { effort: { enum: ["none", "low", "medium", "high", "xhigh", "max"], default: "high" } } } },
+          },
+        }],
+      }),
+      checkHealth: () => Promise.resolve({ ok: true }),
+    })
+
+    const result = await provider.proxy(request({ model: "gpt-5.6-luna", reasoningEffort: "max", tools: [] }))
+
+    expect(result.type).toBe("canonical_response")
+    expect(payload.additionalModelRequestFields).toEqual({ reasoning: { effort: "max" } })
+    expect(payload.conversationState.currentMessage.userInputMessage.content).not.toContain("<thinking_mode>")
+  })
+
+  test("rejects effort levels unsupported by the selected model before generation", async () => {
+    let generateCalls = 0
+    const provider = providerWithClient({
+      generateAssistantResponse: () => {
+        generateCalls += 1
+        return Promise.resolve(new Response('{"content":"ok"}'))
+      },
+      listAvailableModels: () => Promise.resolve(["claude-sonnet-4.6"]),
+      listAvailableModelsFull: () => Promise.resolve({
+        models: [{
+          modelId: "claude-sonnet-4.6",
+          additionalModelRequestFieldsSchema: {
+            properties: { output_config: { properties: { effort: { enum: ["low", "medium", "high", "max"], default: "high" } } } },
+          },
+        }],
+      }),
+      checkHealth: () => Promise.resolve({ ok: true }),
+    })
+
+    const result = await provider.proxy(request({ model: "claude-sonnet-4.6", reasoningEffort: "xhigh", tools: [] }))
+
+    expect(result).toMatchObject({ type: "canonical_error", status: 400 })
+    expect(result.type === "canonical_error" ? result.body : "").toContain("supports: low, medium, high, max")
+    expect(generateCalls).toBe(0)
+  })
+
+  test("rejects explicit effort for models without a configurable effort schema", async () => {
+    let generateCalls = 0
+    const provider = providerWithClient({
+      generateAssistantResponse: () => {
+        generateCalls += 1
+        return Promise.resolve(new Response('{"content":"ok"}'))
+      },
+      listAvailableModels: () => Promise.resolve(["deepseek-3.2"]),
+      listAvailableModelsFull: () => Promise.resolve({ models: [{ modelId: "deepseek-3.2", additionalModelRequestFieldsSchema: null }] }),
+      checkHealth: () => Promise.resolve({ ok: true }),
+    })
+
+    const result = await provider.proxy(request({ model: "deepseek-3.2", reasoningEffort: "high", tools: [] }))
+
+    expect(result).toMatchObject({ type: "canonical_error", status: 400 })
+    expect(result.type === "canonical_error" ? result.body : "").toContain("does not support configurable effort")
+    expect(generateCalls).toBe(0)
+  })
+
   test("computes effective tools for all toolChoice variants", () => {
     const tools = request().tools!
 

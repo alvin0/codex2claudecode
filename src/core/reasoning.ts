@@ -10,7 +10,7 @@ export function normalizeReasoningBody(body: JsonObject): JsonObject {
 function normalizeReasoningModel(body: JsonObject): JsonObject {
   if (typeof body.model !== "string") return {}
 
-  const match = body.model.match(/^(gpt-5(?:\.[^_]+)?)(?:_(none|low|medium|high|xhigh))?$/)
+  const match = body.model.match(/^(gpt-5(?:\.[^_]+)?)(?:_(none|low|medium|high|xhigh|max|ultra))?$/)
   if (!match) return {}
 
   const [, model, effort = "medium"] = match
@@ -20,7 +20,11 @@ function normalizeReasoningModel(body: JsonObject): JsonObject {
     model,
     reasoning: {
       ...reasoning,
-      effort: (reasoning as JsonObject).effort ?? body.reasoning_effort ?? effort,
+      effort: normalizeReasoningEffort((reasoning as JsonObject).effort ?? body.reasoning_effort ?? effort),
     },
   }
+}
+
+function normalizeReasoningEffort(effort: unknown) {
+  return effort === "ultra" ? "max" : effort
 }

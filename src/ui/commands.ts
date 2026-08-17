@@ -10,9 +10,11 @@ const SHARED_COMMANDS_BEFORE: UiCommand[] = [
 ]
 
 const SHARED_COMMANDS_AFTER: UiCommand[] = [
+  { name: "/rotation", description: "Switch to the next account when one fails" },
   { name: "/endpoint-share", description: "Share an endpoint to another provider" },
   { name: "/set-claude-env", description: "Edit and apply Claude Code environment exports" },
   { name: "/unset-claude-env", description: "Unset Claude Code environment variables" },
+  { name: "/set-codex-cli", description: "Write the Codex CLI / Codex IDE profile for this gateway" },
 ]
 
 const ACCOUNT_COMMANDS: UiCommand[] = [

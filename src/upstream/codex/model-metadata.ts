@@ -1,7 +1,7 @@
 /**
  * Codex model metadata registry.
  *
- * Populated from the Codex /backend-api/models response at startup
+ * Populated from the Codex /backend-api/codex/models response at startup
  * and on account switch. Provides per-model token limits, reasoning
  * capabilities, supported input types, and thinking effort levels.
  */
@@ -11,9 +11,12 @@ export interface CodexModelMetadata {
   title: string
   description: string
   maxTokens: number
+  maxOutputTokens: number
   reasoningType: "auto" | "none" | "reasoning" | "pro" | string
   configurableThinkingEffort: boolean
   thinkingEfforts: CodexThinkingEffort[]
+  defaultThinkingEffort?: string
+  multiAgentVersion?: string
   supportedImageTypes: string[]
   supportedDocumentTypes: string[]
   supportsImages: boolean
@@ -48,7 +51,7 @@ export class CodexModelMetadataRegistry {
   }
 
   /**
-   * Populate the registry from a raw Codex /backend-api/models response body.
+   * Populate the registry from a raw Codex /backend-api/codex/models response body.
    */
   populate(responseBody: unknown): void {
     this.models.clear()
@@ -164,19 +167,27 @@ function parseCodexModelEntry(raw: unknown): CodexModelMetadata | undefined {
     ? attachments.accepted_mime_types.filter((t): t is string => typeof t === "string")
     : []
 
-  const thinkingEfforts = Array.isArray(entry.thinking_efforts)
-    ? entry.thinking_efforts.flatMap((te) => {
+  const rawThinkingEfforts = Array.isArray(entry.supported_reasoning_levels)
+    ? entry.supported_reasoning_levels
+    : Array.isArray(entry.thinking_efforts)
+      ? entry.thinking_efforts
+      : []
+  const thinkingEfforts = rawThinkingEfforts.flatMap((te) => {
         if (!te || typeof te !== "object") return []
         const item = te as Record<string, unknown>
-        if (typeof item.thinking_effort !== "string") return []
+        const thinkingEffort = typeof item.effort === "string"
+          ? item.effort
+          : typeof item.thinking_effort === "string"
+            ? item.thinking_effort
+            : undefined
+        if (!thinkingEffort) return []
         return [{
-          thinkingEffort: item.thinking_effort,
-          fullLabel: typeof item.full_label === "string" ? item.full_label : item.thinking_effort,
-          shortLabel: typeof item.short_label === "string" ? item.short_label : item.thinking_effort,
+          thinkingEffort,
+          fullLabel: typeof item.full_label === "string" ? item.full_label : thinkingEffort,
+          shortLabel: typeof item.short_label === "string" ? item.short_label : thinkingEffort,
           description: typeof item.description === "string" ? item.description : "",
         }]
       })
-    : []
 
   const enabledTools = Array.isArray(entry.enabled_tools)
     ? entry.enabled_tools.filter((t): t is string => typeof t === "string")
@@ -188,15 +199,37 @@ function parseCodexModelEntry(raw: unknown): CodexModelMetadata | undefined {
 
   return {
     slug,
-    title: typeof entry.title === "string" ? entry.title : slug,
+    title: typeof entry.display_name === "string"
+      ? entry.display_name
+      : typeof entry.title === "string"
+        ? entry.title
+        : slug,
     description: typeof entry.description === "string" ? entry.description : "",
-    maxTokens: typeof entry.max_tokens === "number" ? entry.max_tokens : 128_000,
-    reasoningType: typeof entry.reasoning_type === "string" ? entry.reasoning_type : "auto",
-    configurableThinkingEffort: entry.configurable_thinking_effort === true,
+    maxTokens: typeof entry.context_window === "number"
+      ? entry.context_window
+      : typeof entry.max_context_window === "number"
+        ? entry.max_context_window
+        : typeof entry.max_tokens === "number"
+          ? entry.max_tokens
+          : 128_000,
+    maxOutputTokens: typeof entry.max_output_tokens === "number" ? entry.max_output_tokens : 128_000,
+    reasoningType: typeof entry.reasoning_type === "string"
+      ? entry.reasoning_type
+      : thinkingEfforts.length > 0
+        ? "reasoning"
+        : "auto",
+    configurableThinkingEffort: entry.configurable_thinking_effort === true || thinkingEfforts.length > 0,
     thinkingEfforts,
-    supportedImageTypes: imageMimeTypes,
+    ...(typeof entry.default_reasoning_level === "string" && { defaultThinkingEffort: entry.default_reasoning_level }),
+    ...(typeof entry.multi_agent_version === "string" && { multiAgentVersion: entry.multi_agent_version }),
+    supportedImageTypes: imageMimeTypes.length > 0
+      ? imageMimeTypes
+      : Array.isArray(entry.input_modalities) && entry.input_modalities.includes("image")
+        ? ["image/*"]
+        : [],
     supportedDocumentTypes: acceptedMimeTypes.filter((t) => !t.startsWith("image/")),
-    supportsImages: imageMimeTypes.length > 0,
+    supportsImages: imageMimeTypes.length > 0
+      || (Array.isArray(entry.input_modalities) && entry.input_modalities.includes("image")),
     supportsPdf: acceptedMimeTypes.includes("application/pdf"),
     enabledTools,
     tags,
