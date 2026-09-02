@@ -7,6 +7,8 @@ import { HIDDEN_KIRO_MODELS, MODEL_CACHE_TTL_SECONDS } from "./constants"
 import { publicHttpErrorBody } from "./errors"
 import { Kiro_Auth_Manager, type KiroAuthManagerOptions } from "./auth"
 import { Kiro_Client } from "./client"
+import { withKiroFeatureNotices } from "./feature-notices"
+import { resolveKiroFeatures } from "./features"
 import { kiroWebSearchTool, webSearchBlocks } from "./mcp"
 import { convertCanonicalToKiroPayload, trimNoticeText } from "./payload"
 import { collectKiroResponse, streamKiroResponse } from "./parse"
@@ -26,23 +28,62 @@ export class Kiro_Upstream_Provider implements Upstream_Provider {
 
   private readonly auth: Kiro_Auth_Manager
   private readonly client: Kiro_Client
+  /**
+   * Whether a `degrade` outcome escalates to a 400. Held, never read here: it is handed to
+   * `FeatureDecisions`, which hands it to the one function that interprets it. Defaults to the
+   * current behavior, so construction sites that say nothing keep getting notices rather than
+   * rejections until `NATIVE_STRICT` is wired through bootstrap.
+   */
+  private readonly strict: boolean
   private modelCache?: { models: string[]; cachedAt: number }
   readonly modelMetadata = new KiroModelMetadataRegistry()
 
-  constructor(options: { auth: Kiro_Auth_Manager; client?: Kiro_Client }) {
+  constructor(options: { auth: Kiro_Auth_Manager; client?: Kiro_Client; strict?: boolean }) {
     this.auth = options.auth
     this.client = options.client ?? new Kiro_Client(this.auth)
+    this.strict = options.strict ?? false
   }
 
-  static async fromAuthFile(path?: string, options?: KiroClientOptions) {
+  /**
+   * `strict` rides on the same options bag as the auth and client settings so the app-level
+   * composition root can hand it over in one call, and is forwarded to the constructor rather
+   * than to the client: `Kiro_Client` reads only the fields it knows and ignores this one.
+   * Omitting it keeps the pre-flag behavior (design decision D3).
+   */
+  static async fromAuthFile(path?: string, options?: KiroClientOptions & { strict?: boolean }) {
     const auth = await Kiro_Auth_Manager.fromAuthFile(path, options)
-    return new Kiro_Upstream_Provider({ auth, client: new Kiro_Client(auth, options) })
+    return new Kiro_Upstream_Provider({ auth, client: new Kiro_Client(auth, options), strict: options?.strict })
   }
 
+  /**
+   * Resolve the declared matrix for this request, then run it.
+   *
+   * Split into a decision half and an execution half so every result-producing path picks up
+   * the notices, without a `withKiroFeatureNotices()` call sprinkled over each of the several
+   * returns inside {@link Kiro_Upstream_Provider.generate} — including the synthesized
+   * client-tool-call responses and the web-search preflight stream, which produce content
+   * without reaching the tail of that method.
+   *
+   * `validateUnsupportedServerTools()` still runs first, unchanged, so a server-side `web_fetch`
+   * or MCP toolset keeps returning exactly the 400 it returns today. Its message already
+   * follows the reject pattern the matrix rejections now share: name what is unsupported, name
+   * an alternative.
+   *
+   * Then: one rejection means one 400 and no upstream call, which is the point of resolving
+   * everything before doing any work. Otherwise the notices ride along with the result.
+   */
   async proxy(request: Canonical_Request, options?: RequestOptions): Promise<UpstreamResult> {
     const serverToolError = validateUnsupportedServerTools(request.tools)
     if (serverToolError) return serverToolError
 
+    const decisions = resolveKiroFeatures(request, { strict: this.strict })
+    const rejection = decisions.firstRejection()
+    if (rejection) return canonicalError(400, rejection.message)
+
+    return withKiroFeatureNotices(await this.generate(request, options), decisions.notices())
+  }
+
+  private async generate(request: Canonical_Request, options?: RequestOptions): Promise<UpstreamResult> {
     const explicitWebSearch = hasExplicitWebSearchIntent(request)
     const clientWebSearchCall = clientWebSearchToolCall(request, explicitWebSearch)
     const clientAllowedDirectoriesCall = clientAllowedDirectoriesToolCall(request)
@@ -370,8 +411,11 @@ export function computeEffectiveTools(tools: JsonObject[] = [], toolChoice?: Jso
 
   if (!toolChoice || toolChoice === "auto") return { tools: allTools, ...(webSearchEnabled ? { webSearch: true } : {}) }
   if (toolChoice === "none") return { tools: [] }
+  // `required` and a named choice each wrote a console warning here. A warning in the gateway's
+  // own stdout told the operator and never the client, which is the silent drop Requirement 10.4
+  // removes: both are now resolved as `toolChoiceForced` in `./features.ts`, so the client is
+  // told through a Feature_Notice. This function stays a pure tool-list computation.
   if (toolChoice === "required") {
-    console.warn("Kiro does not support required tool_choice; including all tools")
     return { tools: allTools, ...(webSearchEnabled ? { webSearch: true } : {}) }
   }
   if (typeof toolChoice === "object" && toolChoice.type === "web_search") {
@@ -379,7 +423,6 @@ export function computeEffectiveTools(tools: JsonObject[] = [], toolChoice?: Jso
     return found ? { tools: [found], ...(webSearchEnabled ? { webSearch: true } : {}) } : { error: "web_search tool_choice was requested but web_search was not provided" }
   }
   if (typeof toolChoice === "object" && typeof toolChoice.name === "string") {
-    console.warn("Kiro does not support named tool_choice; narrowing available tools")
     const found = allTools.find((tool) => tool.name === toolChoice.name)
     return found ? { tools: [found], ...(webSearchEnabled && found.name === "web_search" ? { webSearch: true } : {}) } : { error: `Named tool_choice '${toolChoice.name}' was not found in provided tools` }
   }

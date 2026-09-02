@@ -6,42 +6,85 @@ import type { RequestOptions } from "../../core/types"
 import { readCodexFastModeConfig } from "./fast-mode"
 import { CODEX_MODEL_CACHE_TTL_SECONDS } from "./constants"
 import { CodexStandaloneClient } from "./client"
+import { withCodexFeatureNotices } from "./feature-notices"
+import { resolveCodexFeatures } from "./features"
 import { CodexModelMetadataRegistry } from "./model-metadata"
 import type { CodexClientOptions, CodexClientTokens } from "./types"
 import { canonicalToCodexBody, canonicalToCodexInputTokensBody, collectCodexResponse, streamCodexResponse } from "./parse"
+
+/**
+ * How this provider is constructed: either credentials it turns into a client, or a client
+ * already built — plus the one feature-resolution setting.
+ *
+ * `strict` rides on both members rather than living in `CodexClientOptions`, because it governs
+ * what the Gateway does with a client-supplied field, not how the HTTP client talks to the
+ * upstream. Optional and defaulting to off; the flag reader that supplies it is app-level
+ * (design decision D3 — nothing under `src/upstream/` reads the environment).
+ */
+type CodexProviderOptions = (CodexClientOptions | { client: CodexStandaloneClient; authFile?: string }) & {
+  strict?: boolean
+}
 
 export class Codex_Upstream_Provider implements Upstream_Provider, TokenCredentialProvider<CodexClientTokens> {
   readonly providerKind = "codex" as const
 
   private readonly client: CodexStandaloneClient
   private readonly authFile?: string
+  private readonly strict: boolean
   private modelCache?: { models: string[]; cachedAt: number }
   readonly modelMetadata = new CodexModelMetadataRegistry()
 
-  constructor(options: CodexClientOptions | { client: CodexStandaloneClient; authFile?: string }) {
+  constructor(options: CodexProviderOptions) {
     this.client = "client" in options ? options.client : new CodexStandaloneClient(options)
     this.authFile = "authFile" in options ? options.authFile : undefined
+    this.strict = options.strict ?? false
   }
 
+  /**
+   * `strict` rides on the same options bag as the client settings so the app-level composition
+   * root can hand it over in one call, and is forwarded to the constructor rather than to the
+   * client: `CodexStandaloneClient` reads only the fields it knows and ignores this one.
+   * Omitting it keeps the pre-flag behavior (design decision D3).
+   */
   static async fromAuthFile(
     path?: string,
-    options?: Omit<CodexClientOptions, "accessToken" | "refreshToken" | "expiresAt" | "accountId" | "authFile">,
+    options?: Omit<CodexClientOptions, "accessToken" | "refreshToken" | "expiresAt" | "accountId" | "authFile"> & { strict?: boolean },
   ) {
     return new Codex_Upstream_Provider({
       client: await CodexStandaloneClient.fromAuthFile(path, options),
       authFile: path,
+      strict: options?.strict,
     })
   }
 
+  /**
+   * Proxy one request, with every matrix-covered field it carries resolved to a declared
+   * outcome first.
+   *
+   * The resolution happens **before** the upstream call, because a failed resolution must not
+   * spend a request: `firstRejection()` returns the 400 on its own. Everything else the
+   * declaration produces travels with the result, and `withCodexFeatureNotices()` picks the
+   * channel from the result's shape — including leaving a byte-identical passthrough alone.
+   *
+   * On today's matrix (`./capabilities.ts`) every feature `resolveCodexFeatures()` looks at is
+   * either native or has no canonical field to arrive in yet, so `notices()` is empty and the
+   * delivery call returns its input unchanged. That is Requirement 10.6 holding structurally: a
+   * `temperature` bound for this upstream produces zero notices because the cell that governs it
+   * is declared native, not because the cell is skipped.
+   */
   async proxy(request: Canonical_Request, options?: RequestOptions): Promise<UpstreamResult> {
+    const decisions = resolveCodexFeatures(request, { strict: this.strict })
+    const rejection = decisions.firstRejection()
+    if (rejection) return canonicalError(400, rejection.message)
+
     const body = await this.applyFastMode(canonicalToCodexBody(request))
     options?.onRequestBody?.(JSON.stringify(body))
     const rawResponse = await this.client.proxy(body, options)
     const response = options?.onResponseBodyChunk ? withChunkCallback(rawResponse, options.onResponseBodyChunk) : rawResponse
     if (!response.ok) return toCanonicalError(response)
     if (request.passthrough) return toCanonicalPassthrough(response)
-    if (request.stream) return streamCodexResponse(response, request.model)
-    return collectCodexResponse(response, request.model)
+    const result = request.stream ? streamCodexResponse(response, request.model) : await collectCodexResponse(response, request.model)
+    return withCodexFeatureNotices(result, decisions.notices())
   }
 
   async inputTokens(request: Canonical_Request, options?: RequestOptions) {
@@ -143,6 +186,11 @@ async function toCanonicalError(response: Response): Promise<Canonical_ErrorResp
     headers: responseHeaders(response.headers),
     body: await response.text(),
   }
+}
+
+/** A failure this provider decided itself, with no upstream response to report. */
+function canonicalError(status: number, body: string): Canonical_ErrorResponse {
+  return { type: "canonical_error", status, headers: new Headers(), body }
 }
 
 function toCanonicalPassthrough(response: Response): Canonical_PassthroughResponse {

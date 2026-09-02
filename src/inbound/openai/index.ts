@@ -5,6 +5,8 @@ import { responseHeaders } from "../../core/http"
 import { LOG_BODY_PREVIEW_LIMIT } from "../../core/constants"
 import { createKiroDebugBundle, kiroDebugOnErrorEnabled, redactSensitiveText } from "../../core/debug-capture"
 import { createLogPreview } from "../../core/log-preview"
+import { StreamTelemetryCollector } from "../../core/stream-telemetry"
+import { canonicalResponseTelemetrySummary, streamTelemetrySummary } from "../../core/stream-telemetry-summary"
 import { interceptResponseStream } from "../../core/stream-utils"
 import type { JsonObject, RequestProxyLog } from "../../core/types"
 import { countTokens } from "gpt-tokenizer"
@@ -201,7 +203,16 @@ export class OpenAI_Inbound_Provider implements Inbound_Provider {
       backfillInputTokens(result, wireBody)
       const response = openAICanonicalResponse(result, route.path, wireBody)
       if (context.onProxy) {
-        context.onProxy({
+        // Named rather than passed as a literal so the telemetry projection has an object
+        // to write to. Unlike the Claude provider, this site holds the finished response
+        // before `onProxy` fires, so the assignment happens up front instead of relying on
+        // reference mutation afterwards; the object handed over is the same one either way.
+        //
+        // No collector on this path — nothing to instrument without a stream — so credits
+        // and notices are read off the response, where `mergeCanonicalUsage()` and the
+        // `feature_notice` fold already put them. Unconditional on body capture: telemetry
+        // is not a body preview.
+        const proxyLog: RequestProxyLog = {
           label: this.upstreamLogLabel,
           method: "POST",
           target: this.upstreamTarget,
@@ -210,7 +221,9 @@ export class OpenAI_Inbound_Provider implements Inbound_Provider {
           error: "-",
           requestBody: proxyRequestBody,
           responseBody: shouldCaptureProxyBody ? upstreamResponsePreview?.text() || undefined : undefined,
-        })
+          telemetry: canonicalResponseTelemetrySummary(result),
+        }
+        context.onProxy(proxyLog)
       }
       return response
     }
@@ -222,7 +235,11 @@ export class OpenAI_Inbound_Provider implements Inbound_Provider {
         backfillInputTokens(accumulated, wireBody)
         const response = openAICanonicalResponse(accumulated, route.path, wireBody)
         if (context.onProxy) {
-          context.onProxy({
+          // The client asked for a non-streaming reply from an upstream that only streams,
+          // so the stream is accumulated here and the summary comes from the accumulated
+          // response rather than from a collector. Same construction as the
+          // `isCanonicalResponse` branch above.
+          const proxyLog: RequestProxyLog = {
             label: this.upstreamLogLabel,
             method: "POST",
             target: this.upstreamTarget,
@@ -231,7 +248,9 @@ export class OpenAI_Inbound_Provider implements Inbound_Provider {
             error: "-",
             requestBody: proxyRequestBody,
             responseBody: shouldCaptureProxyBody ? upstreamResponsePreview?.text() || undefined : undefined,
-          })
+            telemetry: canonicalResponseTelemetrySummary(accumulated),
+          }
+          context.onProxy(proxyLog)
         }
         return response
       }
@@ -246,10 +265,30 @@ export class OpenAI_Inbound_Provider implements Inbound_Provider {
         responseBody: shouldCaptureProxyBody ? upstreamResponsePreview?.text() || undefined : undefined,
       } : undefined
       if (proxyLog) context.onProxy?.(proxyLog)
-      const response = openAICanonicalStreamResponse(result, route.path, wireBody)
-      if (!response.body || !shouldCaptureProxyBody || !proxyLog) return response
+      // One collector per streaming request; the renderer records provider spend and
+      // non-native handling decisions into it as canonical events flow past.
+      const telemetry = new StreamTelemetryCollector({
+        requestId: context.requestId,
+        // Optional on `Upstream_Provider`; falls back to the kind this inbound provider
+        // expects, then to the collector's own empty default.
+        provider: upstream.providerKind ?? this.expectedUpstreamKind ?? "",
+        model: typeof wireBody.model === "string" ? wireBody.model : "",
+        streaming: true,
+      })
+      const response = openAICanonicalStreamResponse(result, route.path, wireBody, { telemetry })
+      // Body capture is no longer part of this guard: telemetry is not a body preview,
+      // so the stream-end hook has to run whenever a proxy log exists. The body preview
+      // stays behind its own check inside the hook, keeping `responseBody` untouched
+      // when capture is off.
+      if (!proxyLog) return response
       return interceptResponseStream(response, {
-        onComplete: (responseBody) => { proxyLog.responseBody = upstreamResponsePreview?.text() || responseBody },
+        onComplete: (responseBody) => {
+          // Same object already handed to `context.onProxy`, mutated by reference — no
+          // edit to `src/app/runtime.ts` (Requirement 27.5). `finalize()` is idempotent,
+          // and this hook also runs on cancellation.
+          proxyLog.telemetry = streamTelemetrySummary(telemetry.finalize())
+          if (shouldCaptureProxyBody) proxyLog.responseBody = upstreamResponsePreview?.text() || responseBody
+        },
       })
     }
 

@@ -1,10 +1,12 @@
 import { countTokens } from "gpt-tokenizer"
 
-import type { Canonical_ContentBlock, Canonical_Event, Canonical_Response, Canonical_StreamResponse, Canonical_ToolCallBlock } from "../../core/canonical"
+import type { Canonical_ContentBlock, Canonical_Event, Canonical_FeatureNotice, Canonical_Response, Canonical_StreamResponse, Canonical_ToolCallBlock } from "../../core/canonical"
 import type { JsonObject } from "../../core/types"
 import { canonicalUsageFromWireUsage, mergeCanonicalUsage, mergeServerToolUse } from "../../core/usage"
 import { DEFAULT_MAX_INPUT_TOKENS } from "./constants"
+import { findEventStart } from "./event-frames"
 import { maybeHandleKiroServerTool, type KiroServerToolHandlers } from "./mcp"
+import { parseKiroMeteringUsage } from "./metering"
 import type { KiroParsedEvent, KiroToolCall } from "./types"
 
 interface Accumulator {
@@ -258,6 +260,9 @@ export async function collectKiroResponse(
   let cacheCreationInputTokens: number | undefined
   let cacheReadInputTokens: number | undefined
   let outputReasoningTokens: number | undefined
+  let providerCredits: number | undefined
+  /** Notices in emission order, one entry per event. Stays empty when none arrive. */
+  const featureNotices: Canonical_FeatureNotice[] = []
   let serverToolUse: Canonical_Response["usage"]["serverToolUse"] | undefined
   let stopReason: Canonical_Response["stopReason"] = "end_turn"
 
@@ -308,9 +313,20 @@ export async function collectKiroResponse(
       cacheCreationInputTokens = mergedUsage.cacheCreationInputTokens ?? cacheCreationInputTokens
       cacheReadInputTokens = mergedUsage.cacheReadInputTokens ?? cacheReadInputTokens
       outputReasoningTokens = mergedUsage.outputReasoningTokens ?? outputReasoningTokens
+      // Accumulated off `event.usage` rather than `mergedUsage`, because `mergedUsage` is rebuilt
+      // per event and so cannot carry a running total. Summed for the same reason
+      // `mergeCanonicalUsage()` sums it: several upstream calls can each report spend.
+      if (typeof event.usage.providerCredits === "number") providerCredits = (providerCredits ?? 0) + event.usage.providerCredits
       serverToolUse = mergeServerToolUse(serverToolUse, event.usage.serverToolUse)
     }
     if (event.type === "message_stop") stopReason = event.stopReason as Canonical_Response["stopReason"]
+    // Token- and content-neutral (Requirement 8.4), the same isolation the metering branch in
+    // `iterateKiroEvents` buys with its `continue`: here the discriminated union does it, since
+    // `feature_notice` matches none of the branches above. No flush, no content push, no usage
+    // or stop-reason write — a notice between two text deltas must not split the text block.
+    // Appended verbatim, one entry per event, in emission order (Requirement 8.2). No dedupe
+    // here: collapsing repeats by `(feature, detail)` is the inbound renderer's job.
+    if (event.type === "feature_notice") featureNotices.push({ feature: event.feature, policy: event.policy, detail: event.detail })
   }
 
   flushThinking()
@@ -330,8 +346,12 @@ export async function collectKiroResponse(
       ...(cacheCreationInputTokens !== undefined ? { cacheCreationInputTokens } : {}),
       ...(cacheReadInputTokens !== undefined ? { cacheReadInputTokens } : {}),
       ...(outputReasoningTokens !== undefined ? { outputReasoningTokens } : {}),
+      ...(providerCredits !== undefined ? { providerCredits } : {}),
       ...(serverToolUse && (serverToolUse.webSearchRequests || serverToolUse.webFetchRequests || serverToolUse.mcpCalls) ? { serverToolUse } : {}),
     },
+    // Omitted rather than empty (Requirement 8.3), the same conditional-spread idiom the
+    // optional usage members above use.
+    ...(featureNotices.length ? { featureNotices } : {}),
   }
 }
 
@@ -351,6 +371,8 @@ async function* iterateKiroEvents(
   let usageOutputTokens: number | undefined
   let upstreamInputTokens: number | undefined
   const upstreamUsage: Canonical_Response["usage"] = { inputTokens: inputTokenEstimate, outputTokens: 0 }
+  /** Running total of the metering frames' credits. Stays `undefined` when no metering frame arrives. */
+  let providerCredits: number | undefined
   let contextUsage: number | undefined
   let stopReason = "end_turn"
   let sawToolCall = false
@@ -432,6 +454,18 @@ async function* iterateKiroEvents(
             yield { type: "text_delta", delta: extracted.regular }
           }
         }
+        // Metering branch (design D1). Must stay **before** the token-usage branch:
+        // `{"unit":"credit","unitPlural":"credits","usage":0.0148}` carries a numeric `usage`, so
+        // reaching the branch below would read 0.0148 as an output-token count — measured as
+        // `outputTokens: 0.0148` / `inputTokens: 1296.9852`, which Requirement 5.4 forbids.
+        // The `continue` is what buys Requirement 5.4: a metering frame contributes to
+        // `providerCredits` and to nothing else — not output tokens, not input-token estimation,
+        // not context usage, not the stop reason, not tool-call draining.
+        const credits = parseKiroMeteringUsage(event)
+        if (credits !== undefined) {
+          providerCredits = (providerCredits ?? 0) + credits
+          continue
+        }
         if ("usage" in event) {
           if (typeof event.usage === "number") {
             usageOutputTokens = event.usage
@@ -497,6 +531,7 @@ async function* iterateKiroEvents(
       ...(upstreamUsage.cacheCreationInputTokens !== undefined ? { cacheCreationInputTokens: upstreamUsage.cacheCreationInputTokens } : {}),
       ...(upstreamUsage.cacheReadInputTokens !== undefined ? { cacheReadInputTokens: upstreamUsage.cacheReadInputTokens } : {}),
       ...(upstreamUsage.outputReasoningTokens !== undefined ? { outputReasoningTokens: upstreamUsage.outputReasoningTokens } : {}),
+      ...(providerCredits !== undefined ? { providerCredits } : {}),
       ...(serverToolUse ? { serverToolUse } : {}),
     },
   }
@@ -509,47 +544,6 @@ function closingTagPrefixSuffixLength(value: string, closeTag: string) {
     if (closeTag.startsWith(value.slice(-length))) return length
   }
   return 0
-}
-
-function findEventStart(buffer: string) {
-  // Only match patterns at the start of a top-level JSON object.
-  // Skip matches that appear inside a JSON string (preceded by an odd number of unescaped quotes).
-  const patterns = ["{\"contextUsagePercentage\":", "{\"content\":", "{\"name\":", "{\"input\":", "{\"stop\":", "{\"usage\":"]
-  let best = -1
-  for (const pattern of patterns) {
-    let searchFrom = 0
-    while (searchFrom < buffer.length) {
-      const index = buffer.indexOf(pattern, searchFrom)
-      if (index < 0) break
-      // Verify this is not inside a JSON string by checking if the preceding
-      // context suggests we're at a top-level position (not inside quotes).
-      if (index === 0 || isLikelyTopLevel(buffer, index)) {
-        if (best < 0 || index < best) best = index
-        break
-      }
-      searchFrom = index + 1
-    }
-  }
-  return best
-}
-
-/**
- * Heuristic: check if position is likely a top-level JSON start rather than
- * inside a string value. We look backwards for the nearest unescaped quote
- * and count whether we're inside a string context.
- */
-function isLikelyTopLevel(buffer: string, position: number) {
-  // Quick check: if preceded by whitespace, newline, or start of buffer, likely top-level
-  const preceding = buffer[position - 1]
-  if (!preceding || preceding === "\n" || preceding === "\r" || preceding === " " || preceding === "\t") return true
-  // If preceded by a closing brace/bracket, likely between events
-  if (preceding === "}" || preceding === "]") return true
-  // If preceded by a comma or colon, could be inside an object — but our patterns
-  // start with `{"` which is unusual inside a value. Accept it.
-  if (preceding === "," || preceding === ":") return false
-  // If preceded by a quote, we're likely inside a string
-  if (preceding === "\"") return false
-  return true
 }
 
 function findJsonEnd(value: string) {

@@ -124,3 +124,81 @@ describe("canonical usage helpers", () => {
     })
   })
 })
+
+describe("provider credits in canonical usage", () => {
+  test("sums provider credits across merges because one request can make several upstream calls", () => {
+    const usage: Canonical_Usage = { inputTokens: 10, outputTokens: 2, providerCredits: 0.0148 }
+
+    mergeCanonicalUsage(usage, { providerCredits: 0.0052 })
+
+    expect(usage.providerCredits).toBeCloseTo(0.02, 10)
+  })
+
+  test("takes the incoming value when the target has no credits yet", () => {
+    const usage: Canonical_Usage = { inputTokens: 10, outputTokens: 2 }
+
+    mergeCanonicalUsage(usage, { providerCredits: 0.0148 })
+
+    expect(usage.providerCredits).toBe(0.0148)
+  })
+
+  test("leaves credits absent rather than zero when neither side reports them", () => {
+    const usage: Canonical_Usage = { inputTokens: 10, outputTokens: 2 }
+
+    mergeCanonicalUsage(usage, { inputTokens: 12, outputTokens: 5 })
+
+    expect(usage.providerCredits).toBeUndefined()
+    expect("providerCredits" in usage).toBe(false)
+  })
+
+  test("keeps an existing credit total when a later merge reports none", () => {
+    const usage: Canonical_Usage = { inputTokens: 10, outputTokens: 2, providerCredits: 0.0148 }
+
+    mergeCanonicalUsage(usage, { outputTokens: 9 })
+
+    expect(usage.providerCredits).toBe(0.0148)
+  })
+
+  test("accumulates a zero-credit report without discarding it", () => {
+    const usage: Canonical_Usage = { inputTokens: 10, outputTokens: 2 }
+
+    mergeCanonicalUsage(usage, { providerCredits: 0 })
+
+    expect(usage.providerCredits).toBe(0)
+  })
+
+  test("credits never enter the input token total", () => {
+    const usage: Canonical_Usage = {
+      inputTokens: 10,
+      outputTokens: 2,
+      cacheCreationInputTokens: 3,
+      cacheReadInputTokens: 5,
+      providerCredits: 1234.5,
+    }
+
+    expect(canonicalInputTokenTotal(usage)).toBe(18)
+  })
+
+  test("credits do not perturb any token member when merged", () => {
+    const usage: Canonical_Usage = {
+      inputTokens: 10,
+      outputTokens: 2,
+      cacheCreationInputTokens: 3,
+      cacheReadInputTokens: 5,
+      outputReasoningTokens: 1,
+    }
+    const withoutCredits: Canonical_Usage = { ...usage }
+
+    mergeCanonicalUsage(usage, { providerCredits: 999 })
+    const { providerCredits, ...tokenMembers } = usage
+
+    expect(providerCredits).toBe(999)
+    expect(tokenMembers).toEqual(withoutCredits)
+  })
+
+  test("wire usage readers never invent credits from a token payload", () => {
+    expect(canonicalUsageFromWireUsage({ input_tokens: 10, output_tokens: 3 }).providerCredits).toBeUndefined()
+    // A wire `usage` object is token accounting; a credit amount arrives on its own frame instead.
+    expect(canonicalUsageFromWireUsage({ providerCredits: 0.0148 })).toEqual({})
+  })
+})

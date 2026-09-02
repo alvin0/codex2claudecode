@@ -48,6 +48,12 @@ export function mergeCanonicalUsage(target: Canonical_Usage, usage: Partial<Cano
   if (typeof usage.cacheCreationInputTokens === "number") target.cacheCreationInputTokens = Math.max(target.cacheCreationInputTokens ?? 0, usage.cacheCreationInputTokens)
   if (typeof usage.cacheReadInputTokens === "number") target.cacheReadInputTokens = Math.max(target.cacheReadInputTokens ?? 0, usage.cacheReadInputTokens)
   if (typeof usage.outputReasoningTokens === "number") target.outputReasoningTokens = Math.max(target.outputReasoningTokens ?? 0, usage.outputReasoningTokens)
+  // `providerCredits` is the one member that accumulates instead of taking a maximum: one gateway
+  // request can make several upstream calls (a web-search preflight plus the main generate), each
+  // reporting its own spend, and the request's spend is their total. Guarded on the incoming value
+  // so absent + absent stays absent rather than collapsing to `0` — "not measured" and "measured as
+  // free" are different answers. It never reaches a token total; see `canonicalInputTokenTotal()`.
+  if (typeof usage.providerCredits === "number") target.providerCredits = (target.providerCredits ?? 0) + usage.providerCredits
   if (usage.serverToolUse) {
     target.serverToolUse = {
       ...(target.serverToolUse ?? {}),
@@ -56,6 +62,10 @@ export function mergeCanonicalUsage(target: Canonical_Usage, usage: Partial<Cano
   }
 }
 
+/**
+ * Total prompt-side tokens. Sums only the three input-token members; `providerCredits` is a billing
+ * amount, not a token count, and is deliberately absent from this expression.
+ */
 export function canonicalInputTokenTotal(usage: Partial<Canonical_Usage> | undefined) {
   return (usage?.inputTokens ?? 0) + (usage?.cacheCreationInputTokens ?? 0) + (usage?.cacheReadInputTokens ?? 0)
 }

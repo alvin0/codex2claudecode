@@ -29278,10 +29278,14 @@ var package_default = {
     typecheck: "tsc --noEmit && tsc -p tsconfig.test.json --noEmit",
     check: "bun run typecheck && bun run build",
     prepublishOnly: "bun run build",
-    test: "bun test test/ --test-name-pattern='^(?!.*live Codex smoke test)'",
+    test: "bun test test/ --test-name-pattern='^(?!.*live (Codex|Kiro|native API) smoke test)'",
     coverage: "bunx --bun vitest run --config vitest.config.ts --coverage --coverage.provider=istanbul --testNamePattern='^(?!.*live Codex smoke test)'",
     "test:live": "CODEX_AUTH_FILE=auth-codex.json bun test test/live.test.ts",
-    "test:kiro:api": "bun scripts/kiro-api-smoke.ts"
+    "test:kiro:api": "bun scripts/kiro-api-smoke.ts",
+    "probe:kiro:mcp": "bun scripts/kiro-mcp-probe.ts",
+    "probe:codex:effort": "bun scripts/codex-effort-probe.ts",
+    "test:native:live": "NATIVE_LIVE=1 bun test test/native/live.test.ts",
+    "test:native:verify": "bun scripts/native-verify.ts"
   },
   dependencies: {
     "gpt-tokenizer": "^3.4.0",
@@ -29570,6 +29574,8 @@ function mergeCanonicalUsage(target, usage) {
     target.cacheReadInputTokens = Math.max(target.cacheReadInputTokens ?? 0, usage.cacheReadInputTokens);
   if (typeof usage.outputReasoningTokens === "number")
     target.outputReasoningTokens = Math.max(target.outputReasoningTokens ?? 0, usage.outputReasoningTokens);
+  if (typeof usage.providerCredits === "number")
+    target.providerCredits = (target.providerCredits ?? 0) + usage.providerCredits;
   if (usage.serverToolUse) {
     target.serverToolUse = {
       ...target.serverToolUse ?? {},
@@ -30543,6 +30549,7 @@ class CanonicalStreamAccumulator {
   thinkingSignature = "";
   content = [];
   toolArguments = new Map;
+  featureNotices = [];
   usage = { inputTokens: 0, outputTokens: 0 };
   stopReason = "end_turn";
   hasToolCall = false;
@@ -30606,6 +30613,9 @@ class CanonicalStreamAccumulator {
         this.closeTextBlock();
         this.content.push({ type: "server_tool", blocks: event.blocks });
         break;
+      case "feature_notice":
+        this.featureNotices.push({ feature: event.feature, policy: event.policy, detail: event.detail });
+        break;
       case "usage":
         mergeCanonicalUsage(this.usage, event.usage);
         break;
@@ -30652,7 +30662,8 @@ class CanonicalStreamAccumulator {
       model: this.model,
       stopReason: this.stopReason,
       content: [...this.content],
-      usage: { ...this.usage }
+      usage: { ...this.usage },
+      ...this.featureNotices.length ? { featureNotices: [...this.featureNotices] } : {}
     };
   }
   get hasError() {
@@ -30760,6 +30771,103 @@ function createLogPreview(limit = LOG_BODY_PREVIEW_LIMIT) {
     text() {
       return chunks.length ? chunks.join("") : undefined;
     }
+  };
+}
+
+// src/core/stream-telemetry.ts
+class StreamTelemetryCollector {
+  started = Date.now();
+  firstTokenTime;
+  requestId = "";
+  provider = "";
+  model = "";
+  streaming = false;
+  terminalEvent = "unknown";
+  textBlocks = 0;
+  thinkingBlocks = 0;
+  clientToolCalls = 0;
+  serverToolCalls = 0;
+  streamErrors = 0;
+  usageSource = "unavailable";
+  firstTokenRetries;
+  clientCancelled = false;
+  providerCredits;
+  featureNotices = [];
+  constructor(init) {
+    if (init?.requestId)
+      this.requestId = init.requestId;
+    if (init?.provider)
+      this.provider = init.provider;
+    if (init?.model)
+      this.model = init.model;
+    if (init?.streaming !== undefined)
+      this.streaming = init.streaming;
+  }
+  markFirstToken() {
+    if (!this.firstTokenTime)
+      this.firstTokenTime = Date.now();
+  }
+  recordTextBlock() {
+    this.textBlocks += 1;
+  }
+  recordThinkingBlock() {
+    this.thinkingBlocks += 1;
+  }
+  recordClientToolCall() {
+    this.clientToolCalls += 1;
+  }
+  recordServerToolCall() {
+    this.serverToolCalls += 1;
+  }
+  recordStreamError() {
+    this.streamErrors += 1;
+  }
+  recordProviderCredits(value) {
+    if (!Number.isFinite(value))
+      return;
+    this.providerCredits = (this.providerCredits ?? 0) + value;
+  }
+  recordFeatureNotice(notice) {
+    this.featureNotices.push({ feature: notice.feature, policy: notice.policy, detail: notice.detail });
+  }
+  finalizedSnapshot;
+  finalize() {
+    if (this.finalizedSnapshot)
+      return this.finalizedSnapshot;
+    this.finalizedSnapshot = {
+      requestId: this.requestId,
+      provider: this.provider,
+      model: this.model,
+      streaming: this.streaming,
+      durationMs: Date.now() - this.started,
+      firstTokenMs: this.firstTokenTime ? this.firstTokenTime - this.started : undefined,
+      terminalEvent: this.terminalEvent,
+      textBlocks: this.textBlocks,
+      thinkingBlocks: this.thinkingBlocks,
+      clientToolCalls: this.clientToolCalls,
+      serverToolCalls: this.serverToolCalls,
+      streamErrors: this.streamErrors,
+      usageSource: this.usageSource,
+      firstTokenRetries: this.firstTokenRetries,
+      clientCancelled: this.clientCancelled,
+      providerCredits: this.providerCredits,
+      ...this.featureNotices.length ? { featureNotices: [...this.featureNotices] } : {}
+    };
+    return this.finalizedSnapshot;
+  }
+}
+
+// src/core/stream-telemetry-summary.ts
+function streamTelemetrySummary(telemetry) {
+  return {
+    ...telemetry.featureNotices ? { featureNotices: [...telemetry.featureNotices] } : {},
+    providerCredits: telemetry.providerCredits
+  };
+}
+function canonicalResponseTelemetrySummary(response) {
+  return {
+    ...response.featureNotices ? { featureNotices: [...response.featureNotices] } : {},
+    providerCredits: response.usage.providerCredits
   };
 }
 
@@ -36246,6 +36354,47 @@ function claudeErrorType(status) {
     return "overloaded_error";
   return "api_error";
 }
+// src/inbound/claude/notice.ts
+var CLAUDE_NOTICE_MARKER = "[gateway]";
+var WARNING_SEPARATOR = `
+
+`;
+function noticeLine(feature, detail) {
+  return `- ${feature}: ${detail}`;
+}
+function flattenDetail(detail) {
+  return detail.replace(/\s+/g, " ").trim();
+}
+function headerLine(count) {
+  const subject = count === 1 ? "1 requested feature was" : `${count} requested features were`;
+  return `${CLAUDE_NOTICE_MARKER} ${subject} not honored as sent:`;
+}
+function renderClaudeFeatureWarning(notices) {
+  const lines = [];
+  const seen = new Set;
+  for (const notice of notices) {
+    if (notice.policy !== "degrade")
+      continue;
+    const detail = flattenDetail(notice.detail);
+    const key = `${notice.feature}\x00${detail}`;
+    if (seen.has(key))
+      continue;
+    seen.add(key);
+    lines.push(noticeLine(notice.feature, detail));
+  }
+  if (!lines.length)
+    return "";
+  return [headerLine(lines.length), ...lines].join(`
+`);
+}
+function prependClaudeWarning(text, warning) {
+  if (!warning)
+    return text;
+  if (!text)
+    return warning;
+  return `${warning}${WARNING_SEPARATOR}${text}`;
+}
+
 // src/inbound/claude/sse-writer.ts
 class ClaudeSseWriter {
   encoder = new TextEncoder;
@@ -36433,11 +36582,25 @@ async function canonicalResponseToClaudeMessage(response, request) {
     type: "message",
     role: "assistant",
     model: response.model || request.model,
-    content: response.content.flatMap(canonicalContentToClaudeBlocks),
+    content: withClaudeWarning(response.content.flatMap(canonicalContentToClaudeBlocks), renderClaudeFeatureWarning(response.featureNotices ?? [])),
     stop_reason: response.stopReason,
     stop_sequence: null,
     usage: canonicalUsageToClaudeUsage(response.usage)
   };
+}
+function withClaudeWarning(content, warning) {
+  if (!warning)
+    return content;
+  const index = content.findIndex((block2) => block2.type === "text" && typeof block2.text === "string");
+  if (index < 0)
+    return [{ type: "text", text: warning }, ...content];
+  const block = content[index];
+  const warned = [...content];
+  warned[index] = { ...block, text: prependClaudeWarning(String(block.text), warning) };
+  return warned;
+}
+function trailingWarningSegment(text, warning) {
+  return prependClaudeWarning(warning, text).slice(text.length);
 }
 function claudeCanonicalStreamResponse(response, request, options) {
   const messageId = response.id.replace(/^resp_/, "msg_");
@@ -36453,6 +36616,38 @@ function claudeCanonicalStreamResponse(response, request, options) {
   let serverToolUse;
   let stopReason = "end_turn";
   let writer;
+  const pendingNotices = [];
+  let streamedText = "";
+  function takePendingWarning() {
+    if (!pendingNotices.length)
+      return "";
+    const warning = renderClaudeFeatureWarning(pendingNotices);
+    pendingNotices.length = 0;
+    return warning;
+  }
+  function emitText(text) {
+    if (!text)
+      return;
+    writer.textDelta(text);
+    streamedText += text;
+  }
+  function withPendingWarning(delta) {
+    if (streamedText)
+      return delta;
+    return prependClaudeWarning(delta, takePendingWarning());
+  }
+  function flushTrailingWarning() {
+    const warning = takePendingWarning();
+    if (!warning)
+      return;
+    if (writer.isTextOpen) {
+      emitText(trailingWarningSegment(streamedText, warning));
+      return;
+    }
+    writer.stopThinkingBlock(thinkingSignature);
+    writer.startTextBlock();
+    emitText(warning);
+  }
   function clearHeartbeat() {
     if (!heartbeat)
       return;
@@ -36522,7 +36717,7 @@ function claudeCanonicalStreamResponse(response, request, options) {
               continue;
             writer.stopThinkingBlock(thinkingSignature);
             writer.startTextBlock();
-            writer.textDelta(event.delta);
+            emitText(withPendingWarning(event.delta));
             continue;
           }
           if (event.type === "text_done" && !writer.isTextOpen) {
@@ -36530,7 +36725,12 @@ function claudeCanonicalStreamResponse(response, request, options) {
               continue;
             writer.stopThinkingBlock(thinkingSignature);
             writer.startTextBlock();
-            writer.textDelta(event.text);
+            emitText(withPendingWarning(event.text));
+            continue;
+          }
+          if (event.type === "feature_notice") {
+            options?.telemetry?.recordFeatureNotice(event);
+            pendingNotices.push({ feature: event.feature, policy: event.policy, detail: event.detail });
             continue;
           }
           if (event.type === "tool_call_done") {
@@ -36551,6 +36751,8 @@ function claudeCanonicalStreamResponse(response, request, options) {
             cacheCreationInputTokens = usage.cacheCreationInputTokens ?? 0;
             cacheReadInputTokens = usage.cacheReadInputTokens ?? 0;
             serverToolUse = mergeServerToolUse(serverToolUse, event.usage.serverToolUse);
+            if (typeof event.usage.providerCredits === "number")
+              options?.telemetry?.recordProviderCredits(event.usage.providerCredits);
             continue;
           }
           if (event.type === "completion") {
@@ -36561,6 +36763,8 @@ function claudeCanonicalStreamResponse(response, request, options) {
             cacheCreationInputTokens = usage.cacheCreationInputTokens ?? 0;
             cacheReadInputTokens = usage.cacheReadInputTokens ?? 0;
             serverToolUse = mergeServerToolUse(serverToolUse, event.usage?.serverToolUse);
+            if (typeof event.usage?.providerCredits === "number")
+              options?.telemetry?.recordProviderCredits(event.usage.providerCredits);
             stopReason = event.stopReason ?? stopReason;
             continue;
           }
@@ -36575,6 +36779,7 @@ function claudeCanonicalStreamResponse(response, request, options) {
             return;
           }
         }
+        flushTrailingWarning();
         writer.closeOpenBlocks(thinkingSignature);
         const wireServerToolUse = claudeServerToolUse(serverToolUse);
         writer.messageDelta(stopReason, {
@@ -37915,13 +38120,22 @@ class Claude_Inbound_Provider {
       if (body.stream === false || body.stream === undefined) {
         const accumulated = await accumulateCanonicalStream(result);
         backfillInputTokens(accumulated, body);
+        if (proxyLog)
+          proxyLog.telemetry = canonicalResponseTelemetrySummary(accumulated);
         if (proxyLog && shouldCaptureProxyBody)
           proxyLog.responseBody = upstreamResponseBody?.();
         return Response.json(await canonicalResponseToClaudeMessage(accumulated, body));
       }
+      const telemetry = new StreamTelemetryCollector({
+        requestId: context.requestId,
+        provider: upstream.providerKind ?? this.expectedUpstreamKind ?? "",
+        model: body.model,
+        streaming: true
+      });
       if (!proxyLog)
-        return claudeCanonicalStreamResponse(result, body);
-      return claudeCanonicalStreamResponse(withLoggedCanonicalStream(result, proxyLog, started, upstreamResponseBody), body, {
+        return claudeCanonicalStreamResponse(result, body, { telemetry });
+      return claudeCanonicalStreamResponse(withLoggedCanonicalStream(result, proxyLog, started, upstreamResponseBody, telemetry), body, {
+        telemetry,
         onCancel: (reason) => {
           proxyLog.durationMs = Date.now() - started;
           proxyLog.error = `stream cancelled: ${reasonText(reason)}`;
@@ -37932,6 +38146,8 @@ class Claude_Inbound_Provider {
     }
     if (isCanonicalResponse(result)) {
       backfillInputTokens(result, body);
+      if (proxyLog)
+        proxyLog.telemetry = canonicalResponseTelemetrySummary(result);
       if (proxyLog && shouldCaptureProxyBody)
         proxyLog.responseBody = upstreamResponseBody?.();
       return Response.json(await canonicalResponseToClaudeMessage(result, body));
@@ -38031,7 +38247,7 @@ function previewText(text) {
 function localCountTokensResponse(body, countTokens2) {
   return Response.json({ input_tokens: countTokens2(body) });
 }
-function withLoggedCanonicalStream(response, proxyLog, started, responseBody) {
+function withLoggedCanonicalStream(response, proxyLog, started, responseBody, telemetry) {
   async function* events() {
     let completed = false;
     try {
@@ -38048,6 +38264,8 @@ function withLoggedCanonicalStream(response, proxyLog, started, responseBody) {
         proxyLog.error = "stream cancelled";
       if (responseBody)
         proxyLog.responseBody = responseBody();
+      if (telemetry)
+        proxyLog.telemetry = streamTelemetrySummary(telemetry.finalize());
     }
   }
   return {
@@ -38776,6 +38994,276 @@ function githubHeaders(githubToken, accountType) {
   };
 }
 
+// src/upstream/copilot/feature-notices.ts
+function withCopilotFeatureNotices(result, notices) {
+  if (!notices.length)
+    return result;
+  if (result.type === "canonical_response")
+    return responseWithNotices(result, notices);
+  if (result.type === "canonical_stream")
+    return streamWithNotices(result, notices);
+  return result;
+}
+function responseWithNotices(response, notices) {
+  return {
+    ...response,
+    featureNotices: [...notices.map(copyNotice), ...response.featureNotices ?? []]
+  };
+}
+function streamWithNotices(stream, notices) {
+  const upstream = stream.events;
+  const decided = notices.map(copyNotice);
+  return {
+    ...stream,
+    events: {
+      async* [Symbol.asyncIterator]() {
+        for (const notice of decided) {
+          yield { type: "feature_notice", feature: notice.feature, policy: notice.policy, detail: notice.detail };
+        }
+        yield* upstream;
+      }
+    }
+  };
+}
+function copyNotice(notice) {
+  return { ...notice };
+}
+
+// src/core/provider-capabilities.ts
+var DEFAULT_RETRY_POLICY = {
+  maxRetries: 3,
+  baseDelayMs: 1000,
+  retryableStatuses: [408, 409, 429, 500, 502, 503, 504]
+};
+var DEFAULT_TIMEOUT_POLICY = {
+  requestTimeoutMs: 0,
+  streamIdleTimeoutMs: 300000,
+  firstTokenTimeoutMs: 0
+};
+
+// src/core/feature-policy.ts
+function resolvedDetail(input) {
+  const detail = input.detail.trim();
+  if (detail.length > 0)
+    return detail;
+  return `${input.feature} was not applied as requested by this upstream`;
+}
+function resolvedAlternative(input) {
+  const alternative = input.alternative.trim();
+  if (alternative.length > 0)
+    return alternative;
+  return "a different upstream, or omit the field";
+}
+function buildNotice(input, policy) {
+  return { feature: input.feature, policy, detail: resolvedDetail(input) };
+}
+function rejectionMessage(input) {
+  return `This upstream does not support ${input.feature}: ${resolvedDetail(input)}. Use ${resolvedAlternative(input)} instead.`;
+}
+function rejection(input) {
+  return { kind: "reject", feature: input.feature, message: rejectionMessage(input) };
+}
+function resolveFeature(input) {
+  switch (input.policy) {
+    case "native":
+      return { kind: "native" };
+    case "emulate":
+      return { kind: "emulate", notice: buildNotice(input, "emulate") };
+    case "reject":
+      return rejection(input);
+    case "degrade":
+      return input.strict ? rejection(input) : { kind: "degrade", notice: buildNotice(input, "degrade") };
+    default:
+      return unknownPolicy(input, input.policy);
+  }
+}
+function unknownPolicy(input, policy) {
+  return {
+    kind: "reject",
+    feature: input.feature,
+    message: `This upstream declares an unrecognised policy (${String(policy)}) for ${input.feature}. Use ${resolvedAlternative(input)} instead.`
+  };
+}
+function isFeatureRejection(outcome) {
+  return outcome.kind === "reject";
+}
+function featureOutcomeNotice(outcome) {
+  return "notice" in outcome ? outcome.notice : undefined;
+}
+
+// src/core/feature-decisions.ts
+function noticeKey(feature, detail) {
+  return JSON.stringify([feature, detail]);
+}
+
+class FeatureDecisions {
+  features;
+  strict;
+  noticesByKey = new Map;
+  resolved = new Set;
+  rejection;
+  constructor(features, strict) {
+    this.features = features;
+    this.strict = strict;
+  }
+  resolve(feature, detail, alternative) {
+    return this.resolveWithPolicy(feature, this.features[feature], detail, alternative);
+  }
+  resolveWithPolicy(feature, policy, detail, alternative) {
+    const outcome = resolveFeature({ feature, policy, detail, alternative, strict: this.strict });
+    this.resolved.add(feature);
+    const notice = featureOutcomeNotice(outcome);
+    if (notice) {
+      const key = noticeKey(notice.feature, notice.detail);
+      if (!this.noticesByKey.has(key))
+        this.noticesByKey.set(key, notice);
+    }
+    if (isFeatureRejection(outcome) && !this.rejection) {
+      this.rejection = { feature: outcome.feature, message: outcome.message };
+    }
+    return outcome;
+  }
+  notices() {
+    return [...this.noticesByKey.values()].map((notice) => ({ ...notice }));
+  }
+  firstRejection() {
+    return this.rejection ? { ...this.rejection } : undefined;
+  }
+  resolvedFeatures() {
+    return new Set(this.resolved);
+  }
+}
+
+// src/upstream/copilot/capabilities.ts
+var COPILOT_CAPABILITIES = {
+  streaming: true,
+  passthrough: false,
+  usageSupport: true,
+  environmentsSupport: false,
+  usageEndpointSupport: true,
+  tokenCountingSupport: false,
+  modelListingSupport: true,
+  retryPolicy: DEFAULT_RETRY_POLICY,
+  timeoutPolicy: DEFAULT_TIMEOUT_POLICY,
+  logBodyDefault: true,
+  features: {
+    sampling: "native",
+    stopSequences: "degrade",
+    thinkingBudget: "native",
+    systemPrompt: "native",
+    promptCache: "degrade",
+    strictToolSchema: "native",
+    toolChoiceForced: "native",
+    structuredOutput: "native",
+    webSearch: "native",
+    webFetch: "degrade",
+    mcpToolset: "native"
+  },
+  hostedTools: {
+    image_generation: "native",
+    web_search: "native",
+    web_search_preview: "native",
+    file_search: "native",
+    computer: "native",
+    computer_use_preview: "native",
+    code_interpreter: "native",
+    mcp: "native",
+    local_shell: "native",
+    tool_search: "native"
+  }
+};
+
+// src/upstream/copilot/features.ts
+function resolveCopilotFeatures(request, options = {}) {
+  const decisions = new FeatureDecisions(COPILOT_CAPABILITIES.features, options.strict ?? false);
+  const view = request;
+  const sampling = requestedSamplingControls(view);
+  if (sampling.length) {
+    decisions.resolve("sampling", `this endpoint takes generation controls of its own, so the requested ${joinControls(sampling)} is passed on as sent`, "an upstream that honors generation controls, or omit them");
+  }
+  if (requestedStopSequences(view).length) {
+    decisions.resolve("stopSequences", "this endpoint has no stop-sequence field, so generation cannot be halted on the requested strings", "an upstream that honors stop sequences, or truncate the reply on the client");
+  }
+  if (request.reasoningEffort?.trim()) {
+    decisions.resolve("thinkingBudget", "this endpoint takes a reasoning level of its own, so the requested level is passed on as stated rather than mapped to something else", "an upstream that honors the requested reasoning level, or omit it");
+  }
+  if (requestsPromptCache(view)) {
+    decisions.resolve("promptCache", "this endpoint caches prompt prefixes on its own schedule and takes no client cache instructions, so the requested cache points cannot be placed where they were asked for", "an upstream with a client-addressable prompt cache, or drop the cache hints");
+  }
+  if (request.instructions?.trim()) {
+    decisions.resolve("systemPrompt", "this endpoint takes a separate instruction channel, so the system prompt is passed on as written instead of being folded into the conversation", "an upstream with a separate instruction channel, or restate the instructions in the first message");
+  }
+  const forced = forcedToolChoice(request.toolChoice);
+  if (forced) {
+    decisions.resolve("toolChoiceForced", forcedToolChoiceDetail(forced), "an upstream that can force a tool call, or ask for the tool in the prompt");
+  }
+  if (request.textFormat) {
+    decisions.resolve("structuredOutput", "this endpoint takes a response schema of its own, so the requested shape is enforced by the model rather than described to it", "an upstream with native structured output, or validate the reply on the client");
+  }
+  if (requestsStrictToolSchema(request.tools)) {
+    decisions.resolve("strictToolSchema", "tool schemas are passed on unchanged, so the keywords that make argument validation strict reach the model as written", "an upstream that accepts strict tool schemas, or validate tool arguments on the client");
+  }
+  return decisions;
+}
+function requestedSamplingControls(request) {
+  const sampling = request.sampling;
+  if (!sampling)
+    return [];
+  return [
+    typeof sampling.temperature === "number" ? "temperature" : undefined,
+    typeof sampling.topP === "number" ? "top-p" : undefined,
+    typeof sampling.maxOutputTokens === "number" ? "output length limit" : undefined
+  ].filter((name) => name !== undefined);
+}
+function joinControls(names) {
+  if (names.length === 1)
+    return names[0];
+  return `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;
+}
+function requestedStopSequences(request) {
+  const stopSequences = request.sampling?.stopSequences;
+  return Array.isArray(stopSequences) ? stopSequences.filter((entry) => typeof entry === "string" && entry.length > 0) : [];
+}
+function requestsPromptCache(request) {
+  return Array.isArray(request.cacheHint) && request.cacheHint.length > 0;
+}
+function forcedToolChoice(toolChoice) {
+  if (!toolChoice)
+    return;
+  if (typeof toolChoice === "string")
+    return toolChoice === "required" ? { kind: "any" } : undefined;
+  if (typeof toolChoice.name === "string")
+    return { kind: "named", name: toolChoice.name };
+  const nested = toolChoice.function;
+  if (isJsonObject(nested) && typeof nested.name === "string")
+    return { kind: "named", name: nested.name };
+  if (typeof toolChoice.type === "string" && toolChoice.type !== "function")
+    return { kind: "named", name: toolChoice.type };
+  return;
+}
+function forcedToolChoiceDetail(forced) {
+  if (forced.kind === "any") {
+    return "this endpoint can require a tool call, so the requirement is passed on and every tool stays available";
+  }
+  return `this endpoint can require a named tool call, so the request for '${forced.name}' is passed on with the tool list left intact`;
+}
+function requestsStrictToolSchema(tools) {
+  return (tools ?? []).some((tool) => tool.strict === true || schemaClosesShape(tool.parameters ?? tool.input_schema));
+}
+function schemaClosesShape(schema, depth = 0) {
+  if (depth > 16 || !schema || typeof schema !== "object")
+    return false;
+  if (Array.isArray(schema))
+    return schema.some((entry) => schemaClosesShape(entry, depth + 1));
+  const record = schema;
+  if (Object.hasOwn(record, "additionalProperties") && record.additionalProperties !== true)
+    return true;
+  return Object.values(record).some((value) => schemaClosesShape(value, depth + 1));
+}
+function isJsonObject(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 // src/upstream/copilot/cache.ts
 function copilotCacheFilePath(filePath) {
   const resolved = filePath ?? bunPath.join(appDataDir(), COPILOT_CACHE_FILE_NAME);
@@ -39320,26 +39808,33 @@ class Copilot_Upstream_Provider {
   auth;
   client;
   authFilePath;
+  strict;
   modelCache;
   constructor(options) {
     this.auth = options.auth;
     this.client = options.client ?? new Copilot_Client({ auth: this.auth });
     this.authFilePath = options.authFilePath;
+    this.strict = options.strict ?? false;
   }
   static async fromAuthFile(path, options) {
     const auth = await Copilot_Auth_Manager.fromAuthFile(path, options);
     return new Copilot_Upstream_Provider({
       auth,
       client: new Copilot_Client({ auth, fetch: options?.fetch }),
-      authFilePath: path
+      authFilePath: path,
+      strict: options?.strict
     });
   }
   async proxy(request, options) {
+    const decisions = resolveCopilotFeatures(request, { strict: this.strict });
+    const rejection2 = decisions.firstRejection();
+    if (rejection2)
+      return canonicalError(400, rejection2.message);
     const response = await this.client.proxy(request, options);
     if (!response.ok)
       return await toCanonicalError(response);
     const collected = await collectCopilotResponse(response, request.model);
-    return request.stream ? streamCopilotResponse(collected) : collected;
+    return withCopilotFeatureNotices(request.stream ? streamCopilotResponse(collected) : collected, decisions.notices());
   }
   async checkHealth(timeoutMs) {
     return this.client.checkHealth(timeoutMs);
@@ -39414,6 +39909,9 @@ async function toCanonicalError(response) {
     headers: responseHeaders(response.headers),
     body: await response.text().catch(() => "")
   };
+}
+function canonicalError(status, body) {
+  return { type: "canonical_error", status, headers: new Headers, body };
 }
 function cacheFilePath3(authFile) {
   return bunPath.join(bunPath.dirname(expandHome(authFile)), COPILOT_CACHE_FILE_NAME);
@@ -40235,6 +40733,168 @@ class CodexStandaloneClient {
   }
 }
 
+// src/upstream/codex/feature-notices.ts
+function withCodexFeatureNotices(result, notices) {
+  if (!notices.length)
+    return result;
+  if (result.type === "canonical_response")
+    return responseWithNotices2(result, notices);
+  if (result.type === "canonical_stream")
+    return streamWithNotices2(result, notices);
+  return result;
+}
+function responseWithNotices2(response, notices) {
+  return {
+    ...response,
+    featureNotices: [...notices.map(copyNotice2), ...response.featureNotices ?? []]
+  };
+}
+function streamWithNotices2(stream, notices) {
+  const upstream = stream.events;
+  const decided = notices.map(copyNotice2);
+  return {
+    ...stream,
+    events: {
+      async* [Symbol.asyncIterator]() {
+        for (const notice of decided) {
+          yield { type: "feature_notice", feature: notice.feature, policy: notice.policy, detail: notice.detail };
+        }
+        yield* upstream;
+      }
+    }
+  };
+}
+function copyNotice2(notice) {
+  return { ...notice };
+}
+
+// src/upstream/codex/capabilities.ts
+var CODEX_CAPABILITIES = {
+  streaming: true,
+  passthrough: true,
+  usageSupport: true,
+  environmentsSupport: true,
+  usageEndpointSupport: true,
+  tokenCountingSupport: true,
+  modelListingSupport: false,
+  retryPolicy: DEFAULT_RETRY_POLICY,
+  timeoutPolicy: DEFAULT_TIMEOUT_POLICY,
+  logBodyDefault: true,
+  features: {
+    sampling: "native",
+    stopSequences: "degrade",
+    thinkingBudget: "degrade",
+    systemPrompt: "native",
+    promptCache: "degrade",
+    strictToolSchema: "native",
+    toolChoiceForced: "native",
+    structuredOutput: "native",
+    webSearch: "native",
+    webFetch: "degrade",
+    mcpToolset: "native"
+  },
+  hostedTools: {
+    image_generation: "native",
+    web_search: "native",
+    web_search_preview: "native",
+    file_search: "native",
+    computer: "native",
+    computer_use_preview: "native",
+    code_interpreter: "native",
+    mcp: "native",
+    local_shell: "native",
+    tool_search: "native"
+  }
+};
+
+// src/upstream/codex/features.ts
+function resolveCodexFeatures(request, options = {}) {
+  const decisions = new FeatureDecisions(CODEX_CAPABILITIES.features, options.strict ?? false);
+  const view = request;
+  const sampling = requestedSamplingControls2(view);
+  if (sampling.length) {
+    decisions.resolve("sampling", `this endpoint takes generation controls of its own, so the requested ${joinControls2(sampling)} is passed on as sent`, "an upstream that honors generation controls, or omit them");
+  }
+  if (requestedStopSequences2(view).length) {
+    decisions.resolve("stopSequences", "this endpoint has no stop-sequence field, so generation cannot be halted on the requested strings", "an upstream that honors stop sequences, or truncate the reply on the client");
+  }
+  if (requestsPromptCache2(view)) {
+    decisions.resolve("promptCache", "this endpoint caches prompt prefixes on its own schedule and takes no client cache instructions, so the requested cache points cannot be placed where they were asked for", "an upstream with a client-addressable prompt cache, or drop the cache hints");
+  }
+  if (request.instructions?.trim()) {
+    decisions.resolve("systemPrompt", "this endpoint takes a separate instruction channel, so the system prompt is passed on as written instead of being folded into the conversation", "an upstream with a separate instruction channel, or restate the instructions in the first message");
+  }
+  const forced = forcedToolChoice2(request.toolChoice);
+  if (forced) {
+    decisions.resolve("toolChoiceForced", forcedToolChoiceDetail2(forced), "an upstream that can force a tool call, or ask for the tool in the prompt");
+  }
+  if (request.textFormat) {
+    decisions.resolve("structuredOutput", "this endpoint takes a response schema of its own, so the requested shape is enforced by the model rather than described to it", "an upstream with native structured output, or validate the reply on the client");
+  }
+  if (requestsStrictToolSchema2(request.tools)) {
+    decisions.resolve("strictToolSchema", "tool schemas are passed on unchanged, so the keywords that make argument validation strict reach the model as written", "an upstream that accepts strict tool schemas, or validate tool arguments on the client");
+  }
+  return decisions;
+}
+function requestedSamplingControls2(request) {
+  const sampling = request.sampling;
+  if (!sampling)
+    return [];
+  return [
+    typeof sampling.temperature === "number" ? "temperature" : undefined,
+    typeof sampling.topP === "number" ? "top-p" : undefined,
+    typeof sampling.maxOutputTokens === "number" ? "output length limit" : undefined
+  ].filter((name) => name !== undefined);
+}
+function joinControls2(names) {
+  if (names.length === 1)
+    return names[0];
+  return `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;
+}
+function requestedStopSequences2(request) {
+  const stopSequences = request.sampling?.stopSequences;
+  return Array.isArray(stopSequences) ? stopSequences.filter((entry) => typeof entry === "string" && entry.length > 0) : [];
+}
+function requestsPromptCache2(request) {
+  return Array.isArray(request.cacheHint) && request.cacheHint.length > 0;
+}
+function forcedToolChoice2(toolChoice) {
+  if (!toolChoice)
+    return;
+  if (typeof toolChoice === "string")
+    return toolChoice === "required" ? { kind: "any" } : undefined;
+  if (typeof toolChoice.name === "string")
+    return { kind: "named", name: toolChoice.name };
+  const nested = toolChoice.function;
+  if (isJsonObject2(nested) && typeof nested.name === "string")
+    return { kind: "named", name: nested.name };
+  if (typeof toolChoice.type === "string" && toolChoice.type !== "function")
+    return { kind: "named", name: toolChoice.type };
+  return;
+}
+function forcedToolChoiceDetail2(forced) {
+  if (forced.kind === "any") {
+    return "this endpoint can require a tool call, so the requirement is passed on and every tool stays available";
+  }
+  return `this endpoint can require a named tool call, so the request for '${forced.name}' is passed on with the tool list left intact`;
+}
+function requestsStrictToolSchema2(tools) {
+  return (tools ?? []).some((tool) => tool.strict === true || schemaClosesShape2(tool.parameters ?? tool.input_schema));
+}
+function schemaClosesShape2(schema, depth = 0) {
+  if (depth > 16 || !schema || typeof schema !== "object")
+    return false;
+  if (Array.isArray(schema))
+    return schema.some((entry) => schemaClosesShape2(entry, depth + 1));
+  const record = schema;
+  if (Object.hasOwn(record, "additionalProperties") && record.additionalProperties !== true)
+    return true;
+  return Object.values(record).some((value) => schemaClosesShape2(value, depth + 1));
+}
+function isJsonObject2(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 // src/upstream/codex/model-metadata.ts
 class CodexModelMetadataRegistry {
   models = new Map;
@@ -40359,19 +41019,26 @@ class Codex_Upstream_Provider {
   providerKind = "codex";
   client;
   authFile;
+  strict;
   modelCache;
   modelMetadata = new CodexModelMetadataRegistry;
   constructor(options) {
     this.client = "client" in options ? options.client : new CodexStandaloneClient(options);
     this.authFile = "authFile" in options ? options.authFile : undefined;
+    this.strict = options.strict ?? false;
   }
   static async fromAuthFile(path, options) {
     return new Codex_Upstream_Provider({
       client: await CodexStandaloneClient.fromAuthFile(path, options),
-      authFile: path
+      authFile: path,
+      strict: options?.strict
     });
   }
   async proxy(request, options) {
+    const decisions = resolveCodexFeatures(request, { strict: this.strict });
+    const rejection2 = decisions.firstRejection();
+    if (rejection2)
+      return canonicalError2(400, rejection2.message);
     const body = await this.applyFastMode(canonicalToCodexBody(request));
     options?.onRequestBody?.(JSON.stringify(body));
     const rawResponse = await this.client.proxy(body, options);
@@ -40380,9 +41047,8 @@ class Codex_Upstream_Provider {
       return toCanonicalError2(response);
     if (request.passthrough)
       return toCanonicalPassthrough(response);
-    if (request.stream)
-      return streamCodexResponse(response, request.model);
-    return collectCodexResponse(response, request.model);
+    const result = request.stream ? streamCodexResponse(response, request.model) : await collectCodexResponse(response, request.model);
+    return withCodexFeatureNotices(result, decisions.notices());
   }
   async inputTokens(request, options) {
     return this.client.inputTokens(canonicalToCodexInputTokensBody(request), options);
@@ -40469,6 +41135,9 @@ async function toCanonicalError2(response) {
     headers: responseHeaders(response.headers),
     body: await response.text()
   };
+}
+function canonicalError2(status, body) {
+  return { type: "canonical_error", status, headers: new Headers, body };
 }
 function toCanonicalPassthrough(response) {
   return {
@@ -41595,6 +42264,172 @@ function healthError(status) {
   return `Kiro health check returned ${status}`;
 }
 
+// src/upstream/kiro/feature-notices.ts
+function withKiroFeatureNotices(result, notices) {
+  if (!notices.length)
+    return result;
+  if (result.type === "canonical_response")
+    return responseWithNotices3(result, notices);
+  if (result.type === "canonical_stream")
+    return streamWithNotices3(result, notices);
+  return result;
+}
+function responseWithNotices3(response, notices) {
+  return {
+    ...response,
+    featureNotices: [...notices.map(copyNotice3), ...response.featureNotices ?? []]
+  };
+}
+function streamWithNotices3(stream, notices) {
+  const upstream = stream.events;
+  const decided = notices.map(copyNotice3);
+  return {
+    ...stream,
+    events: {
+      async* [Symbol.asyncIterator]() {
+        for (const notice of decided) {
+          yield { type: "feature_notice", feature: notice.feature, policy: notice.policy, detail: notice.detail };
+        }
+        yield* upstream;
+      }
+    }
+  };
+}
+function copyNotice3(notice) {
+  return { ...notice };
+}
+
+// src/upstream/kiro/capabilities.ts
+var KIRO_CAPABILITIES = {
+  streaming: true,
+  passthrough: false,
+  usageSupport: true,
+  environmentsSupport: false,
+  usageEndpointSupport: false,
+  tokenCountingSupport: false,
+  modelListingSupport: true,
+  retryPolicy: {
+    ...DEFAULT_RETRY_POLICY,
+    maxRetries: 3
+  },
+  timeoutPolicy: {
+    requestTimeoutMs: 0,
+    streamIdleTimeoutMs: 300000,
+    firstTokenTimeoutMs: KIRO_FIRST_TOKEN_TIMEOUT_MS
+  },
+  logBodyDefault: true,
+  features: {
+    sampling: "reject",
+    stopSequences: "reject",
+    thinkingBudget: "degrade",
+    systemPrompt: "emulate",
+    promptCache: "reject",
+    strictToolSchema: "degrade",
+    toolChoiceForced: "degrade",
+    structuredOutput: "emulate",
+    webSearch: "emulate",
+    webFetch: "emulate",
+    mcpToolset: "emulate"
+  },
+  hostedTools: {
+    image_generation: "reject",
+    web_search: "emulate",
+    web_search_preview: "emulate",
+    file_search: "reject",
+    computer: "reject",
+    computer_use_preview: "reject",
+    code_interpreter: "reject",
+    mcp: "emulate",
+    local_shell: "reject",
+    tool_search: "reject"
+  }
+};
+
+// src/upstream/kiro/features.ts
+function resolveKiroFeatures(request, options = {}) {
+  const decisions = new FeatureDecisions(KIRO_CAPABILITIES.features, options.strict ?? false);
+  const view = request;
+  const sampling = requestedSamplingControls3(view);
+  if (sampling.length) {
+    decisions.resolve("sampling", `this endpoint exposes no generation controls, so the requested ${joinControls3(sampling)} cannot reach the model \u2014 a sent value is accepted and ignored, which reads as honored while changing nothing`, "an upstream that honors generation controls, or omit them");
+  }
+  if (requestedStopSequences3(view).length) {
+    decisions.resolve("stopSequences", "this endpoint has no stop-sequence field, so generation cannot be halted on the requested strings", "an upstream that honors stop sequences, or truncate the reply on the client");
+  }
+  if (requestsPromptCache3(view)) {
+    decisions.resolve("promptCache", "this endpoint exposes no prompt cache: reusing a conversation reduced no spend and reported no cached-input counter, so the requested cache hints cannot be applied", "an upstream with a prompt cache, or drop the cache hints");
+  }
+  const forced = forcedToolChoice3(request.toolChoice);
+  if (forced) {
+    decisions.resolve("toolChoiceForced", forcedToolChoiceDetail3(forced), "an upstream that can force a tool call, or ask for the tool in the prompt");
+  }
+  if (request.textFormat) {
+    decisions.resolve("structuredOutput", "this endpoint has no response-format field, so the requested schema is embedded in the prompt and the model is asked to answer with matching JSON \u2014 the shape is instructed, not enforced", "an upstream with native structured output, or validate the reply on the client");
+  }
+  if (requestsStrictToolSchema3(request.tools)) {
+    decisions.resolve("strictToolSchema", "tool schemas are sanitized before they are sent and the keywords that make validation strict are removed, so arguments outside the declared shape are not refused upstream", "an upstream that accepts strict tool schemas, or validate tool arguments on the client");
+  }
+  return decisions;
+}
+function requestedSamplingControls3(request) {
+  const sampling = request.sampling;
+  if (!sampling)
+    return [];
+  return [
+    typeof sampling.temperature === "number" ? "temperature" : undefined,
+    typeof sampling.topP === "number" ? "top-p" : undefined,
+    typeof sampling.maxOutputTokens === "number" ? "output length limit" : undefined
+  ].filter((name) => name !== undefined);
+}
+function joinControls3(names) {
+  if (names.length === 1)
+    return names[0];
+  return `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;
+}
+function requestedStopSequences3(request) {
+  const stopSequences = request.sampling?.stopSequences;
+  return Array.isArray(stopSequences) ? stopSequences.filter((entry) => typeof entry === "string" && entry.length > 0) : [];
+}
+function requestsPromptCache3(request) {
+  return Array.isArray(request.cacheHint) && request.cacheHint.length > 0;
+}
+function forcedToolChoice3(toolChoice) {
+  if (!toolChoice)
+    return;
+  if (typeof toolChoice === "string")
+    return toolChoice === "required" ? { kind: "any" } : undefined;
+  if (typeof toolChoice.name === "string")
+    return { kind: "named", name: toolChoice.name };
+  const nested = toolChoice.function;
+  if (isJsonObject3(nested) && typeof nested.name === "string")
+    return { kind: "named", name: nested.name };
+  if (typeof toolChoice.type === "string" && toolChoice.type !== "function")
+    return { kind: "named", name: toolChoice.type };
+  return;
+}
+function forcedToolChoiceDetail3(forced) {
+  if (forced.kind === "any") {
+    return "this endpoint cannot require a tool call, so every tool stayed available and the model may still answer with text instead of calling one";
+  }
+  return `this endpoint cannot require a tool call, so the available tools were narrowed to '${forced.name}' to steer the model toward it \u2014 the model may still answer with text instead`;
+}
+function requestsStrictToolSchema3(tools) {
+  return (tools ?? []).some((tool) => tool.strict === true || schemaClosesShape3(tool.parameters ?? tool.input_schema));
+}
+function schemaClosesShape3(schema, depth = 0) {
+  if (depth > 16 || !schema || typeof schema !== "object")
+    return false;
+  if (Array.isArray(schema))
+    return schema.some((entry) => schemaClosesShape3(entry, depth + 1));
+  const record = schema;
+  if (Object.hasOwn(record, "additionalProperties") && record.additionalProperties !== true)
+    return true;
+  return Object.values(record).some((value) => schemaClosesShape3(value, depth + 1));
+}
+function isJsonObject3(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 // src/upstream/kiro/payload.ts
 var CLAUDE_CONTEXT_LIMIT_MESSAGE = "Your input exceeds the context window of this model. Please adjust your input and try again.";
 function convertCanonicalToKiroPayload(request, effectiveTools, options) {
@@ -42130,6 +42965,61 @@ function isServerToolContent(item) {
   return item.type === "server_tool" || item.type === "web_search" || item.type === "mcp_call" || item.type === "mcp_call_output";
 }
 
+// src/upstream/kiro/event-frames.ts
+var KIRO_EVENT_START_PATTERNS = [
+  '{"contextUsagePercentage":',
+  '{"content":',
+  '{"name":',
+  '{"input":',
+  '{"stop":',
+  '{"usage":',
+  '{"unit":'
+];
+function findEventStart(buffer) {
+  let best = -1;
+  for (const pattern of KIRO_EVENT_START_PATTERNS) {
+    let searchFrom = 0;
+    while (searchFrom < buffer.length) {
+      const index = buffer.indexOf(pattern, searchFrom);
+      if (index < 0)
+        break;
+      if (index === 0 || isLikelyTopLevel(buffer, index)) {
+        if (best < 0 || index < best)
+          best = index;
+        break;
+      }
+      searchFrom = index + 1;
+    }
+  }
+  return best;
+}
+function isLikelyTopLevel(buffer, position) {
+  const preceding = buffer[position - 1];
+  if (!preceding || preceding === `
+` || preceding === "\r" || preceding === " " || preceding === "\t")
+    return true;
+  if (preceding === "}" || preceding === "]")
+    return true;
+  if (preceding === "," || preceding === ":")
+    return false;
+  if (preceding === '"')
+    return false;
+  return true;
+}
+
+// src/upstream/kiro/metering.ts
+function isKiroMeteringPayload(value) {
+  if (typeof value !== "object" || value === null || Array.isArray(value))
+    return false;
+  const candidate = value;
+  if (typeof candidate.unit !== "string")
+    return false;
+  return typeof candidate.usage === "number" && Number.isFinite(candidate.usage);
+}
+function parseKiroMeteringUsage(value) {
+  return isKiroMeteringPayload(value) ? value.usage : undefined;
+}
+
 // src/upstream/kiro/parse.ts
 var STREAM_NO_EVENT_KEEP_CHARS = 1024;
 var MAX_PENDING_EVENT_CHARS = 1e6;
@@ -42343,6 +43233,8 @@ async function collectKiroResponse(response, fallbackModel, effectiveTools, inpu
   let cacheCreationInputTokens;
   let cacheReadInputTokens;
   let outputReasoningTokens;
+  let providerCredits;
+  const featureNotices = [];
   let serverToolUse;
   let stopReason = "end_turn";
   const flushText = () => {
@@ -42395,10 +43287,14 @@ async function collectKiroResponse(response, fallbackModel, effectiveTools, inpu
       cacheCreationInputTokens = mergedUsage.cacheCreationInputTokens ?? cacheCreationInputTokens;
       cacheReadInputTokens = mergedUsage.cacheReadInputTokens ?? cacheReadInputTokens;
       outputReasoningTokens = mergedUsage.outputReasoningTokens ?? outputReasoningTokens;
+      if (typeof event.usage.providerCredits === "number")
+        providerCredits = (providerCredits ?? 0) + event.usage.providerCredits;
       serverToolUse = mergeServerToolUse(serverToolUse, event.usage.serverToolUse);
     }
     if (event.type === "message_stop")
       stopReason = event.stopReason;
+    if (event.type === "feature_notice")
+      featureNotices.push({ feature: event.feature, policy: event.policy, detail: event.detail });
   }
   flushThinking();
   flushText();
@@ -42417,8 +43313,10 @@ async function collectKiroResponse(response, fallbackModel, effectiveTools, inpu
       ...cacheCreationInputTokens !== undefined ? { cacheCreationInputTokens } : {},
       ...cacheReadInputTokens !== undefined ? { cacheReadInputTokens } : {},
       ...outputReasoningTokens !== undefined ? { outputReasoningTokens } : {},
+      ...providerCredits !== undefined ? { providerCredits } : {},
       ...serverToolUse && (serverToolUse.webSearchRequests || serverToolUse.webFetchRequests || serverToolUse.mcpCalls) ? { serverToolUse } : {}
-    }
+    },
+    ...featureNotices.length ? { featureNotices } : {}
   };
 }
 async function* iterateKiroEvents(stream, inputTokenEstimate, effectiveTools = [], serverTools, emitBracketToolCalls = true, initialServerToolBlocks = [], prefaceText = "", maxInputTokens = DEFAULT_MAX_INPUT_TOKENS) {
@@ -42428,6 +43326,7 @@ async function* iterateKiroEvents(stream, inputTokenEstimate, effectiveTools = [
   let usageOutputTokens;
   let upstreamInputTokens;
   const upstreamUsage = { inputTokens: inputTokenEstimate, outputTokens: 0 };
+  let providerCredits;
   let contextUsage;
   let stopReason = "end_turn";
   let sawToolCall = false;
@@ -42509,6 +43408,11 @@ async function* iterateKiroEvents(stream, inputTokenEstimate, effectiveTools = [
             yield { type: "text_delta", delta: extracted.regular };
           }
         }
+        const credits = parseKiroMeteringUsage(event);
+        if (credits !== undefined) {
+          providerCredits = (providerCredits ?? 0) + credits;
+          continue;
+        }
         if ("usage" in event) {
           if (typeof event.usage === "number") {
             usageOutputTokens = event.usage;
@@ -42574,6 +43478,7 @@ async function* iterateKiroEvents(stream, inputTokenEstimate, effectiveTools = [
       ...upstreamUsage.cacheCreationInputTokens !== undefined ? { cacheCreationInputTokens: upstreamUsage.cacheCreationInputTokens } : {},
       ...upstreamUsage.cacheReadInputTokens !== undefined ? { cacheReadInputTokens: upstreamUsage.cacheReadInputTokens } : {},
       ...upstreamUsage.outputReasoningTokens !== undefined ? { outputReasoningTokens: upstreamUsage.outputReasoningTokens } : {},
+      ...providerCredits !== undefined ? { providerCredits } : {},
       ...serverToolUse ? { serverToolUse } : {}
     }
   };
@@ -42586,38 +43491,6 @@ function closingTagPrefixSuffixLength(value, closeTag) {
       return length;
   }
   return 0;
-}
-function findEventStart(buffer) {
-  const patterns = ['{"contextUsagePercentage":', '{"content":', '{"name":', '{"input":', '{"stop":', '{"usage":'];
-  let best = -1;
-  for (const pattern of patterns) {
-    let searchFrom = 0;
-    while (searchFrom < buffer.length) {
-      const index = buffer.indexOf(pattern, searchFrom);
-      if (index < 0)
-        break;
-      if (index === 0 || isLikelyTopLevel(buffer, index)) {
-        if (best < 0 || index < best)
-          best = index;
-        break;
-      }
-      searchFrom = index + 1;
-    }
-  }
-  return best;
-}
-function isLikelyTopLevel(buffer, position) {
-  const preceding = buffer[position - 1];
-  if (!preceding || preceding === `
-` || preceding === "\r" || preceding === " " || preceding === "\t")
-    return true;
-  if (preceding === "}" || preceding === "]")
-    return true;
-  if (preceding === "," || preceding === ":")
-    return false;
-  if (preceding === '"')
-    return false;
-  return true;
 }
 function findJsonEnd(value) {
   let depth = 0;
@@ -43030,20 +43903,29 @@ class Kiro_Upstream_Provider {
   providerKind = "kiro";
   auth;
   client;
+  strict;
   modelCache;
   modelMetadata = new KiroModelMetadataRegistry;
   constructor(options) {
     this.auth = options.auth;
     this.client = options.client ?? new Kiro_Client(this.auth);
+    this.strict = options.strict ?? false;
   }
   static async fromAuthFile(path, options) {
     const auth = await Kiro_Auth_Manager.fromAuthFile(path, options);
-    return new Kiro_Upstream_Provider({ auth, client: new Kiro_Client(auth, options) });
+    return new Kiro_Upstream_Provider({ auth, client: new Kiro_Client(auth, options), strict: options?.strict });
   }
   async proxy(request, options) {
     const serverToolError = validateUnsupportedServerTools(request.tools);
     if (serverToolError)
       return serverToolError;
+    const decisions = resolveKiroFeatures(request, { strict: this.strict });
+    const rejection2 = decisions.firstRejection();
+    if (rejection2)
+      return canonicalError3(400, rejection2.message);
+    return withKiroFeatureNotices(await this.generate(request, options), decisions.notices());
+  }
+  async generate(request, options) {
     const explicitWebSearch = hasExplicitWebSearchIntent(request);
     const clientWebSearchCall = clientWebSearchToolCall(request, explicitWebSearch);
     const clientAllowedDirectoriesCall = clientAllowedDirectoriesToolCall(request);
@@ -43051,7 +43933,7 @@ class Kiro_Upstream_Provider {
       autoWebSearch: !hasClientWebSearchTool(request) && webSearchAutoInjectEnabled() && (!request.textFormat || explicitWebSearch)
     });
     if ("error" in effective)
-      return canonicalError(400, effective.error);
+      return canonicalError3(400, effective.error);
     const model = normalizeKiroModelName(request.model);
     if (clientWebSearchCall) {
       return clientToolCallResponse(request, model, clientWebSearchCall);
@@ -43061,7 +43943,7 @@ class Kiro_Upstream_Provider {
     }
     const effortResult = await this.resolveRequestedEffort(model, request.reasoningEffort);
     if ("error" in effortResult)
-      return canonicalError(effortResult.status, effortResult.error);
+      return canonicalError3(effortResult.status, effortResult.error);
     const effort = effortResult.effort;
     const fallbackWebSearchQuery = effective.webSearch ? inferWebSearchFallbackQuery(request) : undefined;
     const shouldPreflightWebSearch = Boolean(effective.webSearch && explicitWebSearch && fallbackWebSearchQuery);
@@ -43082,9 +43964,9 @@ class Kiro_Upstream_Provider {
         });
       } catch (error) {
         if (error instanceof ToolNameTooLongError)
-          return canonicalError(400, error.message);
+          return canonicalError3(400, error.message);
         if (error instanceof PayloadTooLargeError)
-          return canonicalError(error.status, error.message);
+          return canonicalError3(error.status, error.message);
         throw error;
       }
     }
@@ -43125,9 +44007,9 @@ class Kiro_Upstream_Provider {
       options?.onRequestBody?.(JSON.stringify(payload));
     } catch (error) {
       if (error instanceof ToolNameTooLongError)
-        return canonicalError(400, error.message);
+        return canonicalError3(400, error.message);
       if (error instanceof PayloadTooLargeError)
-        return canonicalError(error.status, error.message);
+        return canonicalError3(error.status, error.message);
       throw error;
     }
     const inputTokenEstimate = estimateInputTokens2(payload);
@@ -43332,7 +44214,6 @@ function computeEffectiveTools(tools = [], toolChoice, options = {}) {
   if (toolChoice === "none")
     return { tools: [] };
   if (toolChoice === "required") {
-    console.warn("Kiro does not support required tool_choice; including all tools");
     return { tools: allTools, ...webSearchEnabled ? { webSearch: true } : {} };
   }
   if (typeof toolChoice === "object" && toolChoice.type === "web_search") {
@@ -43340,7 +44221,6 @@ function computeEffectiveTools(tools = [], toolChoice, options = {}) {
     return found ? { tools: [found], ...webSearchEnabled ? { webSearch: true } : {} } : { error: "web_search tool_choice was requested but web_search was not provided" };
   }
   if (typeof toolChoice === "object" && typeof toolChoice.name === "string") {
-    console.warn("Kiro does not support named tool_choice; narrowing available tools");
     const found = allTools.find((tool) => tool.name === toolChoice.name);
     return found ? { tools: [found], ...webSearchEnabled && found.name === "web_search" ? { webSearch: true } : {} } : { error: `Named tool_choice '${toolChoice.name}' was not found in provided tools` };
   }
@@ -43366,12 +44246,12 @@ function validateUnsupportedServerTools(tools = []) {
   if (!hasWebFetch && !hasMcp)
     return;
   if (hasWebFetch && hasMcp)
-    return canonicalError(400, "Kiro upstream does not support server-side web_fetch or generic server-side MCP toolsets. Use client function tools, client WebFetch/WebSearch tools, or the gateway web_search helper instead.");
+    return canonicalError3(400, "Kiro upstream does not support server-side web_fetch or generic server-side MCP toolsets. Use client function tools, client WebFetch/WebSearch tools, or the gateway web_search helper instead.");
   if (hasWebFetch)
-    return canonicalError(400, "Kiro upstream does not support server-side web_fetch. Use client WebFetch function tools or web_search URL queries instead.");
-  return canonicalError(400, "Kiro upstream does not support generic server-side MCP toolsets. Use normal client function tools or the gateway web_search helper instead.");
+    return canonicalError3(400, "Kiro upstream does not support server-side web_fetch. Use client WebFetch function tools or web_search URL queries instead.");
+  return canonicalError3(400, "Kiro upstream does not support generic server-side MCP toolsets. Use normal client function tools or the gateway web_search helper instead.");
 }
-function canonicalError(status, body) {
+function canonicalError3(status, body) {
   return { type: "canonical_error", status, headers: new Headers, body };
 }
 function streamErrorMessage(error) {
@@ -43387,13 +44267,13 @@ function streamErrorMessage(error) {
 }
 function mapKiroError(error) {
   if (error instanceof FirstTokenTimeoutError)
-    return canonicalError(504, error.message);
+    return canonicalError3(504, error.message);
   if (error instanceof KiroHttpError)
     return { type: "canonical_error", status: error.status, headers: error.headers, body: publicHttpErrorBody(error.status, error.body, error.category) };
   if (error instanceof KiroNetworkError)
-    return canonicalError(504, error.message);
+    return canonicalError3(504, error.message);
   if (error instanceof KiroMcpError)
-    return canonicalError(502, error.message);
+    return canonicalError3(502, error.message);
 }
 var inputTokenEstimateEncoder = new TextEncoder;
 function estimateInputTokens2(value) {
@@ -44046,20 +44926,20 @@ async function createProviderRuntime(mode, options) {
   if (mode === "copilot") {
     const authFile2 = resolveProviderAuthFile(mode, options);
     const ensuredAuthFile = await ensureCopilotAuthFile(authFile2);
-    const create2 = (account) => Copilot_Upstream_Provider.fromAuthFile(ensuredAuthFile, { authAccount: account });
+    const create2 = (account) => Copilot_Upstream_Provider.fromAuthFile(ensuredAuthFile, { authAccount: account, strict: options?.strict });
     const upstream2 = await withAccountRotation(mode, ensuredAuthFile, authAccount, options, create2);
     return { authFile: ensuredAuthFile, authAccount, upstream: upstream2 };
   }
   if (mode === "kiro") {
     const authFile2 = resolveProviderAuthFile(mode, options);
     const ensuredAuthFile = await ensureKiroAuthFile(authFile2);
-    const create2 = (account) => Kiro_Upstream_Provider.fromAuthFile(ensuredAuthFile, { authAccount: account });
+    const create2 = (account) => Kiro_Upstream_Provider.fromAuthFile(ensuredAuthFile, { authAccount: account, strict: options?.strict });
     const upstream2 = await withAccountRotation(mode, ensuredAuthFile, authAccount, options, create2);
     return { authFile: ensuredAuthFile, authAccount, upstream: upstream2 };
   }
   const authFile = resolveProviderAuthFile(mode, options);
   await ensureCodexAuthFile(authFile);
-  const create = (account) => Codex_Upstream_Provider.fromAuthFile(authFile, { authAccount: account });
+  const create = (account) => Codex_Upstream_Provider.fromAuthFile(authFile, { authAccount: account, strict: options?.strict });
   const upstream = await withAccountRotation(mode, authFile, authAccount, options, create);
   return { authFile, authAccount, upstream };
 }
@@ -44352,7 +45232,7 @@ function normalizeResponsesInput(value) {
   return value.flatMap((item) => normalizeResponsesInputItem(item));
 }
 function normalizeResponsesInputItem(value) {
-  if (!isJsonObject(value))
+  if (!isJsonObject4(value))
     return [];
   if (value.type === "message") {
     const role2 = canonicalRole(value.role);
@@ -44385,7 +45265,7 @@ function instructionsFromResponsesInput(value) {
   if (!Array.isArray(value))
     return "";
   return value.flatMap((item) => {
-    if (!isJsonObject(item))
+    if (!isJsonObject4(item))
       return [];
     if (item.role !== "system" && item.role !== "developer")
       return [];
@@ -44416,13 +45296,13 @@ function normalizeResponsesMessageContent(value, role) {
   if (role === "tool") {
     if (typeof value === "string")
       return [{ type: "input_text", text: value }];
-    if (isJsonObject(value))
+    if (isJsonObject4(value))
       return [normalizeResponsesToolContentItem(value)];
     if (Array.isArray(value)) {
       return value.flatMap((item) => {
         if (typeof item === "string")
           return [{ type: "input_text", text: item }];
-        return isJsonObject(item) ? [normalizeResponsesToolContentItem(item)] : [];
+        return isJsonObject4(item) ? [normalizeResponsesToolContentItem(item)] : [];
       });
     }
     return [];
@@ -44480,7 +45360,7 @@ function normalizeChatToolCall(value) {
 function normalizeMessageContent(value, role) {
   if (typeof value === "string")
     return [chatTextBlock(role, value)];
-  if (isJsonObject(value))
+  if (isJsonObject4(value))
     return normalizeMessageContentPart(value, role);
   if (!Array.isArray(value))
     return [];
@@ -44489,7 +45369,7 @@ function normalizeMessageContent(value, role) {
 function normalizeMessageContentPart(value, role) {
   if (typeof value === "string")
     return [chatTextBlock(role, value)];
-  if (!isJsonObject(value))
+  if (!isJsonObject4(value))
     return [];
   if (value.type === "text" && typeof value.text === "string")
     return [chatTextBlock(role, value.text)];
@@ -44497,13 +45377,13 @@ function normalizeMessageContentPart(value, role) {
     return [chatTextBlock(role, value.refusal)];
   if (value.type === "image_url") {
     const image = value.image_url;
-    const imageUrl = typeof image === "string" ? image : isJsonObject(image) && typeof image.url === "string" ? image.url : undefined;
+    const imageUrl = typeof image === "string" ? image : isJsonObject4(image) && typeof image.url === "string" ? image.url : undefined;
     if (!imageUrl)
       return [];
     return [{
       type: "input_image",
       image_url: imageUrl,
-      ...isJsonObject(image) && typeof image.detail === "string" ? { detail: image.detail } : {}
+      ...isJsonObject4(image) && typeof image.detail === "string" ? { detail: image.detail } : {}
     }];
   }
   return [value];
@@ -44531,7 +45411,7 @@ function normalizeTool(value) {
         type: "function",
         name: typeof fn.name === "string" ? fn.name : "unknown",
         ...typeof fn.description === "string" ? { description: fn.description } : {},
-        parameters: isJsonObject(fn.parameters) ? fn.parameters : { type: "object", properties: {} },
+        parameters: isJsonObject4(fn.parameters) ? fn.parameters : { type: "object", properties: {} },
         ...typeof item.strict === "boolean" ? { strict: item.strict } : typeof fn.strict === "boolean" ? { strict: fn.strict } : {}
       }];
     }
@@ -44541,7 +45421,7 @@ function normalizeTool(value) {
 function normalizeToolChoice(value) {
   if (typeof value === "string")
     return value;
-  if (!isJsonObject(value))
+  if (!isJsonObject4(value))
     return;
   if (value.type === "auto" || value.type === "none" || value.type === "required")
     return value.type;
@@ -44557,7 +45437,7 @@ function contentToText(value) {
   if (!Array.isArray(value)) {
     if (value === undefined || value === null)
       return "";
-    if (isJsonObject(value)) {
+    if (isJsonObject4(value)) {
       if (typeof value.text === "string")
         return value.text;
       if (typeof value.refusal === "string")
@@ -44574,7 +45454,7 @@ function contentToText(value) {
   return value.map((item) => {
     if (typeof item === "string")
       return item;
-    if (!isJsonObject(item))
+    if (!isJsonObject4(item))
       return "";
     if (typeof item.text === "string")
       return item.text;
@@ -44593,8 +45473,49 @@ function contentToText(value) {
 function isChatPath(pathname) {
   return pathname === "/v1/chat/completions";
 }
-function isJsonObject(value) {
+function isJsonObject4(value) {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+// src/inbound/openai/notice.ts
+var OPENAI_NOTICE_MARKER = "[gateway]";
+var OPENAI_WARNING_SEPARATOR = `
+
+`;
+function noticeLine2(feature, detail) {
+  return `- ${feature}: ${detail}`;
+}
+function flattenDetail2(detail) {
+  return detail.replace(/\s+/g, " ").trim();
+}
+function headerLine2(count) {
+  const subject = count === 1 ? "1 requested feature was" : `${count} requested features were`;
+  return `${OPENAI_NOTICE_MARKER} ${subject} not honored as sent:`;
+}
+function renderOpenAIFeatureWarning(notices) {
+  const lines = [];
+  const seen = new Set;
+  for (const notice of notices) {
+    if (notice.policy !== "degrade")
+      continue;
+    const detail = flattenDetail2(notice.detail);
+    const key = `${notice.feature}\x00${detail}`;
+    if (seen.has(key))
+      continue;
+    seen.add(key);
+    lines.push(noticeLine2(notice.feature, detail));
+  }
+  if (!lines.length)
+    return "";
+  return [headerLine2(lines.length), ...lines].join(`
+`);
+}
+function prependOpenAIWarning(text, warning) {
+  if (!warning)
+    return text;
+  if (!text)
+    return warning;
+  return `${warning}${OPENAI_WARNING_SEPARATOR}${text}`;
 }
 
 // src/inbound/openai/response.ts
@@ -44603,13 +45524,13 @@ function openAICanonicalResponse(response, pathname, request) {
     return Response.json(canonicalResponseToChatCompletion(response));
   return Response.json(canonicalResponseToResponsesBody(response, request));
 }
-function openAICanonicalStreamResponse(response, pathname, request) {
+function openAICanonicalStreamResponse(response, pathname, request, options) {
   if (isChatPath2(pathname))
-    return chatCompletionStreamResponse(response);
-  return responsesStreamResponse(response, request);
+    return chatCompletionStreamResponse(response, options?.telemetry);
+  return responsesStreamResponse(response, request, options?.telemetry);
 }
 function canonicalResponseToResponsesBody(response, request) {
-  const output = canonicalContentToResponsesOutput(response.content);
+  const output = withResponsesWarning(canonicalContentToResponsesOutput(response.content), renderOpenAIFeatureWarning(response.featureNotices ?? []));
   const incompleteReason = response.stopReason === "max_tokens" ? "max_output_tokens" : undefined;
   return responseObject({
     id: response.id,
@@ -44623,7 +45544,7 @@ function canonicalResponseToResponsesBody(response, request) {
 }
 function canonicalResponseToChatCompletion(response) {
   const toolCalls = response.content.filter((block) => block.type === "tool_call");
-  const text = response.content.flatMap((block) => block.type === "text" ? [block.text] : []).join("");
+  const text = prependOpenAIWarning(response.content.flatMap((block) => block.type === "text" ? [block.text] : []).join(""), renderOpenAIFeatureWarning(response.featureNotices ?? []));
   const thinking = response.content.flatMap((block) => block.type === "thinking" ? [block.thinking] : []).join("");
   return {
     id: response.id.replace(/^resp_/, "chatcmpl_"),
@@ -44645,7 +45566,7 @@ function canonicalResponseToChatCompletion(response) {
     usage: chatUsage(response.usage)
   };
 }
-function responsesStreamResponse(response, request) {
+function responsesStreamResponse(response, request, telemetry) {
   const encoder = new TextEncoder;
   const id = response.id;
   const model = response.model || stringOr(request.model, "unknown");
@@ -44659,6 +45580,8 @@ function responsesStreamResponse(response, request) {
   let messageDone = false;
   let messageDoneItem;
   let text = "";
+  const pendingNotices = [];
+  let warningPrefix = "";
   let reasoningId = `rs_${crypto.randomUUID().replace(/-/g, "")}`;
   let reasoningStarted = false;
   let reasoningDone = false;
@@ -44696,10 +45619,82 @@ data: ${JSON.stringify(data)}
       function hasOutputState() {
         return messageStarted || reasoningStarted || toolStates.size > 0 || output.some(Boolean);
       }
+      function takePendingWarning() {
+        if (!pendingNotices.length)
+          return "";
+        const warning = renderOpenAIFeatureWarning(pendingNotices);
+        pendingNotices.length = 0;
+        return warning;
+      }
+      function modelText() {
+        return warningPrefix && text.startsWith(warningPrefix) ? text.slice(warningPrefix.length) : text;
+      }
+      async function flushWarningBeforeText() {
+        if (text)
+          return;
+        const warning = takePendingWarning();
+        if (!warning)
+          return;
+        warningPrefix = `${warning}${OPENAI_WARNING_SEPARATOR}`;
+        text = warningPrefix;
+        await sendTextDeltas(messageId, output.length, 0, warningPrefix);
+      }
+      async function flushTrailingWarning() {
+        const warning = takePendingWarning();
+        if (!warning)
+          return;
+        if (messageStarted && !messageDone) {
+          const segment = text ? `${OPENAI_WARNING_SEPARATOR}${warning}` : warning;
+          text += segment;
+          await sendTextDeltas(messageId, output.length, 0, segment);
+          return;
+        }
+        ensureMessageStarted();
+        text = warning;
+        await sendTextDeltas(messageId, output.length, 0, warning);
+      }
+      function warnedMessageItem(message) {
+        if (!pendingNotices.length)
+          return message;
+        const content = Array.isArray(message.content) ? message.content : [];
+        const partIndex = content.findIndex((part2) => isJsonObject5(part2) && part2.type === "output_text");
+        if (partIndex < 0)
+          return message;
+        const warning = takePendingWarning();
+        if (!warning)
+          return message;
+        const part = content[partIndex];
+        const partText = typeof part.text === "string" ? part.text : "";
+        warningPrefix = partText ? `${warning}${OPENAI_WARNING_SEPARATOR}` : warning;
+        const warnedContent = [...content];
+        warnedContent[partIndex] = { ...part, text: prependOpenAIWarning(partText, warning) };
+        return { ...message, content: warnedContent };
+      }
+      function withStreamedWarning(items) {
+        if (!warningPrefix)
+          return items;
+        for (const [index, item] of items.entries()) {
+          if (item.type !== "message" || !Array.isArray(item.content))
+            continue;
+          const partIndex = item.content.findIndex((part2) => isJsonObject5(part2) && part2.type === "output_text");
+          if (partIndex < 0)
+            continue;
+          const part = item.content[partIndex];
+          const partText = typeof part.text === "string" ? part.text : "";
+          if (partText.startsWith(warningPrefix))
+            return items;
+          const content = [...item.content];
+          content[partIndex] = { ...part, text: `${warningPrefix}${partText}` };
+          const warned = [...items];
+          warned[index] = { ...item, content };
+          return warned;
+        }
+        return items;
+      }
       async function emitCompletedOutputItem(item) {
         const outputIndex = output.length;
         if (item.type === "message") {
-          const message = completedMessageOutputItem(item);
+          const message = warnedMessageItem(completedMessageOutputItem(item));
           send("response.output_item.added", {
             type: "response.output_item.added",
             output_index: outputIndex,
@@ -44707,7 +45702,7 @@ data: ${JSON.stringify(data)}
           });
           const content = Array.isArray(message.content) ? message.content : [];
           for (const [contentIndex, part] of content.entries()) {
-            if (!isJsonObject2(part))
+            if (!isJsonObject5(part))
               continue;
             send("response.content_part.added", {
               type: "response.content_part.added",
@@ -44787,6 +45782,7 @@ data: ${JSON.stringify(data)}
           messageDone = false;
           messageDoneItem = undefined;
           text = "";
+          warningPrefix = "";
         }
         messageStarted = true;
         send("response.output_item.added", {
@@ -44819,7 +45815,7 @@ data: ${JSON.stringify(data)}
           item_id: messageId,
           output_index: outputIndex,
           content_index: 0,
-          part: Array.isArray(item.content) && isJsonObject2(item.content[0]) ? item.content[0] : { type: "output_text", text, annotations: [] }
+          part: Array.isArray(item.content) && isJsonObject5(item.content[0]) ? item.content[0] : { type: "output_text", text, annotations: [] }
         });
         send("response.output_item.done", {
           type: "response.output_item.done",
@@ -44902,18 +45898,20 @@ data: ${JSON.stringify(data)}
           return;
         const message = completedMessageOutputItem(item);
         const doneText = outputTextFromOutput([message]);
-        const delta = doneSuffix(text, doneText);
+        if (doneText)
+          await flushWarningBeforeText();
+        const delta = doneSuffix(modelText(), doneText);
         if (delta) {
           text += delta;
           await sendTextDeltas(messageId, output.length, 0, delta);
-        } else if (doneText && doneText !== text) {
-          text = doneText;
+        } else if (doneText && doneText !== modelText()) {
+          text = `${warningPrefix}${doneText}`;
         }
         if (Array.isArray(message.content) && message.content.length)
           messageDoneItem = message;
       }
       async function reconcileCompletionOutputItems(items) {
-        const emittedMessageCount = output.filter((item) => isJsonObject2(item) && item.type === "message").length;
+        const emittedMessageCount = output.filter((item) => isJsonObject5(item) && item.type === "message").length;
         let messageIndex = 0;
         let repairedOpenMessage = false;
         for (const item of items) {
@@ -44928,7 +45926,7 @@ data: ${JSON.stringify(data)}
               repairedOpenMessage = true;
               continue;
             }
-            if (!output.some((existing) => isJsonObject2(existing) && sameOutputItem(existing, completedMessageOutputItem(item)))) {
+            if (!output.some((existing) => isJsonObject5(existing) && sameOutputItem(existing, completedMessageOutputItem(item)))) {
               finishReasoning();
               await emitCompletedOutputItem(item);
             }
@@ -44943,7 +45941,7 @@ data: ${JSON.stringify(data)}
             continue;
           }
           const completed = completedResponseOutputItem(item);
-          if (output.some((existing) => isJsonObject2(existing) && sameOutputItem(existing, completed)))
+          if (output.some((existing) => isJsonObject5(existing) && sameOutputItem(existing, completed)))
             continue;
           finishMessage();
           finishReasoning();
@@ -44952,7 +45950,7 @@ data: ${JSON.stringify(data)}
       }
       async function emitMessageItemDone(item) {
         const message = completedMessageOutputItem(item);
-        if (output.some((existing) => isJsonObject2(existing) && sameOutputItem(existing, message)))
+        if (output.some((existing) => isJsonObject5(existing) && sameOutputItem(existing, message)))
           return;
         finishReasoning();
         await emitCompletedOutputItem(message);
@@ -44990,7 +45988,7 @@ data: ${JSON.stringify(data)}
           stopReason = "tool_use";
           return;
         }
-        if (output.some((existing) => isJsonObject2(existing) && existing.type === "function_call" && existing.call_id === callId))
+        if (output.some((existing) => isJsonObject5(existing) && existing.type === "function_call" && existing.call_id === callId))
           return;
         finishMessage();
         finishReasoning();
@@ -45013,18 +46011,20 @@ data: ${JSON.stringify(data)}
           const event = chunk.value;
           if (event.type === "text_delta") {
             ensureMessageStarted();
+            await flushWarningBeforeText();
             text += event.delta;
             await sendTextDeltas(messageId, output.length, 0, event.delta);
             continue;
           }
           if (event.type === "text_done") {
             ensureMessageStarted();
-            const delta = doneSuffix(text, event.text);
+            await flushWarningBeforeText();
+            const delta = doneSuffix(modelText(), event.text);
             if (delta) {
               text += delta;
               await sendTextDeltas(messageId, output.length, 0, delta);
-            } else if (event.text && event.text !== text) {
-              text = event.text;
+            } else if (event.text && event.text !== modelText()) {
+              text = `${warningPrefix}${event.text}`;
             }
             continue;
           }
@@ -45063,9 +46063,16 @@ data: ${JSON.stringify(data)}
           if (event.type === "thinking_signature") {
             continue;
           }
+          if (event.type === "feature_notice") {
+            telemetry?.recordFeatureNotice(event);
+            pendingNotices.push({ feature: event.feature, policy: event.policy, detail: event.detail });
+            continue;
+          }
           if (event.type === "usage") {
             accumulatedUsage = mergeStreamUsage(accumulatedUsage, event.usage);
             usage = responsesUsage(accumulatedUsage);
+            if (typeof event.usage.providerCredits === "number")
+              telemetry?.recordProviderCredits(event.usage.providerCredits);
             continue;
           }
           if (event.type === "message_stop") {
@@ -45078,6 +46085,8 @@ data: ${JSON.stringify(data)}
             if (event.usage) {
               accumulatedUsage = mergeStreamUsage(accumulatedUsage, event.usage);
               usage = responsesUsage(accumulatedUsage);
+              if (typeof event.usage.providerCredits === "number")
+                telemetry?.recordProviderCredits(event.usage.providerCredits);
             }
             if (event.stopReason)
               stopReason = event.stopReason;
@@ -45116,12 +46125,14 @@ data: ${JSON.stringify(data)}
             return;
           }
         }
+        await flushTrailingWarning();
         finishReasoning();
         finishMessage();
         for (const state of toolStates.values())
           finishTool(state);
         const streamedOutput = compactOutput(output);
-        const completedOutput = completionOutputOverride ? mergeCompletionOutput(streamedOutput, completionOutputOverride) : streamedOutput;
+        const mergedOutput = completionOutputOverride ? mergeCompletionOutput(streamedOutput, completionOutputOverride) : streamedOutput;
+        const completedOutput = withStreamedWarning(mergedOutput);
         const finalIncompleteReason = incompleteReason ?? (stopReason === "max_tokens" ? "max_output_tokens" : undefined);
         send("response.completed", {
           type: "response.completed",
@@ -45156,7 +46167,7 @@ data: ${JSON.stringify(data)}
     }
   }), streamHeaders());
 }
-function chatCompletionStreamResponse(response) {
+function chatCompletionStreamResponse(response, telemetry) {
   const encoder = new TextEncoder;
   const id = response.id.replace(/^resp_/, "chatcmpl_");
   const created = nowSeconds();
@@ -45167,6 +46178,8 @@ function chatCompletionStreamResponse(response) {
   let sentRole = false;
   let text = "";
   let currentChatMessageText = "";
+  const pendingNotices = [];
+  let warningPrefix = "";
   let usage;
   let accumulatedUsage;
   let stopReason = "stop";
@@ -45219,6 +46232,31 @@ function chatCompletionStreamResponse(response) {
             await streamFlushYield();
         }
       }
+      function takePendingWarning() {
+        if (!pendingNotices.length)
+          return "";
+        const warning = renderOpenAIFeatureWarning(pendingNotices);
+        pendingNotices.length = 0;
+        return warning;
+      }
+      function modelChatText() {
+        return warningPrefix && currentChatMessageText.startsWith(warningPrefix) ? currentChatMessageText.slice(warningPrefix.length) : currentChatMessageText;
+      }
+      async function flushWarningBeforeText() {
+        if (text)
+          return;
+        const warning = takePendingWarning();
+        if (!warning)
+          return;
+        warningPrefix = `${warning}${OPENAI_WARNING_SEPARATOR}`;
+        await textChunk(warningPrefix);
+      }
+      async function flushTrailingWarning() {
+        const warning = takePendingWarning();
+        if (!warning)
+          return;
+        await textChunk(text ? `${OPENAI_WARNING_SEPARATOR}${warning}` : warning);
+      }
       function toolState(callId, name) {
         let state = toolStates.get(callId);
         if (state) {
@@ -45249,10 +46287,11 @@ function chatCompletionStreamResponse(response) {
           completedChatMessageIds.add(message.id);
         const doneText = outputTextFromOutput([message]);
         if (doneText) {
-          const delta = doneSuffix(currentChatMessageText, doneText);
+          await flushWarningBeforeText();
+          const delta = doneSuffix(modelChatText(), doneText);
           if (delta) {
             await textChunk(delta);
-          } else if (!currentChatMessageText && !text.endsWith(doneText)) {
+          } else if (!modelChatText() && !text.endsWith(doneText)) {
             await textChunk(doneText);
           }
         }
@@ -45303,14 +46342,18 @@ function chatCompletionStreamResponse(response) {
             continue;
           }
           if (event.type === "text_delta") {
+            if (event.delta)
+              await flushWarningBeforeText();
             await textChunk(event.delta);
             continue;
           }
           if (event.type === "text_done") {
-            const delta = doneSuffix(currentChatMessageText, event.text);
+            if (event.text)
+              await flushWarningBeforeText();
+            const delta = doneSuffix(modelChatText(), event.text);
             if (delta) {
               await textChunk(delta);
-            } else if (!currentChatMessageText && event.text && !text.endsWith(event.text)) {
+            } else if (!modelChatText() && event.text && !text.endsWith(event.text)) {
               await textChunk(event.text);
             }
             continue;
@@ -45334,9 +46377,16 @@ function chatCompletionStreamResponse(response) {
             emitChatFunctionCallItem({ type: "function_call", call_id: event.callId, name: event.name, arguments: event.arguments });
             continue;
           }
+          if (event.type === "feature_notice") {
+            telemetry?.recordFeatureNotice(event);
+            pendingNotices.push({ feature: event.feature, policy: event.policy, detail: event.detail });
+            continue;
+          }
           if (event.type === "usage") {
             accumulatedUsage = mergeStreamUsage(accumulatedUsage, event.usage);
             usage = chatUsage(accumulatedUsage);
+            if (typeof event.usage.providerCredits === "number")
+              telemetry?.recordProviderCredits(event.usage.providerCredits);
             continue;
           }
           if (event.type === "message_stop") {
@@ -45353,6 +46403,8 @@ function chatCompletionStreamResponse(response) {
             if (event.usage) {
               accumulatedUsage = mergeStreamUsage(accumulatedUsage, event.usage);
               usage = chatUsage(accumulatedUsage);
+              if (typeof event.usage.providerCredits === "number")
+                telemetry?.recordProviderCredits(event.usage.providerCredits);
             }
             if (event.stopReason)
               stopReason = chatFinishReason(event.stopReason, toolStates.size > 0);
@@ -45381,6 +46433,7 @@ function chatCompletionStreamResponse(response) {
             return;
           }
         }
+        await flushTrailingWarning();
         if (!sentRole)
           chunk({ role: "assistant" });
         chunk({}, stopReason, usage ?? chatUsage({ inputTokens: 0, outputTokens: 0 }));
@@ -45405,6 +46458,24 @@ function chatCompletionStreamResponse(response) {
       });
     }
   }), streamHeaders());
+}
+function withResponsesWarning(output, warning) {
+  if (!warning)
+    return output;
+  for (const [index, item] of output.entries()) {
+    if (item.type !== "message" || !Array.isArray(item.content))
+      continue;
+    const partIndex = item.content.findIndex((part2) => isJsonObject5(part2) && part2.type === "output_text");
+    if (partIndex < 0)
+      continue;
+    const part = item.content[partIndex];
+    const content = [...item.content];
+    content[partIndex] = { ...part, text: prependOpenAIWarning(typeof part.text === "string" ? part.text : "", warning) };
+    const warned = [...output];
+    warned[index] = { ...item, content };
+    return warned;
+  }
+  return [messageOutputItem(`msg_${crypto.randomUUID().replace(/-/g, "")}`, warning), ...output];
 }
 function canonicalContentToResponsesOutput(content) {
   const output = [];
@@ -45509,7 +46580,7 @@ function sameOutputItem(left, right) {
 function responseOutputItems(output) {
   if (!Array.isArray(output))
     return [];
-  const items = output.filter(isJsonObject2);
+  const items = output.filter(isJsonObject5);
   const normalized = [];
   let pendingCanonical = [];
   const flushCanonical = () => {
@@ -45555,7 +46626,7 @@ function outputAnnotations(item) {
   return outputContent(item.content).flatMap((part) => {
     if (!Array.isArray(part.annotations))
       return [];
-    return part.annotations.filter(isJsonObject2);
+    return part.annotations.filter(isJsonObject5);
   });
 }
 function outputContent(value) {
@@ -45566,7 +46637,7 @@ function outputContent(value) {
 function outputContentPart(part) {
   if (typeof part === "string")
     return [{ type: "output_text", text: part, annotations: [] }];
-  if (!isJsonObject2(part))
+  if (!isJsonObject5(part))
     return [];
   if (part.type === "output_text") {
     return [{
@@ -45637,7 +46708,7 @@ function responseObject(options) {
     truncation: options.request.truncation ?? "disabled",
     usage: options.usage,
     user: options.request.user ?? null,
-    metadata: isJsonObject2(options.request.metadata) ? options.request.metadata : {}
+    metadata: isJsonObject5(options.request.metadata) ? options.request.metadata : {}
   };
 }
 function responsesUsage(usage) {
@@ -45672,7 +46743,7 @@ function mergeStreamUsage(current, next) {
 function outputTextFromOutput(output) {
   return output.flatMap((item) => {
     const content = Array.isArray(item.content) ? item.content : [];
-    return content.flatMap((block) => isJsonObject2(block) && block.type === "output_text" && typeof block.text === "string" ? [block.text] : []);
+    return content.flatMap((block) => isJsonObject5(block) && block.type === "output_text" && typeof block.text === "string" ? [block.text] : []);
   }).join("");
 }
 function chatFinishReason(stopReason, hasToolCalls) {
@@ -45717,14 +46788,14 @@ function streamFlushYield() {
   return new Promise((resolve) => setTimeout(resolve, 0));
 }
 function requestText(request) {
-  if (isJsonObject2(request.text))
+  if (isJsonObject5(request.text))
     return request.text;
-  if (isJsonObject2(request.response_format))
+  if (isJsonObject5(request.response_format))
     return { format: request.response_format };
   return { format: { type: "text" } };
 }
 function requestReasoning(request) {
-  if (isJsonObject2(request.reasoning))
+  if (isJsonObject5(request.reasoning))
     return { effort: request.reasoning.effort ?? null, summary: request.reasoning.summary ?? null };
   return { effort: typeof request.reasoning_effort === "string" ? request.reasoning_effort : null, summary: null };
 }
@@ -45737,7 +46808,7 @@ function stringOr(value, fallback) {
 function isChatPath2(pathname) {
   return pathname === "/v1/chat/completions";
 }
-function isJsonObject2(value) {
+function isJsonObject5(value) {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }
 function nowSeconds() {
@@ -45817,7 +46888,7 @@ class OpenAI_Inbound_Provider {
         }
       }, { status: 500 });
     }
-    if (!isJsonObject3(body)) {
+    if (!isJsonObject6(body)) {
       return openAIErrorResponse("Request body must be a JSON object", 400, "invalid_request_error");
     }
     const wireBody = body;
@@ -45940,7 +47011,7 @@ class OpenAI_Inbound_Provider {
       backfillInputTokens2(result, wireBody);
       const response = openAICanonicalResponse(result, route.path, wireBody);
       if (context.onProxy) {
-        context.onProxy({
+        const proxyLog = {
           label: this.upstreamLogLabel,
           method: "POST",
           target: this.upstreamTarget,
@@ -45948,8 +47019,10 @@ class OpenAI_Inbound_Provider {
           durationMs,
           error: "-",
           requestBody: proxyRequestBody,
-          responseBody: shouldCaptureProxyBody ? upstreamResponsePreview?.text() || undefined : undefined
-        });
+          responseBody: shouldCaptureProxyBody ? upstreamResponsePreview?.text() || undefined : undefined,
+          telemetry: canonicalResponseTelemetrySummary(result)
+        };
+        context.onProxy(proxyLog);
       }
       return response;
     }
@@ -45960,7 +47033,7 @@ class OpenAI_Inbound_Provider {
         backfillInputTokens2(accumulated, wireBody);
         const response2 = openAICanonicalResponse(accumulated, route.path, wireBody);
         if (context.onProxy) {
-          context.onProxy({
+          const proxyLog2 = {
             label: this.upstreamLogLabel,
             method: "POST",
             target: this.upstreamTarget,
@@ -45968,8 +47041,10 @@ class OpenAI_Inbound_Provider {
             durationMs,
             error: "-",
             requestBody: proxyRequestBody,
-            responseBody: shouldCaptureProxyBody ? upstreamResponsePreview?.text() || undefined : undefined
-          });
+            responseBody: shouldCaptureProxyBody ? upstreamResponsePreview?.text() || undefined : undefined,
+            telemetry: canonicalResponseTelemetrySummary(accumulated)
+          };
+          context.onProxy(proxyLog2);
         }
         return response2;
       }
@@ -45985,12 +47060,20 @@ class OpenAI_Inbound_Provider {
       } : undefined;
       if (proxyLog)
         context.onProxy?.(proxyLog);
-      const response = openAICanonicalStreamResponse(result, route.path, wireBody);
-      if (!response.body || !shouldCaptureProxyBody || !proxyLog)
+      const telemetry = new StreamTelemetryCollector({
+        requestId: context.requestId,
+        provider: upstream.providerKind ?? this.expectedUpstreamKind ?? "",
+        model: typeof wireBody.model === "string" ? wireBody.model : "",
+        streaming: true
+      });
+      const response = openAICanonicalStreamResponse(result, route.path, wireBody, { telemetry });
+      if (!proxyLog)
         return response;
       return interceptResponseStream(response, {
         onComplete: (responseBody) => {
-          proxyLog.responseBody = upstreamResponsePreview?.text() || responseBody;
+          proxyLog.telemetry = streamTelemetrySummary(telemetry.finalize());
+          if (shouldCaptureProxyBody)
+            proxyLog.responseBody = upstreamResponsePreview?.text() || responseBody;
         }
       });
     }
@@ -46115,7 +47198,7 @@ function hasResponsesInput(value) {
     return value.length > 0;
   return Array.isArray(value) && value.length > 0;
 }
-function isJsonObject3(value) {
+function isJsonObject6(value) {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }
 function passthroughBodyInit(body) {
@@ -46283,6 +47366,20 @@ class BoundInboundProvider {
   }
 }
 
+// src/app/native-flags.ts
+var ENABLING_VALUES = ["1", "true", "yes", "on"];
+function isEnablingValue(value) {
+  return ENABLING_VALUES.includes((value ?? "").toLowerCase());
+}
+function readNativeFlags(env = process.env) {
+  return {
+    strict: isEnablingValue(env.NATIVE_STRICT),
+    passthrough: isEnablingValue(env.NATIVE_PASSTHROUGH),
+    mcpEmulation: isEnablingValue(env.NATIVE_MCP_EMULATION),
+    kiroWebSearchHeuristics: isEnablingValue(env.KIRO_WEB_SEARCH_HEURISTICS)
+  };
+}
+
 // src/app/provider-config.ts
 var PROVIDER_CONFIG_PATH = providerStatePath();
 function defaultProviderConfigPath() {
@@ -46394,10 +47491,11 @@ function errorMessage2(error) {
 async function bootstrapRuntime(options) {
   const configMode = options?.providerMode ? undefined : await readProviderConfig(options?.providerConfigPath);
   const providerMode = options?.providerMode ?? resolveProviderMode(process.env.UPSTREAM_PROVIDER, configMode);
-  const activeRuntime = await createProviderRuntime(providerMode, options);
+  const nativeFlags = readNativeFlags();
+  const activeRuntime = await createProviderRuntime(providerMode, { ...options, strict: nativeFlags.strict });
   const registry = new Provider_Registry;
   registerClaudeProvider(providerMode, activeRuntime.upstream, registry);
-  await registerEndpointProxyProviders(providerMode, activeRuntime, registry, options?.providerConfigPath);
+  await registerEndpointProxyProviders(providerMode, activeRuntime, registry, options?.providerConfigPath, nativeFlags.strict);
   return {
     authFile: activeRuntime.authFile,
     authAccount: activeRuntime.authAccount,
@@ -46417,7 +47515,7 @@ function registerClaudeProvider(mode, upstream, registry) {
   }
   registry.register(new Claude_Codex_Inbound_Adapter(() => upstreamWithModels.listModelDescriptors?.() ?? upstreamWithModels.listModels(), CLAUDE_MODEL_ROUTES));
 }
-async function registerEndpointProxyProviders(mode, activeRuntime, registry, providerConfigPath) {
+async function registerEndpointProxyProviders(mode, activeRuntime, registry, providerConfigPath, strict) {
   const endpointProxy = await readEndpointProxyMap(mode, providerConfigPath);
   const sourceRuntimeCache = new Map;
   for (const route of ENDPOINT_PROXY_ROUTES) {
@@ -46426,20 +47524,20 @@ async function registerEndpointProxyProviders(mode, activeRuntime, registry, pro
       continue;
     if (route.endpoint === "embeddings" && sourceMode !== "copilot")
       continue;
-    const sourceRuntime = sourceMode === mode ? activeRuntime : await loadSourceRuntime(sourceMode, sourceRuntimeCache);
+    const sourceRuntime = sourceMode === mode ? activeRuntime : await loadSourceRuntime(sourceMode, sourceRuntimeCache, strict);
     if (!sourceRuntime)
       continue;
     registry.register(buildEndpointProxyProvider(sourceMode, route.endpoint, sourceRuntime.upstream));
   }
 }
-async function loadSourceRuntime(mode, cache) {
+async function loadSourceRuntime(mode, cache, strict) {
   const cached = cache.get(mode);
   if (cached)
     return cached;
   if (!await providerHasConnectedAccounts(mode))
     return;
   try {
-    const runtime = await createProviderRuntime(mode);
+    const runtime = await createProviderRuntime(mode, { strict });
     cache.set(mode, runtime);
     return runtime;
   } catch {
@@ -46658,7 +47756,8 @@ function toRequestLogSummary(entry) {
       target: entry.proxy.target,
       status: entry.proxy.status,
       durationMs: entry.proxy.durationMs,
-      error: entry.proxy.error
+      error: entry.proxy.error,
+      ...entry.proxy.telemetry ? { telemetry: entry.proxy.telemetry } : {}
     } : undefined
   };
 }
@@ -47160,7 +48259,7 @@ function responseErrorText(text) {
     const error = body.error;
     if (typeof error === "string")
       return redactSecrets(error).slice(0, LOG_BODY_PREVIEW_LIMIT);
-    if (isJsonObject4(error) && typeof error.message === "string") {
+    if (isJsonObject7(error) && typeof error.message === "string") {
       return redactSecrets(error.message).slice(0, LOG_BODY_PREVIEW_LIMIT);
     }
     if ("message" in body && typeof body.message === "string")
@@ -47170,7 +48269,7 @@ function responseErrorText(text) {
   }
   return redactSecrets(text).slice(0, LOG_BODY_PREVIEW_LIMIT);
 }
-function isJsonObject4(value) {
+function isJsonObject7(value) {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 function loggedHeaders(headers) {
@@ -47862,7 +48961,7 @@ var patchConsole = (callback) => {
 var dist_default = patchConsole;
 
 // node_modules/ink/build/ink.js
-var import_constants35 = __toESM(require_constants(), 1);
+var import_constants36 = __toESM(require_constants(), 1);
 
 // node_modules/yoga-layout/dist/binaries/yoga-wasm-base64-esm.js
 var loadYoga = (() => {
@@ -50308,7 +51407,7 @@ var getWindowSize = (stdout) => {
 
 // node_modules/ink/build/reconciler.js
 var import_react_reconciler = __toESM(require_react_reconciler(), 1);
-var import_constants34 = __toESM(require_constants(), 1);
+var import_constants35 = __toESM(require_constants(), 1);
 var Scheduler = __toESM(require_scheduler(), 1);
 import process4 from "process";
 var import_react = __toESM(require_react(), 1);
@@ -52154,7 +53253,7 @@ var cleanupYogaNode = (node) => {
   node?.unsetMeasureFunc();
   node?.freeRecursive();
 };
-var currentUpdatePriority = import_constants34.NoEventPriority;
+var currentUpdatePriority = import_constants35.NoEventPriority;
 var currentRootNode;
 async function loadPackageJson() {
   const fs2 = await import("fs");
@@ -52343,10 +53442,10 @@ var reconciler_default = import_react_reconciler.default({
   },
   getCurrentUpdatePriority: () => currentUpdatePriority,
   resolveUpdatePriority() {
-    if (currentUpdatePriority !== import_constants34.NoEventPriority) {
+    if (currentUpdatePriority !== import_constants35.NoEventPriority) {
       return currentUpdatePriority;
     }
-    return import_constants34.DefaultEventPriority;
+    return import_constants35.DefaultEventPriority;
   },
   maySuspendCommit() {
     return true;
@@ -55161,7 +56260,7 @@ class Ink {
     this.lastOutputHeight = 0;
     this.lastTerminalWidth = getWindowSize(this.options.stdout).columns;
     this.fullStaticOutput = "";
-    const rootTag = options.concurrent ? import_constants35.ConcurrentRoot : import_constants35.LegacyRoot;
+    const rootTag = options.concurrent ? import_constants36.ConcurrentRoot : import_constants36.LegacyRoot;
     this.container = reconciler_default.createContainer(this.rootNode, rootTag, null, false, null, "id", () => {}, () => {}, () => {}, () => {});
     this.unsubscribeExit = import_signal_exit2.default(this.unmount, { alwaysLast: false });
     this.setAlternateScreen(Boolean(options.alternateScreen));
@@ -55698,7 +56797,7 @@ var getInstance = (stdout, createInstance) => {
   return instance;
 };
 // node_modules/ink/build/render-to-string.js
-var import_constants36 = __toESM(require_constants(), 1);
+var import_constants37 = __toESM(require_constants(), 1);
 // node_modules/ink/build/components/Static.js
 var import_react17 = __toESM(require_react(), 1);
 // node_modules/ink/build/components/Transform.js

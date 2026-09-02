@@ -570,3 +570,124 @@ describe("AwsEventStreamParser hardening", () => {
     expect(parser.duplicateContentSkips).toBe(0)
   })
 })
+
+describe("Kiro metering frames become provider credits and nothing else", () => {
+  // The payload measured across ~30 live Kiro calls (`.omc/research/kiro-wire-spike.md` §2).
+  const MEASURED_METERING_PAYLOAD = '{"unit":"credit","unitPlural":"credits","usage":0.0148}'
+  // A recorded frame sequence: content, the metering payload, then the context-usage tail.
+  const RECORDED_WITH_METERING = ['{"content":"hello world"}', MEASURED_METERING_PAYLOAD, '{"contextUsagePercentage":0.6485}']
+  // The same sequence with the metering frame removed — the reference for token-count identity.
+  const RECORDED_WITHOUT_METERING = ['{"content":"hello world"}', '{"contextUsagePercentage":0.6485}']
+
+  async function drainStream(chunks: string[]) {
+    const events: Canonical_Event[] = []
+    for await (const event of streamKiroResponse(new Response(stream(chunks)), "model", [], 7).events) events.push(event)
+    return {
+      usage: events.flatMap((event) => event.type === "usage" ? [event.usage] : [])[0],
+      text: events.flatMap((event) => event.type === "text_delta" ? [event.delta] : []).join(""),
+      stopReason: events.flatMap((event) => event.type === "message_stop" ? [event.stopReason] : [])[0],
+      types: events.map((event) => event.type),
+    }
+  }
+
+  test("streaming: a recorded metering frame reports its usage value as providerCredits", async () => {
+    const withMetering = await drainStream(RECORDED_WITH_METERING)
+
+    expect(withMetering.usage?.providerCredits).toBe(0.0148)
+  })
+
+  test("streaming: token counts, text, stop reason, and event shape are identical with and without the metering frame", async () => {
+    const withMetering = await drainStream(RECORDED_WITH_METERING)
+    const withoutMetering = await drainStream(RECORDED_WITHOUT_METERING)
+
+    // Strip the one field the metering frame is allowed to add; everything else must match.
+    const { providerCredits, ...tokenUsage } = withMetering.usage ?? {}
+    expect(tokenUsage).toEqual(withoutMetering.usage ?? {})
+    expect(withoutMetering.usage?.providerCredits).toBeUndefined()
+    expect(withMetering.text).toBe(withoutMetering.text)
+    expect(withMetering.stopReason).toBe(withoutMetering.stopReason)
+    expect(withMetering.types).toEqual(withoutMetering.types)
+    // The numeric-usage misreading Requirement 5.4 forbids: 0.0148 as an output-token count.
+    expect(withMetering.usage?.outputTokens).toBe(estimatedFallbackTokens("hello world"))
+    expect(withMetering.usage?.inputTokens).toBe(Math.max(0, Math.floor((0.6485 / 100) * DEFAULT_MAX_INPUT_TOKENS) - estimatedFallbackTokens("hello world")))
+  })
+
+  test("streaming: two metering frames sum, matching a preflight plus a main generate", async () => {
+    const twoCalls = await drainStream([
+      '{"content":"hello world"}',
+      MEASURED_METERING_PAYLOAD,
+      '{"unit":"credit","unitPlural":"credits","usage":0.0052}',
+      '{"contextUsagePercentage":0.6485}',
+    ])
+    const withoutMetering = await drainStream(RECORDED_WITHOUT_METERING)
+
+    expect(twoCalls.usage?.providerCredits).toBeCloseTo(0.02, 10)
+    expect(twoCalls.usage?.outputTokens).toBe(withoutMetering.usage?.outputTokens)
+    expect(twoCalls.usage?.inputTokens).toBe(withoutMetering.usage?.inputTokens)
+  })
+
+  test("streaming: a metering frame does not end the turn early or become the stop reason", async () => {
+    const withMetering = await drainStream(['{"content":"partial"}', MEASURED_METERING_PAYLOAD, '{"stop":true}'])
+
+    expect(withMetering.stopReason).toBe("max_tokens")
+    expect(withMetering.usage?.providerCredits).toBe(0.0148)
+  })
+
+  test("non-streaming: the collector carries credits through without disturbing token counts or content", async () => {
+    const withMetering = await collectKiroResponse(new Response(stream(RECORDED_WITH_METERING)), "model", [], 7)
+    const withoutMetering = await collectKiroResponse(new Response(stream(RECORDED_WITHOUT_METERING)), "model", [], 7)
+
+    expect(withMetering.usage.providerCredits).toBe(0.0148)
+    expect(withoutMetering.usage.providerCredits).toBeUndefined()
+    const { providerCredits, ...tokenUsage } = withMetering.usage
+    expect(tokenUsage).toEqual(withoutMetering.usage)
+    expect(withMetering.content).toEqual(withoutMetering.content)
+    expect(withMetering.stopReason).toBe(withoutMetering.stopReason)
+  })
+
+  test("non-streaming: two metering frames sum on the collector path too", async () => {
+    const twoCalls = await collectKiroResponse(
+      new Response(stream(['{"content":"hello world"}', MEASURED_METERING_PAYLOAD, '{"unit":"credit","unitPlural":"credits","usage":0.0052}', '{"contextUsagePercentage":0.6485}'])),
+      "model",
+      [],
+      7,
+    )
+
+    expect(twoCalls.usage.providerCredits).toBeCloseTo(0.02, 10)
+  })
+
+  test("a token-usage frame alongside metering keeps each on its own channel", async () => {
+    const both = await drainStream([
+      '{"content":"hello world"}',
+      MEASURED_METERING_PAYLOAD,
+      '{"usage":{"cacheReadInputTokens":5,"cacheCreationInputTokens":2,"outputTokens":7}}',
+    ])
+
+    expect(both.usage?.providerCredits).toBe(0.0148)
+    expect(both.usage?.outputTokens).toBe(7)
+    expect(both.usage?.cacheReadInputTokens).toBe(5)
+    expect(both.usage?.cacheCreationInputTokens).toBe(2)
+  })
+})
+
+// Task 8.2 / Requirement 8.3 — the Kiro-side half of the non-streaming notice fold.
+//
+// Only the omission arm is reachable from the wire today: `iterateKiroEvents()` emits no
+// `feature_notice`, and producing one is task 10.3/10.4's job. The positive arm (order,
+// one-entry-per-event, token neutrality) is covered against the shared collector in
+// `test/core/canonical-accumulator.test.ts`, which folds the same event type.
+describe("collectKiroResponse feature notices", () => {
+  test("omits featureNotices entirely on a stream that carries none", async () => {
+    const collected = await collectKiroResponse(new Response(stream(['{"content":"hello world"}', '{"contextUsagePercentage":10}'])), "model", [], 7)
+
+    expect(collected.featureNotices).toBeUndefined()
+    expect("featureNotices" in collected).toBe(false)
+  })
+
+  test("omits featureNotices on an empty body rather than reporting an empty list", async () => {
+    const collected = await collectKiroResponse(new Response(stream([])), "model", [], 7)
+
+    expect(collected.featureNotices).toBeUndefined()
+    expect("featureNotices" in collected).toBe(false)
+  })
+})

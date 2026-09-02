@@ -584,8 +584,12 @@ describe("Kiro upstream provider", () => {
 
     const events: Canonical_Event[] = []
     for await (const event of result.events) events.push(event)
-    expect(events[0]).toMatchObject({ type: "tool_call_done", name: "WebFetch" })
-    expect(JSON.parse((events[0] as { arguments: string }).arguments)).toEqual({
+    // A named `toolChoice` is a `toolChoiceForced` degrade (Requirement 10.4), and notices are
+    // yielded ahead of the upstream content, so the stream now opens with the notice and the
+    // synthesized call follows it.
+    expect(events[0]).toMatchObject({ type: "feature_notice", feature: "toolChoiceForced", policy: "degrade" })
+    expect(events[1]).toMatchObject({ type: "tool_call_done", name: "WebFetch" })
+    expect(JSON.parse((events[1] as { arguments: string }).arguments)).toEqual({
       url: "https://example.com/article",
       prompt: "Summarize this page for the user.",
     })

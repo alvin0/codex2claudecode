@@ -11,7 +11,8 @@ import {
   requestLogFilePath,
   requestLogModel,
 } from "../src/core/request-logs"
-import type { RequestLogEntry } from "../src/core/types"
+import type { Canonical_FeatureNotice } from "../src/core/canonical"
+import type { RequestLogEntry, RequestProxyLog, StreamTelemetrySummary } from "../src/core/types"
 import { mkdtemp, path, readFile, rm, tmpdir, writeFile } from "./helpers"
 
 const tempDirs: string[] = []
@@ -158,4 +159,123 @@ test("clears request log storage", async () => {
   await appendRequestLog(file, logEntry({ id: "req-2" }))
 
   await expect(readRecentRequestLogs(file)).resolves.toEqual([expect.objectContaining({ id: "req-2" })])
+})
+
+function proxyLog(telemetry?: StreamTelemetrySummary): RequestProxyLog {
+  return {
+    label: "Kiro messages",
+    method: "POST",
+    target: "upstream",
+    status: 200,
+    durationMs: 12,
+    error: "-",
+    responseBody: "hello",
+    ...(telemetry ? { telemetry } : {}),
+  }
+}
+
+const notice: Canonical_FeatureNotice = {
+  feature: "thinkingBudget",
+  policy: "degrade",
+  detail: "thinking budget clamped to the upstream maximum",
+}
+
+test("carries proxy telemetry into the detail file and the recent-log summary", async () => {
+  const file = await authFile()
+  const entry = logEntry({ proxy: proxyLog({ featureNotices: [notice], providerCredits: 0.0148 }) })
+
+  await appendRequestLog(file, entry)
+
+  const detail = JSON.parse(await readFile(requestLogDetailFilePath(file, entry.id), "utf8")) as RequestLogEntry
+  expect(detail.proxy?.telemetry).toEqual({ featureNotices: [notice], providerCredits: 0.0148 })
+
+  const summary = JSON.parse((await readFile(requestLogFilePath(file), "utf8")).trim()) as RequestLogEntry
+  expect(summary.proxy?.telemetry).toEqual({ featureNotices: [notice], providerCredits: 0.0148 })
+  // The summary is the projection the panel reads, so telemetry must be there without
+  // the bodies the projection drops.
+  expect(summary.proxy?.responseBody).toBeUndefined()
+
+  const [recent] = await readRecentRequestLogs(file)
+  expect(recent?.proxy?.telemetry?.featureNotices).toEqual([notice])
+  expect(await readRequestLogDetail(file, recent!)).toMatchObject({
+    proxy: { telemetry: { providerCredits: 0.0148 } },
+  })
+})
+
+test("keeps every collected feature notice in emission order through both projections", async () => {
+  const file = await authFile()
+  const notices: Canonical_FeatureNotice[] = [
+    notice,
+    { feature: "webSearch", policy: "emulate", detail: "web search emulated with a local fetch" },
+  ]
+
+  await appendRequestLog(file, logEntry({ proxy: proxyLog({ featureNotices: notices, providerCredits: undefined }) }))
+
+  const detail = JSON.parse(await readFile(requestLogDetailFilePath(file, "req-1"), "utf8")) as RequestLogEntry
+  const summary = JSON.parse((await readFile(requestLogFilePath(file), "utf8")).trim()) as RequestLogEntry
+  expect(detail.proxy?.telemetry?.featureNotices).toEqual(notices)
+  expect(summary.proxy?.telemetry?.featureNotices).toEqual(notices)
+})
+
+test("omits featureNotices rather than writing an empty array when no notice was collected", async () => {
+  const file = await authFile()
+
+  await appendRequestLog(file, logEntry({ proxy: proxyLog({ providerCredits: 0 }) }))
+
+  const detail = JSON.parse(await readFile(requestLogDetailFilePath(file, "req-1"), "utf8")) as RequestLogEntry
+  const summary = JSON.parse((await readFile(requestLogFilePath(file), "utf8")).trim()) as RequestLogEntry
+  expect("featureNotices" in detail.proxy!.telemetry!).toBe(false)
+  expect("featureNotices" in summary.proxy!.telemetry!).toBe(false)
+  // 0 means "measured as free" and must not be normalized away as falsy.
+  expect(detail.proxy?.telemetry?.providerCredits).toBe(0)
+  expect(summary.proxy?.telemetry?.providerCredits).toBe(0)
+})
+
+test("keeps providerCredits present in memory while JSON drops the undefined member on disk", async () => {
+  const file = await authFile()
+  const telemetry: StreamTelemetrySummary = { providerCredits: undefined }
+  const entry = logEntry({ proxy: proxyLog(telemetry) })
+
+  await appendRequestLog(file, entry)
+
+  // In memory the member stays present, carrying `undefined` for "not measured".
+  expect("providerCredits" in entry.proxy!.telemetry!).toBe(true)
+  // On disk JSON cannot encode that, so the key is absent — but the value every
+  // consumer reads is `undefined` either way.
+  const detail = JSON.parse(await readFile(requestLogDetailFilePath(file, entry.id), "utf8")) as RequestLogEntry
+  expect(detail.proxy?.telemetry).toEqual({})
+  expect(detail.proxy?.telemetry?.providerCredits).toBeUndefined()
+
+  const summary = JSON.parse((await readFile(requestLogFilePath(file), "utf8")).trim()) as RequestLogEntry
+  expect(summary.proxy?.telemetry).toEqual({})
+})
+
+test("leaves a proxy log without telemetry unchanged", async () => {
+  const file = await authFile()
+
+  await appendRequestLog(file, logEntry({ proxy: proxyLog() }))
+
+  const detail = JSON.parse(await readFile(requestLogDetailFilePath(file, "req-1"), "utf8")) as RequestLogEntry
+  const summary = JSON.parse((await readFile(requestLogFilePath(file), "utf8")).trim()) as RequestLogEntry
+  expect("telemetry" in detail.proxy!).toBe(false)
+  expect("telemetry" in summary.proxy!).toBe(false)
+  expect(summary.proxy).toEqual({
+    label: "Kiro messages",
+    method: "POST",
+    target: "upstream",
+    status: 200,
+    durationMs: 12,
+    error: "-",
+  })
+})
+
+test("leaves an entry without a proxy log free of telemetry", async () => {
+  const file = await authFile()
+
+  await appendRequestLog(file, logEntry())
+
+  const summary = JSON.parse((await readFile(requestLogFilePath(file), "utf8")).trim()) as RequestLogEntry
+  expect("proxy" in summary).toBe(false)
+  const [recent] = await readRecentRequestLogs(file)
+  expect(recent?.proxy).toBeUndefined()
 })
