@@ -1,23 +1,31 @@
 // Task 10.4 — the Codex and Copilot upstreams resolve their own declared matrix.
 //
-// The load-bearing assertion is negative and belongs to Requirement 10.6: a request carrying
-// generation controls produces **zero** notices for `sampling` on both of these upstreams,
-// because both declare that cell native. It is asserted three ways — on the decisions object,
-// on a collected response, and on a stream — so a regression cannot hide behind whichever
-// layer a later change happens to touch.
+// The load-bearing assertion used to be negative: a request carrying generation controls produced
+// **zero** notices for `sampling` on both of these upstreams, because both declared that cell
+// native. It stays negative for **Copilot**, whose cell is still `native` and still unmeasured. It
+// is now **positive for Codex**, restated against Requirement 10.6 as revised:
+// `.omc/research/kiro-wire-spike.md` §11.2 sent `temperature`, `top_p`, and `max_output_tokens` to
+// the Codex Responses endpoint one per run and measured `400 {"detail":"Unsupported parameter:
+// <name>"}` for each, against a 200 control run carrying none of them. So those two Codex cells are
+// `degrade`, the fields are dropped before the wire, and exactly one notice per feature says so.
 //
-// The complementary positive assertions keep the negative one from passing vacuously: a
-// reporting cell of the same upstream does produce exactly one notice, and it reaches the
-// canonical result. Without those, "zero notices" would also be satisfied by a provider that
-// resolves nothing at all.
+// The three-layer structure is kept, because it was never about the sign of the assertion: the
+// Codex outcome is checked on the decisions object, on a collected response, and on a stream, so a
+// regression cannot hide behind whichever layer a later change happens to touch. The Copilot
+// silence keeps its complementary positive assertion — a reporting cell of the same upstream
+// produces exactly one notice — because "zero notices" would otherwise also be satisfied by a
+// provider that resolves nothing at all.
 import { describe, expect, test } from "bun:test"
 
-import type { Canonical_Event, Canonical_Request } from "../../src/core/canonical"
+import type { Canonical_Event, Canonical_FeatureNotice, Canonical_Request } from "../../src/core/canonical"
+import type { ProviderFeature } from "../../src/core/provider-capabilities"
 import { CODEX_CAPABILITIES } from "../../src/upstream/codex/capabilities"
 import { resolveCodexFeatures } from "../../src/upstream/codex/features"
+import { withCodexFeatureNotices } from "../../src/upstream/codex/feature-notices"
 import { Codex_Upstream_Provider } from "../../src/upstream/codex"
 import { COPILOT_CAPABILITIES } from "../../src/upstream/copilot/capabilities"
 import { resolveCopilotFeatures } from "../../src/upstream/copilot/features"
+import { withCopilotFeatureNotices } from "../../src/upstream/copilot/feature-notices"
 import { Copilot_Upstream_Provider } from "../../src/upstream/copilot"
 import type { Copilot_Auth_Manager } from "../../src/upstream/copilot/auth"
 import type { Copilot_Client } from "../../src/upstream/copilot/client"
@@ -77,44 +85,54 @@ describe("Codex feature resolution", () => {
     expect(decisions.firstRejection()).toBeUndefined()
   })
 
-  // Requirement 10.6. The declaration is what makes this true, so it is asserted alongside the
-  // outcome: a future edit that flips the cell fails here as well as on the live case.
+  // Requirement 10.6 as revised, and Requirement 10.10 for the limit. The declaration is asserted
+  // alongside the outcome for the same reason as before — an edit that flips a cell must fail here
+  // as well as on the live case — only the recorded value has changed, on the §11.2 measurement.
   //
-  // Per-shape counts, since task 12b made them differ: the first two shapes carry `sampling`
-  // alone, and the third carries an output length limit as well, which is `outputLength` — its own
-  // feature and its own cell — so that shape resolves **two** features rather than one. Both cells
-  // are `native` on this upstream, so the zero-notices clause holds for all three shapes; the
-  // resolved-set assertion is what distinguishes them, and it is written per shape so a regression
-  // that stopped resolving the second feature cannot hide behind the shared silence.
-  test("generation controls produce zero sampling notices and no rejection", () => {
-    expect(CODEX_CAPABILITIES.features.sampling).toBe("native")
-    expect(CODEX_CAPABILITIES.features.outputLength).toBe("native")
+  // Restated from "generation controls produce zero sampling notices and no rejection". Same three
+  // shapes, same per-shape resolved-set counts (task 12b's split is untouched), opposite notice
+  // expectation. The per-shape structure earns its keep in the new form too: shape three carries a
+  // limit as well, so it must produce **two** notices — one per feature — and a resolver that
+  // reported the limit under `sampling` would satisfy a bare total count while telling the client
+  // the wrong thing.
+  test("generation controls are dropped with exactly one notice per feature and no rejection", () => {
+    expect(CODEX_CAPABILITIES.features.sampling).toBe("degrade")
+    expect(CODEX_CAPABILITIES.features.outputLength).toBe("degrade")
 
-    const shapes = [
-      { sampling: { temperature: 0.2 }, resolves: ["sampling"] },
-      { sampling: { topP: 0.9 }, resolves: ["sampling"] },
-      { sampling: { temperature: 0, topP: 1, maxOutputTokens: 256 }, resolves: ["sampling", "outputLength"] },
-    ] as const
+    const shapes: ReadonlyArray<{ sampling: Record<string, number>; resolves: readonly ProviderFeature[]; mentions: readonly string[] }> = [
+      { sampling: { temperature: 0.2 }, resolves: ["sampling"], mentions: ["temperature"] },
+      { sampling: { topP: 0.9 }, resolves: ["sampling"], mentions: ["top-p"] },
+      { sampling: { temperature: 0, topP: 1, maxOutputTokens: 256 }, resolves: ["sampling", "outputLength"], mentions: ["temperature", "top-p", "256"] },
+    ]
 
-    for (const { sampling, resolves } of shapes) {
+    for (const { sampling, resolves, mentions } of shapes) {
       const decisions = resolveCodexFeatures(withFutureMembers(canonicalRequest(), { sampling }))
 
       expect(decisions.resolvedFeatures().has("sampling")).toBe(true)
       expect([...decisions.resolvedFeatures()]).toEqual([...resolves])
-      expect(noticesFor(decisions, "sampling")).toEqual([])
-      expect(noticesFor(decisions, "outputLength")).toEqual([])
-      expect(decisions.notices()).toEqual([])
+      expect(noticesFor(decisions, "sampling")).toHaveLength(1)
+      expect(noticesFor(decisions, "outputLength")).toHaveLength(resolves.includes("outputLength") ? 1 : 0)
+      expect(decisions.notices()).toHaveLength(resolves.length)
+      for (const notice of decisions.notices()) expect(notice.policy).toBe("degrade")
+      // The detail is the only channel a client has for learning what happened to its value, so
+      // it must name the control and, for the limit, the number. Prose is not asserted; the facts
+      // inside it are (Requirement 10.6, 10.10).
+      const details = decisions.notices().map((notice) => notice.detail).join(" | ")
+      for (const needle of mentions) expect(details).toContain(needle)
+      // Dropped, not refused: the request still runs, which is the whole difference between the
+      // `degrade` the control run justifies and a `reject`.
       expect(decisions.firstRejection()).toBeUndefined()
     }
   })
 
-  // Strict mode escalates a reporting outcome, never a native one, so `sampling` stays silent
-  // even here while a reporting cell of the same request fails it.
-  test("strict mode leaves a native cell silent", () => {
+  // Restated from "strict mode leaves a native cell silent", which is no longer a fact about this
+  // cell. `degrade` escalates under strict — that is the documented behavior of the flag, not a
+  // decision made here — so what is asserted is the escalation and the disappearance of the notice.
+  test("strict mode turns the dropped controls into a rejection naming sampling", () => {
     const decisions = resolveCodexFeatures(withFutureMembers(canonicalRequest(), { sampling: { temperature: 0.2 } }), { strict: true })
 
     expect(noticesFor(decisions, "sampling")).toEqual([])
-    expect(decisions.firstRejection()).toBeUndefined()
+    expect(decisions.firstRejection()?.feature).toBe("sampling")
   })
 
   test("a reporting cell produces exactly one notice naming the feature", () => {
@@ -196,13 +214,33 @@ describe("Codex provider carries decisions into the result", () => {
     { type: "response.completed", response: { usage: { input_tokens: 1, output_tokens: 2 } } },
   ])
 
+  // Restated. The fixture used to be `instructions` plus a `temperature`, both native, and the
+  // claim was that a fully native request omits the member entirely rather than carrying `[]`. The
+  // claim is unchanged and still worth making — `undefined` and `[]` are different answers — but
+  // `temperature` is now a `degrade`, so the fixture keeps only the native half.
   test("omits featureNotices entirely when every resolution was native", async () => {
-    const result = await provider(completed).proxy(withFutureMembers(canonicalRequest({ instructions: "Be helpful" }), { sampling: { temperature: 0.2 } }))
+    const result = await provider(completed).proxy(canonicalRequest({ instructions: "Be helpful" }))
 
     expect(result.type).toBe("canonical_response")
     if (result.type !== "canonical_response") return
     // Omitted, not present-as-empty: `undefined` and `[]` are different answers.
     expect("featureNotices" in result).toBe(false)
+  })
+
+  /**
+   * The Codex `degrade` reaching a collected response, which is the layer a client on the
+   * non-streaming path actually reads. Requirement 10.6 as revised.
+   *
+   * The same request that produced *no* notice here before the §11.2 correction, asserted the other
+   * way round: one notice, naming `sampling`, on a 200.
+   */
+  test("attaches the dropped-sampling notice to a collected response", async () => {
+    const result = await provider(completed).proxy(withFutureMembers(canonicalRequest(), { sampling: { temperature: 0.2 } }))
+
+    expect(result.type).toBe("canonical_response")
+    if (result.type !== "canonical_response") return
+    expect(result.featureNotices?.map((notice) => notice.feature)).toEqual(["sampling"])
+    expect(result.featureNotices?.[0]!.detail).toContain("temperature")
   })
 
   test("attaches a reporting notice to a collected response", async () => {
@@ -213,6 +251,11 @@ describe("Codex provider carries decisions into the result", () => {
     expect(result.featureNotices?.map((notice) => notice.feature)).toEqual(["stopSequences"])
   })
 
+  // Restated: the same request now carries **two** reporting outcomes rather than one, because
+  // `temperature` joined `stopSequences` on the `degrade` side (§11.2). The ordering claim is the
+  // one this test exists for and it is unchanged — notices lead, in matrix order, ahead of upstream
+  // content — and `sampling` precedes `stopSequences` in `PROVIDER_FEATURES`, so the sequence is
+  // pinned rather than merely counted.
   test("yields notice events ahead of the upstream content on a stream", async () => {
     const result = await provider(completed).proxy(
       withFutureMembers(canonicalRequest({ stream: true }), { sampling: { temperature: 0.2, stopSequences: ["STOP"] } }),
@@ -223,8 +266,9 @@ describe("Codex provider carries decisions into the result", () => {
     const events: Canonical_Event[] = []
     for await (const event of result.events) events.push(event)
 
-    expect(events[0]).toMatchObject({ type: "feature_notice", feature: "stopSequences" })
-    expect(events.filter((event) => event.type === "feature_notice")).toHaveLength(1)
+    expect(events[0]).toMatchObject({ type: "feature_notice", feature: "sampling" })
+    expect(events[1]).toMatchObject({ type: "feature_notice", feature: "stopSequences" })
+    expect(events.filter((event) => event.type === "feature_notice")).toHaveLength(2)
     expect(events.map((event) => event.type)).toContain("message_start")
   })
 
@@ -247,6 +291,41 @@ describe("Codex provider carries decisions into the result", () => {
     expect(result.status).toBe(400)
     expect(result.body).toContain("stopSequences")
     expect(called).toBe(false)
+    // Additive (task 14b): the single `degrade` this request carried is the field that escalated,
+    // so there is nothing left to report and the error stays byte-identical to the pre-14b one.
+    expect("featureNotices" in result).toBe(false)
+  })
+
+  // Task 14b — the reject path carries its notices, asserted on this upstream rather than on Kiro
+  // alone (14b.2 changed all three `proxy()` implementations, so all three are worth an assertion).
+  //
+  // The request-level unstrict form 14b.4 describes — "one `reject`-declared field and one
+  // `degrade`-declared field" — is still not reachable on this upstream's declaration (§11.2 added
+  // two `degrade` cells, not a `reject` one): `CODEX_CAPABILITIES.features`
+  // contains no `reject` cell at all, so unstrict resolution never produces a rejection, and under
+  // `strict: true` every `degrade` escalates together, which is why the test above records no
+  // surviving notice. The delivery is therefore asserted at the one site 14b.2 routed the rejection
+  // return through, the same way `test/upstream/kiro/features.test.ts` asserts it for Kiro. This
+  // stays correct — and starts being reachable through `proxy()` — the day a cell here becomes `reject`.
+  test("a rejection carries the decided notices, leaving status, headers, and body untouched", () => {
+    const notice: Canonical_FeatureNotice = { feature: "stopSequences", policy: "degrade", detail: "no stop-sequence field" }
+    const headers = new Headers({ "x-test": "1" })
+    const error = { type: "canonical_error", status: 400, headers, body: "This upstream does not support promptCache." } as const
+
+    const result = withCodexFeatureNotices(error, [notice])
+
+    expect(result).not.toBe(error)
+    expect(result.type).toBe("canonical_error")
+    if (result.type !== "canonical_error") return
+    expect(result.status).toBe(400)
+    expect(result.headers).toBe(headers)
+    expect(result.body).toBe("This upstream does not support promptCache.")
+    expect(result.featureNotices).toEqual([notice])
+  })
+
+  test("an error with no decided notice is the same object it was before", () => {
+    const error = { type: "canonical_error", status: 400, headers: new Headers(), body: "no" } as const
+    expect(withCodexFeatureNotices(error, [])).toBe(error)
   })
 })
 
@@ -293,5 +372,33 @@ describe("Copilot provider carries decisions into the result", () => {
     if (result.type !== "canonical_error") return
     expect(result.status).toBe(400)
     expect(result.body).toContain("promptCache")
+    // Additive (task 14b), same reasoning as the Codex case: the one `degrade` this request carried
+    // is the field that escalated, so no notice survives and the error is unchanged from pre-14b.
+    expect("featureNotices" in result).toBe(false)
+  })
+
+  // Task 14b, the Copilot half of the same assertion the Codex suite above explains. Copilot has no
+  // connected account and no live case (Requirement 26.9), and `COPILOT_CAPABILITIES.features`
+  // likewise declares no `reject` cell, so this delivery is asserted at the channel-choice site
+  // 14b.2 routed the rejection return through.
+  test("a rejection carries the decided notices, leaving status, headers, and body untouched", () => {
+    const notice: Canonical_FeatureNotice = { feature: "promptCache", policy: "degrade", detail: "no client-addressable cache" }
+    const headers = new Headers({ "x-test": "1" })
+    const error = { type: "canonical_error", status: 400, headers, body: "This upstream does not support stopSequences." } as const
+
+    const result = withCopilotFeatureNotices(error, [notice])
+
+    expect(result).not.toBe(error)
+    expect(result.type).toBe("canonical_error")
+    if (result.type !== "canonical_error") return
+    expect(result.status).toBe(400)
+    expect(result.headers).toBe(headers)
+    expect(result.body).toBe("This upstream does not support stopSequences.")
+    expect(result.featureNotices).toEqual([notice])
+  })
+
+  test("an error with no decided notice is the same object it was before", () => {
+    const error = { type: "canonical_error", status: 400, headers: new Headers(), body: "no" } as const
+    expect(withCopilotFeatureNotices(error, [])).toBe(error)
   })
 })

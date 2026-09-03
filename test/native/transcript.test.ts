@@ -167,7 +167,7 @@ describe("native transcript path", () => {
       path.join(NATIVE_TRANSCRIPT_DIR_NAME, "sampling-declared.transcript.md"),
     )
     expect(nativeTranscriptPath("sampling-declared", { dir })).toBe(nativeTranscriptPath("sampling-declared", { dir }))
-    expect(nativeTranscriptPath("sampling-native", { dir })).not.toBe(nativeTranscriptPath("sampling-declared", { dir }))
+    expect(nativeTranscriptPath("sampling-degrade", { dir })).not.toBe(nativeTranscriptPath("sampling-declared", { dir }))
   })
 
   test("honors NATIVE_TRANSCRIPT_DIR and rejects an id that is not path-safe", () => {

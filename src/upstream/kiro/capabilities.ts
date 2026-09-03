@@ -1,4 +1,4 @@
-import type { ProviderCapabilities } from "../../core/provider-capabilities"
+import type { FeaturePolicy, ProviderCapabilities } from "../../core/provider-capabilities"
 import { DEFAULT_RETRY_POLICY } from "../../core/provider-capabilities"
 import { KIRO_FIRST_TOKEN_TIMEOUT_MS } from "./constants"
 
@@ -112,3 +112,51 @@ export const KIRO_CAPABILITIES: ProviderCapabilities = {
     tool_search: "reject",
   },
 }
+
+/**
+ * The policy for a hosted tool type this upstream has **not** declared above.
+ *
+ * Same role and reasoning as the Codex and Copilot constants of the same shape: a lookup miss in
+ * `resolveHostedToolPolicy()` is not a fifth outcome, and Requirement 19.4 fixes what it means —
+ * emit a notice and complete the request rather than refuse it or throw. `capabilities.ts` is the
+ * one file in this directory allowed to spell a policy literal (design decision D3), so the value
+ * is read from here by whatever resolves a hosted tool.
+ *
+ * `degrade` rather than the outcome the ten declared types mostly get, and the difference is the
+ * point: an *undeclared* type is one nobody measured against this endpoint, so refusing it would
+ * be asserting knowledge this file does not have. The ten types that were measured say `reject`
+ * on their own cells above.
+ *
+ * Consumer: `validateUnsupportedServerTools()` in `./index.ts`, once the hosted tool path there is
+ * routed through `resolveHostedToolPolicy()` and `FeatureDecisions` (task 29.3's Kiro half).
+ */
+export const KIRO_UNDECLARED_HOSTED_TOOL_POLICY: FeaturePolicy = "degrade"
+
+/**
+ * The policy for a toolset that asks the gateway to obtain the user's approval before each call
+ * (`require_approval: "always"`), Requirement 23.1.
+ *
+ * This gateway is one-way: a request arrives, a stream goes back, and there is no channel on which
+ * to ask the user anything mid-turn. So an approval can neither be obtained nor faked, and the two
+ * remaining options are to run the tool unapproved — the one thing Requirement 23.4 forbids — or to
+ * refuse. This cell refuses, which is why the 400 names `require_approval: "never"`: that is the
+ * value under which the client itself states the calls need no approval.
+ *
+ * Lives here rather than at the resolution site because `capabilities.ts` is the one file in this
+ * directory allowed to spell a policy literal (design decision D3); `./mcp-toolset.ts` reads it and
+ * hands it to `FeatureDecisions`, so the 400 comes out of `resolveFeature()` like every other.
+ */
+export const KIRO_MCP_APPROVAL_REQUIRED_POLICY: FeaturePolicy = "reject"
+
+/**
+ * The policy for the object forms of `require_approval` — `{ read_only }` / `{ tool_names }` —
+ * Requirement 23.3.
+ *
+ * Reporting rather than refusing, because the request *can* be served: the toolset's tools are
+ * withheld under the most restrictive reading of the selection and the turn continues. `degrade` is
+ * the cell that says "accepted, with changed semantics the client is told about", and it carries the
+ * second half of Requirement 23.3 for free — under `NATIVE_STRICT` `resolveFeature()` escalates it
+ * to the same 400 the cell above produces, which is what a client asking for strictness about
+ * silently changed semantics is asking for.
+ */
+export const KIRO_MCP_APPROVAL_SELECTIVE_POLICY: FeaturePolicy = "degrade"

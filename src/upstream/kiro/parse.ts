@@ -5,9 +5,26 @@ import type { JsonObject } from "../../core/types"
 import { canonicalUsageFromWireUsage, mergeCanonicalUsage, mergeServerToolUse } from "../../core/usage"
 import { DEFAULT_MAX_INPUT_TOKENS } from "./constants"
 import { findEventStart } from "./event-frames"
-import { maybeHandleKiroServerTool, type KiroServerToolHandlers } from "./mcp"
+import { maybeHandleKiroServerTool, type KiroServerToolHandlers } from "./web-search"
+import { maybeHandleKiroWebFetch, webFetchRequestsFromBlocks, type KiroWebFetchHandlers } from "./web-fetch"
+import type { KiroMcpSession } from "./mcp-toolset"
 import { parseKiroMeteringUsage } from "./metering"
 import type { KiroParsedEvent, KiroToolCall } from "./types"
+
+/**
+ * The server-tool handlers one Kiro turn can carry.
+ *
+ * Two independent bags, intersected rather than merged into a new shape: `web-search.ts` owns
+ * `webSearch` / `webSearchFallbackQuery` and `web-fetch.ts` owns `webFetch`, and each module's
+ * interceptor reads only its own members. A turn may supply either, both, or neither — the tool-list
+ * computation in `./index.ts` decides which, per declared tool, so a `web_fetch` a client never
+ * declared is never intercepted.
+ *
+ * The MCP session is deliberately **not** a member. It is stateful (it holds the expanded name map
+ * and the completed-call counter) and it is created before the payload is built rather than
+ * assembled from closures at the call site, so it travels as its own parameter.
+ */
+export type KiroServerToolBundle = KiroServerToolHandlers & KiroWebFetchHandlers
 
 interface Accumulator {
   name: string
@@ -223,10 +240,11 @@ export function streamKiroResponse(
   fallbackModel: string,
   effectiveTools: JsonObject[],
   inputTokenEstimate: number,
-  serverTools?: KiroServerToolHandlers,
+  serverTools?: KiroServerToolBundle,
   initialServerToolBlocks: JsonObject[] = [],
   prefaceText = "",
   maxInputTokens = DEFAULT_MAX_INPUT_TOKENS,
+  mcp?: KiroMcpSession,
 ): Canonical_StreamResponse {
   const id = `resp_${crypto.randomUUID().replace(/-/g, "")}`
   return {
@@ -236,7 +254,7 @@ export function streamKiroResponse(
     model: fallbackModel,
     events: {
       async *[Symbol.asyncIterator]() {
-        yield* iterateKiroEvents(response.body, inputTokenEstimate, effectiveTools, serverTools, true, initialServerToolBlocks, prefaceText, maxInputTokens)
+        yield* iterateKiroEvents(response.body, inputTokenEstimate, effectiveTools, serverTools, true, initialServerToolBlocks, prefaceText, maxInputTokens, mcp)
       },
     },
   }
@@ -247,10 +265,11 @@ export async function collectKiroResponse(
   fallbackModel: string,
   effectiveTools: JsonObject[],
   inputTokenEstimate: number,
-  serverTools?: KiroServerToolHandlers,
+  serverTools?: KiroServerToolBundle,
   initialServerToolBlocks: JsonObject[] = [],
   prefaceText = "",
   maxInputTokens = DEFAULT_MAX_INPUT_TOKENS,
+  mcp?: KiroMcpSession,
 ): Promise<Canonical_Response> {
   const content: Canonical_ContentBlock[] = []
   let pendingText = ""
@@ -279,7 +298,7 @@ export async function collectKiroResponse(
     pendingThinking = undefined
   }
 
-  for await (const event of iterateKiroEvents(response.body, inputTokenEstimate, effectiveTools, serverTools, false, initialServerToolBlocks, prefaceText, maxInputTokens)) {
+  for await (const event of iterateKiroEvents(response.body, inputTokenEstimate, effectiveTools, serverTools, false, initialServerToolBlocks, prefaceText, maxInputTokens, mcp)) {
     if (event.type === "text_delta") {
       flushThinking()
       pendingText += event.delta
@@ -359,11 +378,12 @@ async function* iterateKiroEvents(
   stream: ReadableStream<Uint8Array> | null,
   inputTokenEstimate: number,
   effectiveTools: JsonObject[] = [],
-  serverTools?: KiroServerToolHandlers,
+  serverTools?: KiroServerToolBundle,
   emitBracketToolCalls = true,
   initialServerToolBlocks: JsonObject[] = [],
   prefaceText = "",
   maxInputTokens = DEFAULT_MAX_INPUT_TOKENS,
+  mcp?: KiroMcpSession,
 ): AsyncIterable<Canonical_Event> {
   const parser = new AwsEventStreamParser()
   const thinking = new ThinkingBlockExtractor()
@@ -382,6 +402,15 @@ async function* iterateKiroEvents(
   let nextBlockIndex = 0
   const initialServerToolUse = serverToolUseFromBlocks(initialServerToolBlocks)
   let webSearchRequests = initialServerToolUse?.webSearchRequests ?? 0
+  /**
+   * Completed `web_fetch` calls this turn (Requirement 18.3).
+   *
+   * Seeded from the preface blocks for the same reason `webSearchRequests` is, and fed from
+   * `webFetchRequestsFromBlocks()` rather than from a counter incremented next to the fetch — the
+   * block is the evidence a fetch completed, so counting blocks cannot drift from what the client
+   * receives. A failed fetch yields an `error` event and no block, so it is not counted.
+   */
+  let webFetchRequests = initialServerToolUse?.webFetchRequests ?? 0
   const emittedToolCalls: Canonical_ToolCallBlock[] = []
   const reader = stream?.getReader()
   if (prefaceText) yield { type: "text_delta", delta: prefaceText }
@@ -399,9 +428,36 @@ async function* iterateKiroEvents(
     return
   }
 
+  /**
+   * Run one model-emitted call past the interceptors, in order, and yield whatever comes out.
+   *
+   * The three handlers are chained rather than nested, because each one's "not mine" answer is the
+   * same event: the call re-emitted verbatim as `tool_call_done`. So a passthrough from the
+   * web-search handler is the signal to offer the call to the web-fetch handler, and a passthrough
+   * from that one is the client tool call. The MCP session is asked **first** and by name rather
+   * than by passthrough detection, because it is the one handler that can claim an arbitrary tool
+   * name — an expanded `mcp__server__tool` — so there is nothing to compare against.
+   *
+   * Chaining on the identity of the re-emitted call, not merely on the event type, so a handler that
+   * legitimately emits a *different* tool call is not mistaken for a passthrough.
+   */
+  async function* handleKiroToolCall(call: KiroToolCall): AsyncIterable<Canonical_Event> {
+    if (mcp?.handles(call.name)) {
+      yield* mcp.handleToolCall(call)
+      return
+    }
+    for await (const event of maybeHandleKiroServerTool(call, serverTools)) {
+      if (isPassthroughOf(event, call)) {
+        yield* maybeHandleKiroWebFetch(call, serverTools)
+        continue
+      }
+      yield event
+    }
+  }
+
   async function* emitToolCall(call: KiroToolCall): AsyncIterable<Canonical_Event> {
     let emittedClientTool = false
-    for await (const event of maybeHandleKiroServerTool(call, serverTools)) {
+    for await (const event of handleKiroToolCall(call)) {
       if (event.type === "tool_call_done") {
         emittedClientTool = true
         emittedToolCalls.push({
@@ -414,6 +470,9 @@ async function* iterateKiroEvents(
       }
       if (event.type === "server_tool_block" && event.blocks.some((block) => block.type === "web_search_tool_result")) {
         webSearchRequests += 1
+      }
+      if (event.type === "server_tool_block") {
+        webFetchRequests += webFetchRequestsFromBlocks(event.blocks)
       }
       if (event.type === "text_delta") {
         text += event.delta
@@ -519,9 +578,20 @@ async function* iterateKiroEvents(
     }
   }
   const outputTokens = usageOutputTokens ?? (text ? estimateKiroFallbackTokens(text) : 0)
+  // Three sources, folded left to right: whatever upstream reported, what this turn's server-tool
+  // interception observed, and what the MCP session executed. Each member is still omitted when it
+  // is zero, so a turn that used none of them keeps reporting no `serverToolUse` at all.
   const serverToolUse = mergeServerToolUse(
-    upstreamUsage.serverToolUse,
-    webSearchRequests ? { webSearchRequests } : undefined,
+    mergeServerToolUse(
+      upstreamUsage.serverToolUse,
+      webSearchRequests || webFetchRequests
+        ? {
+            ...(webSearchRequests ? { webSearchRequests } : {}),
+            ...(webFetchRequests ? { webFetchRequests } : {}),
+          }
+        : undefined,
+    ),
+    mcp?.serverToolUseDelta(),
   )
   yield {
     type: "usage",
@@ -536,6 +606,17 @@ async function* iterateKiroEvents(
     },
   }
   yield { type: "message_stop", stopReason }
+}
+
+/**
+ * Whether `event` is an interceptor re-emitting `call` untouched — the documented "not mine" answer
+ * of both {@link maybeHandleKiroServerTool} and {@link maybeHandleKiroWebFetch}.
+ *
+ * All three fields are compared, so a handler that emits some *other* tool call is not read as a
+ * declined one and does not get offered to the next handler in the chain.
+ */
+function isPassthroughOf(event: Canonical_Event, call: KiroToolCall) {
+  return event.type === "tool_call_done" && event.callId === call.callId && event.name === call.name && event.arguments === call.arguments
 }
 
 function closingTagPrefixSuffixLength(value: string, closeTag: string) {

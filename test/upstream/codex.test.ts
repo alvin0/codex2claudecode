@@ -43,7 +43,11 @@ describe("Codex upstream translation", () => {
   test("translates canonical requests into Codex responses bodies", () => {
     expect(canonicalToCodexBody(canonicalRequest())).toEqual({
       model: "gpt-5.4_xhigh",
-      reasoning_effort: "high",
+      // Deliberate expectation update for a changed contract (task 19b.2), not an assertion
+      // weakened to pass: spike §10.2 measured the flat `reasoning_effort: "high"` this line used
+      // to expect answered `400 {"detail":"Unsupported parameter: reasoning_effort"}`. The same
+      // effort value is still asserted to reach the body, at the key the endpoint accepts.
+      reasoning: { effort: "high", summary: "auto" },
       instructions: "Be helpful",
       input: [{ role: "user", content: [{ type: "input_text", text: "hello" }] }],
       store: false,

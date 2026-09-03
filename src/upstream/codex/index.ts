@@ -6,8 +6,10 @@ import type { RequestOptions } from "../../core/types"
 import { readCodexFastModeConfig } from "./fast-mode"
 import { CODEX_MODEL_CACHE_TTL_SECONDS } from "./constants"
 import { CodexStandaloneClient } from "./client"
+import { applyCodexEffortDefault, codexEffortMetadata } from "./effort"
 import { withCodexFeatureNotices } from "./feature-notices"
 import { resolveCodexFeatures } from "./features"
+import { resolveCodexHostedTools } from "./hosted-tools"
 import { CodexModelMetadataRegistry } from "./model-metadata"
 import type { CodexClientOptions, CodexClientTokens } from "./types"
 import { canonicalToCodexBody, canonicalToCodexInputTokensBody, collectCodexResponse, streamCodexResponse } from "./parse"
@@ -62,9 +64,19 @@ export class Codex_Upstream_Provider implements Upstream_Provider, TokenCredenti
    * outcome first.
    *
    * The resolution happens **before** the upstream call, because a failed resolution must not
-   * spend a request: `firstRejection()` returns the 400 on its own. Everything else the
-   * declaration produces travels with the result, and `withCodexFeatureNotices()` picks the
-   * channel from the result's shape — including leaving a byte-identical passthrough alone.
+   * spend a request: a recorded rejection ends it with a 400 before any upstream call, and that 400
+   * comes from `rejectionReport()`, so it names *every* feature the request was refused over while
+   * the feature that caused it stays `firstRejection()`'s, in resolution order. Everything
+   * else the declaration produced still travels with that result, because both the success and
+   * the rejection return go through `withCodexFeatureNotices()`, which picks the channel from
+   * the result's shape — including leaving a byte-identical passthrough alone.
+   *
+   * Two resolutions rather than one, and the split is the same one `./features.ts` documents:
+   * `resolveCodexFeatures()` owns the features decided from the request's scalar fields, and
+   * `resolveCodexHostedTools()` (`./hosted-tools.ts`) owns the ones decided while the tool list is
+   * read, where the hosted tool type names and their per-type policies live. Both feed the same
+   * `FeatureDecisions`, so `firstRejection()` and `notices()` still see one account of the request
+   * and the 400 order is resolution order (Requirements 19.2 through 19.5).
    *
    * On today's matrix (`./capabilities.ts`) every feature `resolveCodexFeatures()` looks at is
    * either native or has no canonical field to arrive in yet, so `notices()` is empty and the
@@ -74,10 +86,11 @@ export class Codex_Upstream_Provider implements Upstream_Provider, TokenCredenti
    */
   async proxy(request: Canonical_Request, options?: RequestOptions): Promise<UpstreamResult> {
     const decisions = resolveCodexFeatures(request, { strict: this.strict })
-    const rejection = decisions.firstRejection()
-    if (rejection) return canonicalError(400, rejection.message)
+    resolveCodexHostedTools(request.tools, decisions)
+    const rejection = decisions.rejectionReport()
+    if (rejection) return withCodexFeatureNotices(canonicalError(400, rejection.message), decisions.notices())
 
-    const body = await this.applyFastMode(canonicalToCodexBody(request))
+    const body = await this.applyFastMode(canonicalToCodexBody(this.withResolvedEffort(request)))
     options?.onRequestBody?.(JSON.stringify(body))
     const rawResponse = await this.client.proxy(body, options)
     const response = options?.onResponseBodyChunk ? withChunkCallback(rawResponse, options.onResponseBodyChunk) : rawResponse
@@ -169,6 +182,30 @@ export class Codex_Upstream_Provider implements Upstream_Provider, TokenCredenti
 
   get tokens() {
     return this.client.tokens
+  }
+
+  /**
+   * Resolve the request's effort level against this model's advertised vocabulary before the body
+   * is built: **explicit ▸ budget ▸ model default ▸ absent** (`./effort.ts`, Requirements 16.1,
+   * 16.2, 16.3).
+   *
+   * Here rather than inside `canonicalToCodexBody()` because the descriptor lives in the registry
+   * this provider owns, and the body builder is a pure function of a canonical request that the
+   * inbound Claude→Responses converter also calls with no registry to hand. The decision is made
+   * once, on the request, and the builder keeps emitting whatever `reasoningEffort` it is given —
+   * as a nested `reasoning: { effort, summary: "auto" }` object since task 19b.1.
+   *
+   * The registry is empty until `listModels()` or `refreshModelMetadata()` has run, and an unknown
+   * model has no entry either way. Both cases yield no metadata, the ladder falls to `absent`, and
+   * the body is exactly what it was before this resolution existed — a default is applied only
+   * where the upstream itself advertised one.
+   *
+   * `inputTokens()` deliberately does **not** go through this. That call asks the endpoint to count
+   * the tokens of an input; the reasoning level does not change the input, and a token count is not
+   * the request whose reasoning is being configured.
+   */
+  private withResolvedEffort(request: Canonical_Request): Canonical_Request {
+    return applyCodexEffortDefault(request, codexEffortMetadata(this.modelMetadata.get(request.model)))
   }
 
   private async applyFastMode(body: Record<string, unknown>): Promise<Record<string, unknown>> {

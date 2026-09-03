@@ -8,6 +8,7 @@ import { COPILOT_CACHE_FILE_NAME, COPILOT_MODEL_CACHE_TTL_SECONDS } from "./cons
 import { Copilot_Client } from "./client"
 import { withCopilotFeatureNotices } from "./feature-notices"
 import { resolveCopilotFeatures } from "./features"
+import { resolveCopilotHostedTools } from "./hosted-tools"
 import { collectCopilotResponse, streamCopilotResponse } from "./parse"
 import { Copilot_Auth_Manager, type CopilotAuthManagerOptions } from "./auth"
 import { readCopilotModelCache, writeCopilotModelCache } from "./cache"
@@ -55,17 +56,31 @@ export class Copilot_Upstream_Provider implements Upstream_Provider, TokenCreden
    * outcome first.
    *
    * The resolution happens **before** the upstream call, so a failed resolution never spends a
-   * request. Notices then travel with the result, and `withCopilotFeatureNotices()` picks the
-   * channel from the result's shape.
+   * request. Notices then travel with the result on either return, and
+   * `withCopilotFeatureNotices()` picks the channel from the result's shape — a 400 carries the
+   * decisions the request made about its other fields, and its message comes from
+   * `rejectionReport()`, so it names every feature that was rejected rather than only the first.
    *
-   * On today's matrix (`./capabilities.ts`) every feature `resolveCopilotFeatures()` looks at is
-   * either native or has no canonical field to arrive in yet, so `notices()` is empty and the
-   * delivery call returns its input unchanged.
+   * Two resolutions rather than one, and the split is the one `./features.ts` documents:
+   * `resolveCopilotFeatures()` owns the features decided from the request's scalar fields, and
+   * `resolveCopilotHostedTools()` (`./hosted-tools.ts`) owns the ones decided while the tool list is
+   * read, where the hosted tool type names and their per-type policies live. Both feed the same
+   * `FeatureDecisions`, so one account of the request reaches the client either way (Requirements
+   * 19.2 through 19.5).
+   *
+   * Sampling is the one place where this provider's two halves must agree: `resolveCopilotFeatures()`
+   * decides what to tell the client about the controls the request carries, and
+   * `copilotSamplingFields()` (`./sampling.ts`, consumed by `buildCopilotResponsesBody()`) decides
+   * what reaches the wire. `temperature`, `top_p`, and `max_output_tokens` are forwarded, so those
+   * cells stay quiet; `stopSequences` has no Responses field, so it is dropped by the mapper and
+   * reported by the resolver as the declared `degrade` cell — which is why `notices()` is no longer
+   * empty for every request the way it was before canonical carried a `sampling` member.
    */
   async proxy(request: Canonical_Request, options?: RequestOptions): Promise<UpstreamResult> {
     const decisions = resolveCopilotFeatures(request, { strict: this.strict })
-    const rejection = decisions.firstRejection()
-    if (rejection) return canonicalError(400, rejection.message)
+    resolveCopilotHostedTools(request.tools, decisions)
+    const rejection = decisions.rejectionReport()
+    if (rejection) return withCopilotFeatureNotices(canonicalError(400, rejection.message), decisions.notices())
 
     const response = await this.client.proxy(request, options)
     if (!response.ok) return await toCanonicalError(response)
@@ -149,6 +164,13 @@ export class Copilot_Upstream_Provider implements Upstream_Provider, TokenCreden
     return this.getAccountId() ?? this.getEmail() ?? this.getPlan() ?? this.getAccountType() ?? "copilot-account"
   }
 }
+
+/**
+ * The sampling mapper and its two recorded field lists, re-exported from the provider's own module
+ * the way `../kiro/index.ts` re-exports `convertCanonicalToKiroPayload`. The owner stays
+ * `./sampling.ts`; this only gives the directory one entry point.
+ */
+export { COPILOT_SAMPLING_DROPPED_FIELDS, COPILOT_SAMPLING_RESPONSES_FIELDS, copilotSamplingFields } from "./sampling"
 
 async function toCanonicalError(response: Response) {
   return {

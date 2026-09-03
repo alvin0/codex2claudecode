@@ -1,4 +1,4 @@
-import type { Canonical_Event, Canonical_FeatureNotice, Canonical_Response, Canonical_StreamResponse } from "../../core/canonical"
+import type { Canonical_ErrorResponse, Canonical_Event, Canonical_FeatureNotice, Canonical_Response, Canonical_StreamResponse } from "../../core/canonical"
 import type { UpstreamResult } from "../../core/interfaces"
 
 /**
@@ -12,9 +12,11 @@ import type { UpstreamResult } from "../../core/interfaces"
  * per-upstream ownership rather than a missing abstraction, and neither file may reach into the
  * other's directory.
  *
- * Both channels exist because neither is a superset of the other. A streaming request never
- * reads `Canonical_Response.featureNotices`, and a collected response never sees a
- * `feature_notice` event, so writing only one would leave half the traffic silent.
+ * All three channels exist because none is a superset of another. A streaming request never
+ * reads `Canonical_Response.featureNotices`, a collected response never sees a `feature_notice`
+ * event, and a rejected request reads neither — it reads
+ * `Canonical_ErrorResponse.featureNotices`. Writing only one would leave that share of the
+ * traffic silent.
  *
  * On this upstream both paths are live: `/v1/responses` requires `stream: true` upstream, while
  * a `/v1/messages` client can ask for either.
@@ -29,15 +31,18 @@ import type { UpstreamResult } from "../../core/interfaces"
  * 8.3). That is the common case on this upstream today, and it is what keeps Requirement 10.6's
  * live case notice-free.
  *
- * `canonical_error` and `canonical_passthrough` are returned untouched. An error already carries
- * its own message down the rejection path, and a passthrough is bytes the client must receive
- * unmodified — the byte-for-byte guarantee that makes it that kind of result is exactly what a
- * message injected here would break (Requirement 15).
+ * `canonical_error` carries them too, on its own optional member: the field that failed does not
+ * erase what the request decided about the others, and `status`, `headers` and `body` are left
+ * exactly as produced. `canonical_passthrough` is the one shape returned untouched — a
+ * passthrough is bytes the client must receive unmodified, and the byte-for-byte guarantee that
+ * makes it that kind of result is exactly what anything injected here would break (Requirement
+ * 15).
  */
 export function withCodexFeatureNotices(result: UpstreamResult, notices: readonly Canonical_FeatureNotice[]): UpstreamResult {
   if (!notices.length) return result
   if (result.type === "canonical_response") return responseWithNotices(result, notices)
   if (result.type === "canonical_stream") return streamWithNotices(result, notices)
+  if (result.type === "canonical_error") return errorWithNotices(result, notices)
   return result
 }
 
@@ -50,6 +55,18 @@ function responseWithNotices(response: Canonical_Response, notices: readonly Can
   return {
     ...response,
     featureNotices: [...notices.map(copyNotice), ...(response.featureNotices ?? [])],
+  }
+}
+
+/**
+ * Same placement rule as {@link responseWithNotices}: decided notices ahead of anything already
+ * on the result, existing entries kept. A copy rather than a mutation, so the error object a
+ * caller built stays what it was.
+ */
+function errorWithNotices(error: Canonical_ErrorResponse, notices: readonly Canonical_FeatureNotice[]): Canonical_ErrorResponse {
+  return {
+    ...error,
+    featureNotices: [...notices.map(copyNotice), ...(error.featureNotices ?? [])],
   }
 }
 

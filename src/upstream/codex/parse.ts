@@ -10,6 +10,8 @@ import type {
 import { consumeCodexSse, parseJsonObject, parseSseJson } from "../../core/sse"
 import type { JsonObject, SseEvent } from "../../core/types"
 import { canonicalUsageFromWireUsage, mergeCanonicalUsage } from "../../core/usage"
+import { forwardCodexHostedTools } from "./hosted-tools"
+import { omitResponsesRejectedFields } from "./sampling"
 import type { InputTokensRequest } from "./types"
 
 const THINKING_SIGNATURE_PREFIX = "sig_"
@@ -85,10 +87,51 @@ interface CodexOutputItemState {
   arguments: string
 }
 
+/**
+ * Build the Responses request body for one canonical request.
+ *
+ * The generation controls are not spelled here, and on this upstream they are not spelled anywhere:
+ * `./sampling.ts` owns the wire names and the list of names this endpoint refuses, and spike §11.2
+ * measured all three sampling spellings — `temperature`, `top_p`, `max_output_tokens` — answered
+ * with `400 Unsupported parameter`. So nothing is emitted for a canonical `sampling` member; the
+ * value is dropped and `./features.ts` reports the `degrade` cell to the client. The finished body
+ * still runs through {@link omitResponsesRejectedFields} so Requirement 14.2 holds structurally
+ * rather than by the spelling choices below happening to be right.
+ *
+ * ## Reasoning effort is nested, and that is a measurement (spike §10)
+ *
+ * This function used to emit the flat `reasoning_effort: <level>`. Spike §10.2 sent that shape to
+ * `POST /backend-api/codex/responses` at both `low` and `xhigh` and measured
+ * `400 {"detail":"Unsupported parameter: reasoning_effort"}` on both — refused as a request
+ * parameter, not accepted and ignored. Nested `reasoning: { effort, summary }` returned 200 on the
+ * same prompt and *honoured* the level: 516 reasoning tokens at `low` against 14502 at `xhigh`
+ * (§10.4), a 28× spread against a ±25% same-body sampling variance, so the signal is not a noise
+ * threshold argument.
+ *
+ * Live traffic survived the flat shape only because `normalizeReasoningBody()`
+ * (`src/core/reasoning.ts`) deletes `reasoning_effort` inside `CodexStandaloneClient.request()` and
+ * re-emits it nested — but only for a model matching its `^gpt-5(\.[^_]+)?(_level)?$` regex. For a
+ * model outside that regex, such as `gpt-5-codex`, the field was deleted and never re-emitted:
+ * effort dropped silently, 200, zero notice (§10.3). Emitting the nested shape here fixes exactly
+ * that case, because the normalizer merges an existing `reasoning` object on the in-regex path and
+ * returns `{}` on the out-of-regex path, leaving what this function built intact either way. The
+ * normalizer is deliberately left alone — removing it is a separate concern with its own revert
+ * boundary.
+ *
+ * `summary: "auto"` is the deliberate choice, not a default copied from documentation. §10.4
+ * measured it accepted and echoed back inside `response.created` / `response.completed` as
+ * `summary: "detailed"` — the server picks the level itself rather than refusing the value, which is
+ * why `"auto"` is the one value that needs no per-model knowledge to be correct. A fixed
+ * `"detailed"` would hardcode what the server chose for one model on one day; omitting `summary`
+ * was never measured on this endpoint and is not worth guessing at when `"auto"` is on the record.
+ *
+ * Omitted **entirely** when the canonical request carries no effort — no `reasoning: {}` husk. An
+ * empty object is a stated-but-empty reasoning configuration, and this gateway has nothing to state.
+ */
 export function canonicalToCodexBody(request: Canonical_Request): JsonObject {
-  return {
+  return omitResponsesRejectedFields({
     model: request.model,
-    ...(request.reasoningEffort && { reasoning_effort: request.reasoningEffort }),
+    ...(request.reasoningEffort && { reasoning: { effort: request.reasoningEffort, summary: "auto" } }),
     ...(request.instructions && { instructions: request.instructions }),
     input: request.input.flatMap((message) => {
       const messageContent = message.content.filter((block) => !isRawInputItem(block))
@@ -107,11 +150,14 @@ export function canonicalToCodexBody(request: Canonical_Request): JsonObject {
     }),
     store: false,
     stream: request.stream,
-    ...(request.tools && { tools: request.tools }),
+    // Requirement 19.1: hosted tools go out with their own `type`. `forwardCodexHostedTools()`
+    // (`./hosted-tools.ts`) is identity today, which is the point — the forward is now a named
+    // guarantee a test holds rather than a property of this spread.
+    ...(request.tools && { tools: forwardCodexHostedTools(request.tools) }),
     ...(request.include && { include: request.include }),
     ...(request.toolChoice && { tool_choice: request.toolChoice }),
     ...(request.textFormat && { text: { format: request.textFormat } }),
-  }
+  })
 }
 
 export function canonicalToCodexInputTokensBody(request: Canonical_Request): InputTokensRequest {

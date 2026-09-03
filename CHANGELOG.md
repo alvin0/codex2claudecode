@@ -4,6 +4,65 @@ All notable changes to this package are documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [0.4.0] - 2026-09-03
+
+### Added
+
+#### Native API Mode
+
+- Added a declared capability matrix per upstream (`src/upstream/<provider>/capabilities.ts`) covering 12 named features — `sampling`, `outputLength`, `stopSequences`, `thinkingBudget`, `systemPrompt`, `promptCache`, `strictToolSchema`, `toolChoiceForced`, `structuredOutput`, `webSearch`, `webFetch`, `mcpToolset` — where every cell resolves to exactly one of four policies: `native`, `emulate`, `degrade`, `reject`.
+- Added the `feature_notice` canonical event and its `featureNotices` telemetry field, so a request that was accepted with changed semantics now says so instead of changing quietly. Claude and OpenAI inbound providers render notices in their own wire format.
+- Added no-silent-drop enforcement: a client field the upstream cannot honor is either sent, emulated, degraded with a notice, or rejected with a message — never discarded without a trace.
+- Added `NATIVE_STRICT`, which escalates every `degrade` outcome to a `400`. Interpreted in one place (`src/core/feature-policy.ts`) rather than at each feature site.
+- Added byte passthrough for `/v1/responses` → Codex via `src/app/passthrough-resolver.ts`, gated by `NATIVE_PASSTHROUGH`. This is the only inbound/upstream pair whose wire formats match, so it is the only pair that qualifies.
+- Added canonical carriage for fields the request layer previously dropped: `temperature`, `top_p`, output-length limits, stop sequences, thinking budget, and structured-output format. Inbound providers map them in; upstream providers consume them per the matrix.
+- Added a provider-agnostic MCP protocol client in core (`src/core/mcp/`): JSON-RPC 2.0 over HTTP for `initialize`, `tools/list`, and `tools/call`, plus toolset expansion and execution. Kiro can emulate a client-declared MCP toolset when `NATIVE_MCP_EMULATION` is on; with the flag off the previous `400` stands byte for byte.
+- Added rejection with guidance for MCP toolsets that declare `require_approval`, instead of withholding them silently.
+- Added Kiro `web_fetch` emulation — the gateway performs the fetch rather than refusing the request.
+- Added declared hosted tool types for Codex, replacing the mis-shaped forwarding they used to get.
+- Added `src/app/native-flags.ts` as the single reader for `NATIVE_STRICT`, `NATIVE_PASSTHROUGH`, `NATIVE_MCP_EMULATION`, and `KIRO_WEB_SEARCH_HEURISTICS`. All four are off by default; the resolved booleans are threaded through provider construction.
+- Added a live verification harness (`test/native/`, `scripts/native-verify.ts`) with 14 named cases and one secret-redacted transcript per case, runnable via `bun run test:native:verify` and `bun run test:native:live`.
+- Added an architecture contract property test (`test/architecture.property.test.ts`) asserting the layer boundaries in `.kiro/steering/provider-architecture-coding-rules.md`.
+- Added upstream probe scripts: `probe:codex:effort`, `probe:codex:sampling`, `probe:native:combined`, plus Codex and Kiro model probes.
+
+#### Account rotation
+
+- Added rotation mode, toggled from `/rotation` in the UI and off by default because it spends other accounts' quota. The toggle applies to the running gateway immediately and persists across restarts.
+- While on, an account-level failure retries on the next account instead of returning to the client. Cooldown ladder: `401`/`403` rest 30 minutes, `402`/`429` rest until the provider's reset time, `5xx` rest 1 minute. Anything else (malformed request, `404`) is returned as-is.
+- The account that answers becomes the active one and is persisted; quota failures are re-probed every 5 minutes.
+
+#### Codex login and transport
+
+- Added browser login for Codex (`/connect` → **Login with browser**): the same OAuth PKCE flow `codex login` uses, on the fixed callback `http://localhost:1455/auth/callback`, writing into this gateway's own auth file. `~/.codex/auth.json` is never touched. The URL is printed as well as opened so a headless machine can finish sign-in elsewhere.
+- Added a Codex WebSocket transport for `wss://chatgpt.com/backend-api/codex/responses`, off by default behind `CODEX_WIRE_API=responses_websocket`. Streaming requests only; non-streaming turns and any handshake or socket failure fall back to HTTPS.
+
+#### Codex CLI / Codex IDE mode
+
+- Added `/set-codex-cli` in the UI and `--setup-codex-cli` on the CLI to write a Codex CLI / Codex IDE profile pointing at this gateway, with `--make-default` to make it the default profile.
+- Added OpenAI-inbound model alias resolution so Codex-CLI-style model names route correctly.
+
+#### Kiro
+
+- Added provider credits reporting from Kiro's metering payload.
+- Added per-model reasoning effort enums read from Kiro model metadata, with a bundled static catalog as fallback.
+
+### Changed
+
+- Updated Codex default models: `ANTHROPIC_MODEL` and `ANTHROPIC_DEFAULT_OPUS_MODEL` to `gpt-5.6-sol`, `ANTHROPIC_DEFAULT_SONNET_MODEL` to `gpt-5.6-terra`, `ANTHROPIC_DEFAULT_HAIKU_MODEL` to `gpt-5.6-luna`.
+- Updated Kiro default models: `ANTHROPIC_MODEL` and `ANTHROPIC_DEFAULT_OPUS_MODEL` to `claude-opus-5`, `ANTHROPIC_DEFAULT_SONNET_MODEL` to `claude-sonnet-5`. `ANTHROPIC_DEFAULT_HAIKU_MODEL` stays `claude-haiku-4.5`.
+- Added model aliases `gpt-5.6` and `gpt-5.6-latest` → `gpt-5.6-sol`, and `claude-opus-4-8` → `claude-opus-4.8`.
+- An effort level outside a Kiro model's published enum is now mapped to the nearest supported level with a notice, instead of failing the request with a `400`.
+- A Claude `thinking.budget_tokens` on Kiro is now mapped onto the nearest effort level the model publishes, and the mapping is reported. Kiro's wire format has no budget field, so the change of semantics is disclosed rather than applied silently.
+- Kiro web search no longer guesses user intent. The old intent-preflight and synthesized tool-call heuristics are behind `KIRO_WEB_SEARCH_HEURISTICS`, off by default. A `web_search` the model itself emits is still executed in both flag states.
+- Split output-length handling out of `sampling` into its own `outputLength` feature, because the two carry different policies on the same upstream.
+- Reasoning signatures are now redacted in request logs and debug captures.
+- Rebuilt the bundled `dist/index.js` artifact for this release.
+
+### Fixed
+
+- Fixed the Kiro model-default effort rung being unreachable: the resolver returned before loading model metadata, so a request that stated neither a level nor a budget never picked up the model's own published default.
+- Fixed a canonical `web_fetch` on Kiro falling through to the undeclared-hosted-tool path, which reported it under `mcpToolset` and escalated to a `400` under `NATIVE_STRICT` for a request the upstream declares it can serve.
+
 ## [0.3.2] - 2026-06-29
 
 ### Added

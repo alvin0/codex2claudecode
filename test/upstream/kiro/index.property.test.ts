@@ -43,8 +43,21 @@ describe("Kiro provider properties", () => {
     ), { numRuns: 100 })
   })
 
+  /**
+   * **Expectation moved by task 28.2.** The generator was `fc.constantFrom("web_fetch", "mcp")`.
+   * `web_fetch` is emulated now (Requirements 18.1, 18.2) — it is declared to the model and reported
+   * through a Feature_Notice, so it no longer refuses and asserting that it does would pin the
+   * behavior the task removed. `test/upstream/kiro/index.test.ts` carries the positive case in its
+   * place.
+   *
+   * `mcp` still refuses, for a different reason and only conditionally: the emulation path is gated on
+   * `NATIVE_MCP_EMULATION` (task 35.2), and this provider is built with the flag off, which is the
+   * state Requirement 22.5 says must keep the existing 400. Both remaining refusals are now
+   * conditional facts rather than permanent ones, which is why the type set shrank to one instead of
+   * the generator being deleted.
+   */
   test("Property 13: unsupported server tool validation returns 400 before conversion", async () => {
-    await fc.assert(fc.asyncProperty(fc.constantFrom("web_fetch", "mcp"), async (type) => {
+    await fc.assert(fc.asyncProperty(fc.constantFrom("mcp"), async (type) => {
       let calls = 0
       const manager = auth()
       const client = new Kiro_Client(manager, {

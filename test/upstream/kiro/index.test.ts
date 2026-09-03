@@ -29,12 +29,39 @@ function auth() {
 
 function realProvider(response = new Response('{"content":"ok"}')) {
   const manager = auth()
-  const client = new Kiro_Client(manager, { fetch: (() => Promise.resolve(response)) as unknown as typeof fetch })
+  // A clone per call, because one `Response` body cannot be read twice. A request that states no
+  // effort level now also fetches the model catalog — `selectEffortLevel()`'s model-default rung
+  // needs the descriptor, and the early return that used to skip that fetch was the bug that made
+  // the rung unreachable — so this fake transport serves two reads where it used to serve one.
+  const client = new Kiro_Client(manager, { fetch: (() => Promise.resolve(response.clone())) as unknown as typeof fetch })
   return new Kiro_Upstream_Provider({ auth: manager, client })
 }
 
-function providerWithClient(client: Pick<Kiro_Client, "generateAssistantResponse" | "listAvailableModels" | "checkHealth"> & Partial<Pick<Kiro_Client, "callMcpWebSearch" | "listAvailableModelsFull">>) {
+type FakeKiroClient = Pick<Kiro_Client, "generateAssistantResponse" | "listAvailableModels" | "checkHealth"> & Partial<Pick<Kiro_Client, "callMcpWebSearch" | "listAvailableModelsFull">>
+
+function providerWithClient(client: FakeKiroClient) {
   return new Kiro_Upstream_Provider({ auth: auth(), client: client as Kiro_Client })
+}
+
+/** The same provider with `NATIVE_STRICT` resolved to on, so a `degrade` outcome is a 400. */
+function strictProviderWithClient(client: FakeKiroClient) {
+  return new Kiro_Upstream_Provider({ auth: auth(), client: client as Kiro_Client, strict: true })
+}
+
+/**
+ * The same provider with `KIRO_WEB_SEARCH_HEURISTICS` resolved to on, which restores the
+ * pre-native-mode guessing paths: the web-search intent preflight and the synthesized client
+ * `WebSearch` / `WebFetch` / `list_allowed_directories` tool calls (task 27.3, Requirement 17.5).
+ *
+ * Every test below that exercises a heuristic — positive *or* negative, since "does not synthesize
+ * when `toolChoice` is `none`" is only meaningful while synthesis is possible at all — builds its
+ * provider here. Not one assertion in those tests changed for the flag: flag-on is byte-for-byte
+ * the behavior they were written against, so this fixture is the whole of the parity claim
+ * Requirement 28.1 asks for. `providerWithClient()` above keeps the default (off), which is what
+ * the native-mode tests in `web-search.property.test.ts` assert against.
+ */
+function heuristicProviderWithClient(client: FakeKiroClient) {
+  return new Kiro_Upstream_Provider({ auth: auth(), client: client as Kiro_Client, webSearchHeuristics: true })
 }
 
 describe("Kiro upstream provider", () => {
@@ -64,9 +91,14 @@ describe("Kiro upstream provider", () => {
     expect(payload.conversationState.currentMessage.userInputMessage.content).not.toContain("<thinking_mode>")
   })
 
-  test("rejects effort levels unsupported by the selected model before generation", async () => {
+  // Task 22.1 turned both of the two cases below from a 400 into a declared degradation, so the
+  // 400 they assert is now the *strict* outcome. They are kept as the strict pair rather than
+  // deleted: the messages they check are the ones a rejection still carries, and asserting them
+  // here keeps the escalation observable from the provider's own test file. The non-strict halves
+  // live in `./effort-branch.test.ts`.
+  test("rejects effort levels unsupported by the selected model before generation, under NATIVE_STRICT", async () => {
     let generateCalls = 0
-    const provider = providerWithClient({
+    const provider = strictProviderWithClient({
       generateAssistantResponse: () => {
         generateCalls += 1
         return Promise.resolve(new Response('{"content":"ok"}'))
@@ -90,9 +122,9 @@ describe("Kiro upstream provider", () => {
     expect(generateCalls).toBe(0)
   })
 
-  test("rejects explicit effort for models without a configurable effort schema", async () => {
+  test("rejects explicit effort for models without a configurable effort schema, under NATIVE_STRICT", async () => {
     let generateCalls = 0
-    const provider = providerWithClient({
+    const provider = strictProviderWithClient({
       generateAssistantResponse: () => {
         generateCalls += 1
         return Promise.resolve(new Response('{"content":"ok"}'))
@@ -290,7 +322,7 @@ describe("Kiro upstream provider", () => {
   test("preflights explicit URL web_search as server tool blocks and prompt context", async () => {
     let payload: any
     let observedQuery = ""
-    const result = await providerWithClient({
+    const result = await heuristicProviderWithClient({
       generateAssistantResponse: (body) => {
         payload = body
         return Promise.resolve(new Response('{"content":"done"}'))
@@ -334,7 +366,7 @@ describe("Kiro upstream provider", () => {
     let generateCalls = 0
     let observedToolUseId = ""
     let resolveSearch!: (value: Awaited<ReturnType<Kiro_Client["callMcpWebSearch"]>>) => void
-    const result = await providerWithClient({
+    const result = await heuristicProviderWithClient({
       generateAssistantResponse: () => {
         generateCalls += 1
         return Promise.resolve(new Response('{"content":"done"}'))
@@ -394,7 +426,7 @@ describe("Kiro upstream provider", () => {
     process.env.KIRO_FIRST_TOKEN_MAX_RETRIES = "1"
     let generateCalls = 0
     try {
-      const result = await providerWithClient({
+      const result = await heuristicProviderWithClient({
         generateAssistantResponse: () => {
           generateCalls += 1
           return Promise.resolve(new Response(new ReadableStream<Uint8Array>()))
@@ -436,7 +468,7 @@ describe("Kiro upstream provider", () => {
   test("does not server-preflight web_search after Claude Code returns a tool result", async () => {
     let generateCalls = 0
     let mcpCalls = 0
-    const result = await providerWithClient({
+    const result = await heuristicProviderWithClient({
       generateAssistantResponse: () => {
         generateCalls += 1
         return Promise.resolve(new Response('{"content":"done"}'))
@@ -465,7 +497,7 @@ describe("Kiro upstream provider", () => {
   test("does not server-preflight web_search for hidden-only helper queries", async () => {
     let generateCalls = 0
     let mcpCalls = 0
-    const result = await providerWithClient({
+    const result = await heuristicProviderWithClient({
       generateAssistantResponse: () => {
         generateCalls += 1
         return Promise.resolve(new Response('{"content":"done"}'))
@@ -493,7 +525,7 @@ describe("Kiro upstream provider", () => {
   test("returns Claude Code client WebSearch tool calls when a client web tool is available", async () => {
     let generateCalls = 0
     let mcpCalls = 0
-    const result = await providerWithClient({
+    const result = await heuristicProviderWithClient({
       generateAssistantResponse: () => {
         generateCalls += 1
         return Promise.resolve(new Response('{"content":"done"}'))
@@ -529,7 +561,7 @@ describe("Kiro upstream provider", () => {
   test("honors toolChoice none for Claude Code client web tool shortcuts", async () => {
     let generateCalls = 0
     let mcpCalls = 0
-    const result = await providerWithClient({
+    const result = await heuristicProviderWithClient({
       generateAssistantResponse: () => {
         generateCalls += 1
         return Promise.resolve(new Response('{"content":"done"}'))
@@ -561,7 +593,7 @@ describe("Kiro upstream provider", () => {
 
   test("prefers an explicit Claude Code WebFetch tool choice over WebSearch metadata", async () => {
     let generateCalls = 0
-    const result = await providerWithClient({
+    const result = await heuristicProviderWithClient({
       generateAssistantResponse: () => {
         generateCalls += 1
         return Promise.resolve(new Response('{"content":"done"}'))
@@ -599,7 +631,7 @@ describe("Kiro upstream provider", () => {
 
   test("does not emit invalid WebFetch arguments for non-URL web searches", async () => {
     let generateCalls = 0
-    const result = await providerWithClient({
+    const result = await heuristicProviderWithClient({
       generateAssistantResponse: () => {
         generateCalls += 1
         return Promise.resolve(new Response('{"content":"done"}'))
@@ -625,7 +657,7 @@ describe("Kiro upstream provider", () => {
 
   test("falls back to WebSearch instead of WebFetch for non-URL client web searches", async () => {
     let generateCalls = 0
-    const result = await providerWithClient({
+    const result = await heuristicProviderWithClient({
       generateAssistantResponse: () => {
         generateCalls += 1
         return Promise.resolve(new Response('{"content":"done"}'))
@@ -658,7 +690,7 @@ describe("Kiro upstream provider", () => {
   test("ignores hidden Claude Code context when deciding client WebSearch tool calls", async () => {
     let generateCalls = 0
     let mcpCalls = 0
-    const result = await providerWithClient({
+    const result = await heuristicProviderWithClient({
       generateAssistantResponse: () => {
         generateCalls += 1
         return Promise.resolve(new Response('{"content":"done"}'))
@@ -695,7 +727,7 @@ describe("Kiro upstream provider", () => {
   })
 
   test("uses visible user text instead of hidden context for client WebSearch queries", async () => {
-    const result = await providerWithClient({
+    const result = await heuristicProviderWithClient({
       generateAssistantResponse: () => Promise.resolve(new Response('{"content":"done"}')),
       callMcpWebSearch: () => Promise.resolve({ toolUseId: "srvtoolu_search", results: { results: [] }, summary: "" }),
       listAvailableModels: () => Promise.resolve([]),
@@ -727,7 +759,7 @@ describe("Kiro upstream provider", () => {
 
   test("returns filesystem allowed-directories tool call for explicit access questions", async () => {
     let generateCalls = 0
-    const result = await providerWithClient({
+    const result = await heuristicProviderWithClient({
       generateAssistantResponse: () => {
         generateCalls += 1
         return Promise.resolve(new Response('{"content":"done"}'))
@@ -762,7 +794,7 @@ describe("Kiro upstream provider", () => {
 
   test("does not repeat filesystem allowed-directories tool call after tool output", async () => {
     let generateCalls = 0
-    const result = await providerWithClient({
+    const result = await heuristicProviderWithClient({
       generateAssistantResponse: () => {
         generateCalls += 1
         return Promise.resolve(new Response('{"content":"done"}'))
@@ -813,6 +845,11 @@ describe("Kiro upstream provider", () => {
     expect(payload.conversationState.currentMessage.userInputMessage.userInputMessageContext?.tools).toBeUndefined()
   })
 
+  /**
+   * Unchanged by task 35.2, and that is the point: the emulation path is gated on
+   * `NATIVE_MCP_EMULATION`, `providerWithClient()` leaves it off, and off means the message a client
+   * receives is byte-for-byte the one `validateUnsupportedServerTools()` returned (Requirement 22.5).
+   */
   test("returns 400 for unsupported server tools before calling Kiro", async () => {
     let calls = 0
     const result = await providerWithClient({
@@ -829,21 +866,76 @@ describe("Kiro upstream provider", () => {
     expect(calls).toBe(0)
   })
 
-  test("returns distinct unsupported web_fetch guidance before calling Kiro", async () => {
+  /**
+   * The call-site half of Property 34 (task 36.1, Requirement 23.1): the approval split records its
+   * decision on the request's collector, and this is the point at which that record becomes an HTTP
+   * 400 the client can read rather than a silently withheld toolset.
+   *
+   * Asserted here rather than in `approval.property.test.ts` because the module-level property owns
+   * the classification and the collector contents, and deliberately defers *delivery* to this side.
+   * The two facts that make it delivery rather than restatement: the error carries the alternative
+   * the requirement names (`require_approval: "never"`), and the upstream was never called — a
+   * toolset needing an approval this gateway cannot obtain reaches no network at all.
+   */
+  test("turns a require_approval toolset into a 400 the client reads, without calling Kiro", async () => {
     let calls = 0
+    const provider = new Kiro_Upstream_Provider({
+      auth: auth(),
+      mcpEmulation: true,
+      client: {
+        generateAssistantResponse: () => {
+          calls += 1
+          return Promise.resolve(new Response('{"content":"ok"}'))
+        },
+        listAvailableModels: () => Promise.resolve([]),
+        checkHealth: () => Promise.resolve({ ok: true }),
+      } as unknown as Kiro_Client,
+    })
+
+    const result = await provider.proxy(request({
+      tools: [{ type: "mcp", server_label: "shop", server_url: "https://shop.example.test/mcp", require_approval: "always" }],
+    }))
+
+    expect(result).toMatchObject({ type: "canonical_error", status: 400 })
+    expect(result.type === "canonical_error" ? result.body : "").toContain("require_approval")
+    expect(result.type === "canonical_error" ? result.body : "").toContain('"never"')
+    expect(calls).toBe(0)
+  })
+
+  /**
+   * **Expectation moved by task 28.2.** This test asserted a 400 carrying "server-side web_fetch" and
+   * "web_search URL queries", from the `web_fetch` branch of `validateUnsupportedServerTools()`. That
+   * branch is gone: `web_fetch` is emulated now (Requirements 18.1, 18.2), so a request carrying it
+   * must **complete**, and keeping the refusal would be the regression rather than the guarantee.
+   *
+   * What replaces it, and why the replacement is not merely "no 400":
+   *
+   *  - a `web_fetch` declaration reaches the model, so there is something for the model to call —
+   *    that is the whole of "wire the path", asserted on the payload actually sent upstream;
+   *  - the type is still *reported* rather than dropped in silence, which is the one property the old
+   *    400 and the new notice share: `web_fetch` is not one of the ten hosted tool types this upstream
+   *    declares, so it takes the documented undeclared-type fallback (Requirement 19.4);
+   *  - and the upstream is called exactly once, which is what changed.
+   */
+  test("declares web_fetch to the model and reports it instead of refusing", async () => {
+    let calls = 0
+    let payload: any
     const result = await providerWithClient({
-      generateAssistantResponse: () => {
+      generateAssistantResponse: (body) => {
         calls += 1
-        return Promise.resolve(new Response("{}"))
+        payload = body
+        return Promise.resolve(new Response('{"content":"ok"}'))
       },
       listAvailableModels: () => Promise.resolve([]),
       checkHealth: () => Promise.resolve({ ok: true }),
     }).proxy(request({ tools: [{ type: "web_fetch" }] }))
 
-    expect(result).toMatchObject({ type: "canonical_error", status: 400 })
-    expect(result.type === "canonical_error" ? result.body : "").toContain("server-side web_fetch")
-    expect(result.type === "canonical_error" ? result.body : "").toContain("web_search URL queries")
-    expect(calls).toBe(0)
+    expect(result.type).toBe("canonical_response")
+    expect(calls).toBe(1)
+    const wireTools = payload.conversationState.currentMessage.userInputMessage.userInputMessageContext?.tools ?? []
+    expect(wireTools.map((tool: any) => tool.toolSpecification?.name)).toContain("web_fetch")
+    if (result.type !== "canonical_response") return
+    expect(result.featureNotices?.some((notice) => notice.detail.includes("web_fetch"))).toBe(true)
   })
 
   test("maps Kiro HTTP errors to actionable credential-safe public bodies", async () => {
@@ -915,7 +1007,7 @@ describe("Kiro upstream provider", () => {
   test("signals context limit before streaming Claude Code web-search preflight", async () => {
     let generateCalls = 0
     let mcpCalls = 0
-    const result = await providerWithClient({
+    const result = await heuristicProviderWithClient({
       generateAssistantResponse: () => {
         generateCalls += 1
         return Promise.resolve(new Response('{"content":"ok"}'))
@@ -954,7 +1046,7 @@ describe("Kiro upstream provider", () => {
     let mcpCalls = 0
 
     try {
-      const result = await providerWithClient({
+      const result = await heuristicProviderWithClient({
         generateAssistantResponse: () => {
           generateCalls += 1
           return Promise.resolve(new Response('{"content":"ok"}'))
@@ -998,6 +1090,17 @@ describe("Kiro upstream provider", () => {
       status: 400,
       headers: new Headers(),
       body: "Named tool_choice 'missing' was not found in provided tools",
+      // The request asked to force a tool call, so `toolChoiceForced` resolved to a degrade before
+      // the named-tool lookup failed. Task 14b: the error reports every other outcome the request
+      // decided. Kept as an exact shape rather than `toMatchObject` so the absence of anything else
+      // — a header, a second notice — is still checked.
+      featureNotices: [
+        {
+          feature: "toolChoiceForced",
+          policy: "degrade",
+          detail: "this endpoint cannot require a tool call, so the available tools were narrowed to 'missing' to steer the model toward it — the model may still answer with text instead",
+        },
+      ],
     })
   })
 
@@ -1028,7 +1131,7 @@ describe("Kiro upstream provider", () => {
 
   test("maps Kiro MCP web_search parse errors to 502 during preflight", async () => {
     let generateCalls = 0
-    const result = await providerWithClient({
+    const result = await heuristicProviderWithClient({
       generateAssistantResponse: () => {
         generateCalls += 1
         return Promise.resolve(new Response('{"content":"done"}'))

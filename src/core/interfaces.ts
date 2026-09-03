@@ -15,6 +15,15 @@ export type UpstreamResult =
 
 export type UpstreamProviderKind = "codex" | "kiro" | "copilot"
 
+/**
+ * Contract for the client<->upstream passthrough policy.
+ *
+ * Takes only the two per-request values; no headers, so client identity
+ * (`originator`, `user-agent`) is structurally log-only. The policy itself
+ * lives in the composition root, not in core.
+ */
+export type PassthroughDecider = (routePath: string, stream: boolean) => boolean
+
 export interface ProviderModelDescriptor {
   id: string
   displayName?: string

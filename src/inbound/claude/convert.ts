@@ -3,6 +3,7 @@ import { countTokens, encodeChat } from "gpt-tokenizer"
 import type { Canonical_InputMessage, Canonical_Request } from "../../core/canonical"
 import type { ClaudeMessagesRequest, JsonObject } from "../types"
 
+import { claudeSamplingMembers } from "./sampling"
 import { claudeToolChoiceToResponsesToolChoice, resolveClaudeTools } from "./server-tools"
 
 export function claudeToCanonicalRequest(body: ClaudeMessagesRequest): Canonical_Request {
@@ -12,6 +13,10 @@ export function claudeToCanonicalRequest(body: ClaudeMessagesRequest): Canonical
   return {
     model: body.model,
     ...(body.output_config?.effort && { reasoningEffort: body.output_config.effort }),
+    // `sampling` / `thinking` / `cacheHint` / `parallelToolCalls`, owned by `./sampling.ts`. Every key
+    // it can produce is absent from the rest of this literal, so the spread neither overwrites a
+    // member decided here nor is overwritten by one, and its position is free.
+    ...claudeSamplingMembers(body),
     instructions: [
       claudeSystemToText(body.system) || "You are a helpful assistant.",
       resolvedTools.hasWebTool

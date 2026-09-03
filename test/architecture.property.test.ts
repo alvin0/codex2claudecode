@@ -27,13 +27,20 @@ import { path, readFile } from "./helpers"
  * How later tasks extend this file — every extension is a table row, not a new
  * block of bespoke logic:
  *
- * - Task 24.3 ("core gained no model-family names", Requirement 16.12) adds a
- *   row to {@link FORBIDDEN_TOKEN_SCOPES} naming the model-family tokens with
- *   `files: ["src/core/**\/*.ts"]`; `resolveScopeFiles` already expands globs,
- *   so no new test body is needed.
- * - Task 31.6 (`src/core/mcp/`, Requirement 20.7) needs **no edit**: the
- *   `core-mcp-no-provider` row of {@link BOUNDARY_RULES} is already present and
- *   applies the moment that directory exists.
+ * - Task 24.3 ("core gained no model-family names", Requirement 16.12) is
+ *   {@link CORE_MODEL_FAMILY_BASELINE} plus its own clause below. A
+ *   {@link FORBIDDEN_TOKEN_SCOPES} row was the plan and does not fit: that table
+ *   asserts *zero* occurrences, and `src/core/reasoning.ts` legitimately contains
+ *   one — the pre-existing `gpt-5` pattern, which Requirement 16.11 pins in place.
+ *   16.12 is a claim about **gaining** names, so it is a pinned-count comparison
+ *   rather than an absence check. It still reuses `countOccurrences` and
+ *   `resolveScopeFiles`, and the count may only shrink.
+ * - Task 31.6 (`src/core/mcp/`, Requirement 20.7): the import-graph claim was
+ *   already covered — the `core-mcp-no-provider` row of {@link BOUNDARY_RULES}
+ *   is evaluated by clause 1 and by the transitive clause like every other row,
+ *   and `src/core/mcp/` now exists. What 31.6 added is the **non-vacuity guard**
+ *   below: a row whose `fromPrefixes` match no file on disk passes for free, so
+ *   every row must govern at least one real file.
  * - A new layer boundary is a new {@link BOUNDARY_RULES} row.
  * - A pre-existing violation that gets fixed is a deletion from
  *   {@link PRE_EXISTING_LAYER_EDGES}; the rot guard below makes any stale entry
@@ -63,8 +70,11 @@ const BOUNDARY_RULES: readonly BoundaryRule[] = [
     forbiddenPrefixes: ["src/inbound/", "src/upstream/"],
   },
   {
-    // Subsumed by `core-no-provider` while `src/core/mcp/` does not exist yet.
-    // Stated explicitly so task 31.6 (Requirement 20.7) adds no test code.
+    // Implied by `core-no-provider`, stated separately because Requirement 20.7
+    // is a claim about `src/core/mcp/` specifically: the provider-agnostic MCP
+    // client imports zero modules from `src/upstream/` and zero from
+    // `src/inbound/`. Naming it keeps the failure message point at 20.7, and the
+    // non-vacuity guard below keeps the row from passing on an empty directory.
     id: "core-mcp-no-provider",
     requirement: "20.7",
     fromPrefixes: ["src/core/mcp/"],
@@ -131,6 +141,73 @@ const FORBIDDEN_TOKEN_SCOPES: readonly ForbiddenTokenScope[] = [
     allowedCaseVariantLiterals: ["Codex2ClaudeCode", "Claude messages:", "Claude tokens:"],
   },
 ]
+
+/**
+ * Model-family names that must not spread into `src/core/` (Requirement 16.12).
+ *
+ * These are *model families*, not the four provider identifiers of
+ * {@link PROVIDER_IDENTIFIERS}: `src/core/` legitimately names providers in a
+ * dozen places (`UpstreamProviderKind`, `ProviderMode`, the debug bundle), and
+ * Requirements 1.5 and 27.5 scope the provider-name ban to two specific files.
+ * What 16.12 forbids is core learning that a *model* is called `claude-sonnet-5`
+ * or `gemini-2.5` — because a core module that recognizes a model name has taken
+ * over work belonging to the upstream layer that owns the model enum
+ * (Requirement 16.10).
+ *
+ * Hyphens are deliberate where the bare word would be ambiguous: `claude-` is a
+ * model prefix, while `claude` alone matches `src/inbound/claude/` in a comment.
+ */
+const CORE_MODEL_FAMILY_TOKENS: readonly string[] = [
+  "gpt-3",
+  "gpt-4",
+  "gpt-5",
+  "o1-",
+  "o3-",
+  "o4-",
+  "claude-",
+  "sonnet",
+  "haiku",
+  "opus",
+  "gemini",
+  "llama",
+  "qwen",
+  "deepseek",
+  "mistral",
+  "grok",
+  "nova-",
+  "titan",
+  "amazon-q",
+  "command-r",
+  "kimi",
+  "glm-",
+  "minimax",
+]
+
+/** Every `src/core/` file, for the model-family count. */
+const CORE_SCOPE: readonly string[] = ["src/core/**/*.ts"]
+
+/**
+ * The pinned model-family occurrence count across all of `src/core/`, per token,
+ * counted case-insensitively. Absent means zero.
+ *
+ * One entry, and it is the whole of core's model knowledge: the `gpt-5` alternative
+ * inside `REASONING_MODEL_PATTERN` in `src/core/reasoning.ts`. Requirement 16.11
+ * keeps that behavior unchanged, so the count is 1 rather than 0; Requirement 16.12
+ * is that it never becomes 2. A new family is handled in
+ * `src/upstream/kiro/effort.ts`, where the level enum lives.
+ *
+ * The baseline may only **shrink**: the clause below fails on a count above the
+ * pin, and separately on a pinned token that no longer occurs, so a deleted
+ * occurrence forces a deliberate edit here instead of quietly widening the budget.
+ */
+const CORE_MODEL_FAMILY_BASELINE: Readonly<Record<string, number>> = {
+  "gpt-5": 1,
+}
+
+/** Where each pinned occurrence is allowed to live, so it cannot migrate silently. */
+const CORE_MODEL_FAMILY_BASELINE_FILES: Readonly<Record<string, readonly string[]>> = {
+  "gpt-5": ["src/core/reasoning.ts"],
+}
 
 interface KnownLayerEdge {
   /** The {@link BoundaryRule} id this edge violates. */
@@ -480,6 +557,62 @@ describe("Architecture boundary invariants", () => {
   })
 
   /**
+   * Clause 1, non-vacuity — every {@link BOUNDARY_RULES} row governs at least one
+   * real file, and every row's forbidden side is a directory that exists.
+   *
+   * Clause 1 above quantifies over the edges that exist, so a row whose
+   * `fromPrefixes` match nothing passes for free. That is exactly what
+   * `core-mcp-no-provider` did before `src/core/mcp/` was created: the row read
+   * as an enforced invariant while proving nothing. This clause makes the
+   * distinction observable — if `src/core/mcp/` were deleted or renamed, the row
+   * would fail here instead of going quietly green.
+   *
+   * `src/core/mcp/` is additionally required to hold the client module by name,
+   * since a directory containing only a type file would satisfy a bare
+   * "non-empty" check while the import-graph claim of Requirement 20.7 went
+   * untested.
+   *
+   * **Validates: Requirement 20.7**
+   */
+  test("Feature: native-api-mode, Property 2: every boundary rule governs at least one real file", async () => {
+    const { files } = await loadImportGraph()
+
+    assertForEvery(BOUNDARY_RULES, (rule) => {
+      const governed = files.filter((file) => hasPrefix(file, rule.fromPrefixes))
+      if (governed.length === 0) {
+        throw new Error(
+          `Boundary rule "${rule.id}" (Requirement ${rule.requirement}) governs no file: ` +
+            `none of ${rule.fromPrefixes.join(", ")} exists.\n` +
+            `  A rule over an empty prefix passes vacuously. Fix the prefix or delete the row.`,
+        )
+      }
+      for (const forbidden of rule.forbiddenPrefixes) {
+        if (!files.some((file) => file.startsWith(forbidden))) {
+          throw new Error(
+            `Boundary rule "${rule.id}" forbids "${forbidden}", which matches no file — ` +
+              `nothing could violate it.`,
+          )
+        }
+      }
+    })
+
+    // Requirement 20.7's subject, spelled out: the core MCP directory and the
+    // module whose import graph the claim is about.
+    const mcpFiles = files.filter((file) => file.startsWith("src/core/mcp/"))
+    expect(mcpFiles).toContain("src/core/mcp/client.ts")
+    expect(mcpFiles.length).toBeGreaterThan(1)
+
+    // And it really does import nothing from either provider layer — asserted
+    // directly here, not only as an absence in the aggregate edge list.
+    const { edges } = await loadImportGraph()
+    const mcpOut = edges.filter((edge) => edge.from.startsWith("src/core/mcp/"))
+    expect(mcpOut.length).toBeGreaterThan(0)
+    expect(
+      mcpOut.filter((edge) => edge.to.startsWith("src/upstream/") || edge.to.startsWith("src/inbound/")).map(edgeKey),
+    ).toEqual([])
+  })
+
+  /**
    * Rot guard — every allowlist entry still describes a real edge. Once a
    * pre-existing violation is fixed, its entry must be deleted, so the
    * allowlist cannot outlive the debt it documents.
@@ -686,6 +819,100 @@ describe("Architecture boundary invariants", () => {
         }
       }
     })
+  })
+
+  /**
+   * Clause 3b — `src/core/` has gained zero additional model-family names.
+   *
+   * The grep-based check Requirement 16.12 asks for, phrased as a comparison
+   * against {@link CORE_MODEL_FAMILY_BASELINE} rather than as an absence, because
+   * core's one pre-existing `gpt-5` pattern must stay (Requirement 16.11) while
+   * nothing may join it. Three assertions, and each fails for a different reason:
+   *
+   *  - a count **above** the pin — a model family leaked into core;
+   *  - a pinned token in an **unexpected file** — the same count, relocated, which
+   *    a total-only check would miss;
+   *  - a pinned token that no longer occurs — a stale pin, so the budget can only
+   *    shrink.
+   *
+   * Counting is case-insensitive, which is stricter than the requirement's grep and
+   * catches a `GPT_5_MODELS` constant the lowercase pass would not.
+   *
+   * **Validates: Requirement 16.12**
+   */
+  test("Feature: native-api-mode, Property 2: src/core/ gained no additional model-family name", async () => {
+    const coreFiles = await resolveScopeFiles({
+      id: "core-model-family-free",
+      requirement: "16.12",
+      files: CORE_SCOPE,
+      tokens: CORE_MODEL_FAMILY_TOKENS,
+      allowedCaseVariantLiterals: [],
+    })
+    // Non-vacuity: a glob matching nothing would pass every assertion below.
+    expect(coreFiles.length).toBeGreaterThan(10)
+    expect(coreFiles).toContain("src/core/reasoning.ts")
+    expect(CORE_MODEL_FAMILY_TOKENS.length).toBeGreaterThan(0)
+
+    const contents = new Map<string, string>()
+    for (const file of coreFiles) contents.set(file, await readFile(path.join(process.cwd(), file), "utf8"))
+
+    const cases = CORE_MODEL_FAMILY_TOKENS.flatMap((token) => coreFiles.map((file) => ({ token, file })))
+
+    // Per-file: only the pinned locations may contain a pinned token, and nothing
+    // else may contain any token at all.
+    assertForEvery(cases, ({ token, file }) => {
+      const count = countOccurrences(contents.get(file)!, token, true)
+      if (count === 0) return
+      const permitted = CORE_MODEL_FAMILY_BASELINE_FILES[token] ?? []
+      if (!permitted.includes(file)) {
+        throw new Error(
+          `${file} contains ${count} occurrence(s) of the model-family name "${token}" ` +
+            `(Requirement 16.12).\n` +
+            `  src/core/ must not learn model names. Resolve the model in the upstream layer that ` +
+            `owns the model enum (src/upstream/<provider>/), e.g. parseModelEffortSuffix() in ` +
+            `src/upstream/kiro/effort.ts.`,
+        )
+      }
+    })
+
+    // Totals: at or below the pin, for every token.
+    assertForEvery(CORE_MODEL_FAMILY_TOKENS, (token) => {
+      const total = coreFiles.reduce((sum, file) => sum + countOccurrences(contents.get(file)!, token, true), 0)
+      const pinned = CORE_MODEL_FAMILY_BASELINE[token] ?? 0
+      if (total > pinned) {
+        throw new Error(
+          `src/core/ now contains ${total} occurrence(s) of "${token}", up from the pinned ${pinned} ` +
+            `(Requirement 16.12).\n` +
+            `  Do not raise the pin. Move the model-specific knowledge upstream instead.`,
+        )
+      }
+    })
+
+    // Rot guard: a pin that describes nothing must be deleted, not kept.
+    assertForEvery(Object.keys(CORE_MODEL_FAMILY_BASELINE), (token) => {
+      expect(CORE_MODEL_FAMILY_TOKENS).toContain(token)
+      const total = coreFiles.reduce((sum, file) => sum + countOccurrences(contents.get(file)!, token, true), 0)
+      if (total !== CORE_MODEL_FAMILY_BASELINE[token]) {
+        throw new Error(
+          `Stale model-family pin: "${token}" is pinned at ${CORE_MODEL_FAMILY_BASELINE[token]} but ` +
+            `occurs ${total} time(s) in src/core/.\n` +
+            `  Lower or delete the entry in CORE_MODEL_FAMILY_BASELINE — it may only shrink.`,
+        )
+      }
+      for (const file of CORE_MODEL_FAMILY_BASELINE_FILES[token] ?? []) {
+        expect(coreFiles).toContain(file)
+      }
+    })
+
+    // Detector correctness: each token really is findable, so a green result above
+    // means absence rather than a broken search.
+    fc.assert(
+      fc.property(fc.constantFrom(...CORE_MODEL_FAMILY_TOKENS), (token) => {
+        expect(countOccurrences(`prefix ${token.toUpperCase()} suffix`, token, true)).toBe(1)
+        expect(countOccurrences("nothing to find here", token, true)).toBe(0)
+      }),
+      { numRuns: 100 },
+    )
   })
 
   /**

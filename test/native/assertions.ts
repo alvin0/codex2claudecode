@@ -1,6 +1,7 @@
 // Role: assertion constructors for the case registry. Every one is structural — status
 // code, block presence, notice presence, usage counters, upstream payload shape, byte
 // equality. Nothing here reads model prose (Requirement 24.8).
+import { passthroughByteDiff } from "./byte-diff"
 import {
   blockTypes,
   errorMessage,
@@ -188,15 +189,48 @@ export function expectUpstreamRequestCount(expected: number) {
   })
 }
 
-/** Byte identity against a direct upstream call (Requirement 29.3). */
-export function expectBytesIdenticalToDirectCall() {
-  return assertion("bytes-identical-to-direct-call", "client bytes are identical to a direct upstream call", (observation) => {
-    if (observation.directUpstreamBody === undefined) return fail("no direct upstream call was recorded")
-    if (observation.clientBody === observation.directUpstreamBody) return pass
-    return fail(
-      `client bytes differ from the direct call (client ${observation.clientBody.length} bytes, direct ${observation.directUpstreamBody.length} bytes)`,
-    )
-  })
+/**
+ * The exact half of the passthrough claim (Requirement 29.3): the bytes handed to the client
+ * are the bytes the gateway itself captured coming back from upstream. One body, two
+ * observation points, so this comparison is raw and needs no normalization — any rendering,
+ * re-chunking, or re-framing on the way out fails it.
+ */
+export function expectClientBytesEqualCapturedUpstreamBytes() {
+  return assertion(
+    "client-bytes-equal-captured-upstream-bytes",
+    "client bytes equal the upstream bytes the gateway captured for this request",
+    (observation) => {
+      const captured = observation.requestLog?.proxy?.responseBody ?? observation.upstreamResponseBody
+      if (captured === undefined) return fail("no upstream response bytes were captured for this request")
+      if (captured === observation.clientBody) return pass
+      return fail(
+        `client bytes differ from the captured upstream bytes (client ${observation.clientBody.length} bytes, captured ${captured.length} bytes)`,
+      )
+    },
+  )
+}
+
+/**
+ * The comparative half (Requirement 29.3): the client bytes against a second, independent
+ * direct upstream call, with only the per-call volatile values normalized. Run_Record 19
+ * measured that a raw string comparison here is unsatisfiable — two live generations never
+ * share their ids, `created_at`, `prompt_cache_key`, `safety_identifier`, `obfuscation`, or
+ * `encrypted_content` — so this compares the full normalized text plus the event-name/type
+ * sequence instead. Run_Record 20 then measured that normalizing ids *by key name* misses the
+ * same id spelled `item_id`, so ids are normalized by shape and labelled by first occurrence,
+ * which keeps a re-minted id detectable. See `byte-diff.ts` for the enumerated field list, the
+ * id shape, and what the comparison does and does not prove.
+ */
+export function expectBytesMatchDirectCallModuloVolatileFields() {
+  return assertion(
+    "bytes-match-direct-call-modulo-volatile-fields",
+    "client bytes match a direct upstream call frame for frame, with only per-call volatile fields normalized",
+    (observation) => {
+      if (observation.directUpstreamBody === undefined) return fail("no direct upstream call was recorded")
+      const diff = passthroughByteDiff(observation.clientBody, observation.directUpstreamBody)
+      return diff.ok ? pass : fail(diff.detail)
+    },
+  )
 }
 
 function observedFeatures(observation: NativeLiveObservation) {

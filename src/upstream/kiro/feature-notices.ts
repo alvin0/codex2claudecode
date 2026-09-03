@@ -1,4 +1,4 @@
-import type { Canonical_Event, Canonical_FeatureNotice, Canonical_Response, Canonical_StreamResponse } from "../../core/canonical"
+import type { Canonical_ErrorResponse, Canonical_Event, Canonical_FeatureNotice, Canonical_Response, Canonical_StreamResponse } from "../../core/canonical"
 import type { UpstreamResult } from "../../core/interfaces"
 
 /**
@@ -22,8 +22,14 @@ import type { UpstreamResult } from "../../core/interfaces"
  *   which is where the design places decisions made while building the payload — they are all
  *   known before the upstream request is even sent.
  *
- * Neither path is a superset of the other, so both exist. Emitting only the events would leave
- * every non-streaming request silent; writing only the field would leave a stream silent.
+ * - **Rejected** requests land on `Canonical_ErrorResponse.featureNotices`. Resolution keeps
+ *   recording past a rejection, so an error result is the third place a decided notice has to be
+ *   readable: which error ended the request does not change what the request decided about the
+ *   other fields it carried.
+ *
+ * No path is a superset of another, so all three exist. Emitting only the events would leave
+ * every non-streaming request silent; writing only the field would leave a stream silent; and
+ * skipping the error result would drop every notice a 400 request decided.
  */
 
 /**
@@ -34,15 +40,17 @@ import type { UpstreamResult } from "../../core/interfaces"
  * rather than an empty array, which is a meaningful distinction the accumulators preserve
  * (Requirement 8.3).
  *
- * `canonical_error` and `canonical_passthrough` are returned untouched. An error already
- * carries its own message down the rejection path, and a passthrough is bytes the client must
- * receive unmodified — adding anything to either would break the guarantee that makes it that
- * kind of result.
+ * `canonical_error` carries them too, on its own optional member: the request's one failing
+ * field does not erase what it decided about the rest, and the error's `status`, `headers` and
+ * `body` are left exactly as produced. `canonical_passthrough` is the one shape returned
+ * untouched — those are bytes the client must receive unmodified, and adding anything to them
+ * would break the guarantee that makes it that kind of result (Requirement 15).
  */
 export function withKiroFeatureNotices(result: UpstreamResult, notices: readonly Canonical_FeatureNotice[]): UpstreamResult {
   if (!notices.length) return result
   if (result.type === "canonical_response") return responseWithNotices(result, notices)
   if (result.type === "canonical_stream") return streamWithNotices(result, notices)
+  if (result.type === "canonical_error") return errorWithNotices(result, notices)
   return result
 }
 
@@ -56,6 +64,18 @@ function responseWithNotices(response: Canonical_Response, notices: readonly Can
   return {
     ...response,
     featureNotices: [...notices.map(copyNotice), ...(response.featureNotices ?? [])],
+  }
+}
+
+/**
+ * Same placement rule as {@link responseWithNotices}: decided notices ahead of anything already
+ * on the result, existing entries kept. A copy rather than a mutation, so the error object a
+ * caller built stays what it was.
+ */
+function errorWithNotices(error: Canonical_ErrorResponse, notices: readonly Canonical_FeatureNotice[]): Canonical_ErrorResponse {
+  return {
+    ...error,
+    featureNotices: [...notices.map(copyNotice), ...(error.featureNotices ?? [])],
   }
 }
 

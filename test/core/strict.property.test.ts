@@ -932,6 +932,17 @@ describe("the Kiro request carrying temperature, as Requirement 11.5 words it", 
       // Matrix order puts `sampling` first, so the 400 a client sees is stable across the flag.
       expect(result.body).toContain("sampling")
       expect(calls).toEqual([])
+      // Task 14b — the rejection now reports what the request decided about its *other* fields, so
+      // the flag's effect on the degrade is observable to a client on the error itself. Without the
+      // flag `toolChoiceForced` stays a degrade and rides along on the notice list; with it, the
+      // degrade escalated into a rejection of its own, so it carries no notice and is named in the
+      // message instead — task 14b.7, which is the only channel a rejection has (Requirement 8.6).
+      // Either way the client is told about both fields on one response, and either way the 400 is
+      // attributed to `sampling`, which resolves first.
+      if (strict) {
+        expect("featureNotices" in result).toBe(false)
+        expect(result.body).toContain("toolChoiceForced")
+      } else expect(result.featureNotices?.map((notice) => notice.feature)).toEqual(["toolChoiceForced"])
     }
   })
 })

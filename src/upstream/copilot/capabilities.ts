@@ -1,4 +1,4 @@
-import type { FeatureEvidence, ProviderCapabilities, ProviderFeature } from "../../core/provider-capabilities"
+import type { FeatureEvidence, FeaturePolicy, ProviderCapabilities, ProviderFeature } from "../../core/provider-capabilities"
 import { DEFAULT_RETRY_POLICY, DEFAULT_TIMEOUT_POLICY } from "../../core/provider-capabilities"
 
 /**
@@ -72,31 +72,26 @@ export const COPILOT_CAPABILITIES: ProviderCapabilities = {
   timeoutPolicy: DEFAULT_TIMEOUT_POLICY,
   logBodyDefault: true,
   features: {
-    // `native`, and — as on Codex — not what today's code shows, for a reason that lives
-    // outside this provider. `Canonical_Request` (`src/core/canonical.ts`) has no `sampling`
-    // member at all, so `buildCopilotResponsesBody()` emits neither `temperature` nor
-    // `top_p` nor `max_output_tokens`; sampling is dropped at the **inbound** boundary for
-    // every upstream, and this upstream never sees the field to decide anything about it.
+    // `native`, and now what the code shows: `Canonical_Request` carries a `sampling` member
+    // (Requirement 13), `copilotSamplingFields()` (`./sampling.ts`) maps it, and
+    // `buildCopilotResponsesBody()` spreads the result — so `temperature` and `top_p` reach
+    // the wire with the values the client sent, which is what Requirement 14.4 asks for.
     //
-    // `native` is what Requirement 14.4 asks for once canonical carries sampling (tasks 14
-    // and 15, via `./sampling.ts`), and it is the correct target either way: Responses
-    // accepts `temperature`, `top_p`, and `max_output_tokens` as first-class parameters.
-    //
-    // One warning for whoever writes `./sampling.ts`: Requirement 14.4 says
-    // "chat-completions fields", but this client posts to `/responses`. Emitting the
-    // chat-completions spelling — `max_tokens` rather than `max_output_tokens` — would be an
-    // unknown parameter on a Responses endpoint, which is a latent 400, not a harmless
-    // no-op. Map to the Responses names.
+    // The mapper emits the **Responses** spellings, deliberately: this client posts to
+    // `/responses`, and the chat-completions spelling Requirement 14.4's prose implies —
+    // `max_tokens` rather than `max_output_tokens` — would be an unknown parameter there,
+    // which is a latent 400 rather than a harmless no-op.
     //
     // Unmeasured, and it stays unmeasured until an account exists: nothing here has been
-    // sent to GitHub's endpoint.
+    // sent to GitHub's endpoint. Code-verified end to end, which is this file's standard.
     sampling: "native",
     // `native`, on the wire-format reasoning the file header establishes: `Copilot_Client.proxy()`
     // posts to `/responses` and `buildCopilotResponsesBody()` builds a Responses body, and the
     // Responses API takes `max_output_tokens` as a first-class parameter — so a requested
-    // output-length limit has a target here. Task 15.3's `./sampling.ts` is what emits it, and
-    // the header's warning applies to this field before any other: the chat-completions
-    // spelling `max_tokens` would be an unknown parameter on a Responses endpoint.
+    // output-length limit has a target here. `copilotSamplingFields()` (`./sampling.ts`) is what
+    // emits it, as `max_output_tokens` — the header's warning applies to this field before any
+    // other, since the chat-completions spelling `max_tokens` would be an unknown parameter on a
+    // Responses endpoint.
     //
     // This is the cell Kiro declares `degrade`, because spike §4 measured Kiro accepting the
     // limit with a 200 and then streaming past it — a Kiro measurement that says nothing about
@@ -187,15 +182,16 @@ export const COPILOT_CAPABILITIES: ProviderCapabilities = {
     // Gateway policy, which is a worse outcome than a declared `reject`. What would settle
     // it: one request carrying `{ type: "web_search" }`. Until then: unmeasured.
     webSearch: "native",
-    // Silent substitution owned by the inbound layer and inherited here.
-    // `claudeWebToolToResponsesTool()` (`src/inbound/claude/web.ts`) maps a client
-    // `web_fetch` tool to `{ type: "web_search" }`, because `web_fetch` is not a Responses
-    // hosted type — the ten that exist are listed under `hostedTools` below, and it is not
-    // among them. A fetch does still tend to happen, as the `open_page` action of a
-    // `web_search_call`, which the same module renders back as `web_fetch_tool_result`
-    // (`./web.ts`, `action.type === "open_page"`). The intent survives; the tool the client
-    // asked for does not. Changed semantics, so `degrade` — matching Codex, since the
-    // substitution happens before either upstream sees the request. Unmeasured.
+    // Substitution performed here, by `forwardCopilotHostedTools()` (`./hosted-tools.ts`): a
+    // canonical `web_fetch` tool is sent as `{ type: "web_search" }`, because `web_fetch` is
+    // not a Responses hosted type — the ten that exist are listed under `hostedTools` below,
+    // and it is not among them. A fetch does still tend to happen, as the `open_page` action
+    // of a `web_search_call`, which the inbound layer renders back as
+    // `web_fetch_tool_result`. The intent survives; the tool the client asked for does not.
+    // Changed semantics, so `degrade` — matching Codex, which now performs the same swap at
+    // its own boundary for the same reason. It used to happen inside
+    // `claudeWebToolToResponsesTool()` (`src/inbound/claude/web.ts`) with nothing reported;
+    // `resolveCopilotHostedTools()` reports it now (Requirements 10.1, 10.2). Unmeasured.
     webFetch: "degrade",
     // `mcp` is a Responses hosted tool type and `request.tools` is forwarded untouched, so a
     // client MCP toolset reaches the upstream intact and the upstream connects to the server
@@ -270,3 +266,17 @@ export const COPILOT_CAPABILITY_EVIDENCE: Record<ProviderFeature, FeatureEvidenc
   webFetch: "unmeasured",
   mcpToolset: "unmeasured",
 }
+
+/**
+ * The policy for a hosted tool type this upstream has **not** declared above.
+ *
+ * Same role and same reasoning as `CODEX_UNDECLARED_HOSTED_TOOL_POLICY`: a lookup miss in
+ * `resolveHostedToolPolicy()` is not a fifth outcome, and Requirement 19.4 fixes what it means —
+ * report the changed meaning and complete the request. Declared here because `capabilities.ts` is
+ * the one file in this directory allowed to spell a policy literal (design decision D3).
+ *
+ * Unmeasured like every cell above, and for the same reason: no connected account. It is
+ * duplicated rather than shared so this upstream can change its mind about an unknown tool type
+ * without moving any other upstream.
+ */
+export const COPILOT_UNDECLARED_HOSTED_TOOL_POLICY: FeaturePolicy = "degrade"

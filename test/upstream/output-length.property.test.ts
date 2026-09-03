@@ -46,8 +46,18 @@
 // **does not decide it and does not encode a decision either way**. Asserting either answer here
 // would encode one. So the Kiro clauses below run at the default `strict: false`; the general
 // escalation rule is already covered, for all 12 features, by Property 5 in
-// `test/core/strict.property.test.ts`. The Codex and Copilot clauses do vary `strict`, because
-// `native` never escalates and so nothing is being decided there.
+// `test/core/strict.property.test.ts`. The Codex and Copilot clauses do vary `strict`: Copilot
+// declares this cell `native`, which never escalates, and the Codex escalation is derived from the
+// declaration rather than restated, so neither varies the open Kiro question.
+//
+// ## The correction this file carries
+//
+// Codex used to sit beside Copilot as a silent row. `.omc/research/kiro-wire-spike.md` §11.2 sent
+// `max_output_tokens: 16` to the Codex Responses endpoint and measured
+// `400 {"detail":"Unsupported parameter: max_output_tokens"}` against a 200 control carrying no
+// limit, so that cell is `degrade` and Codex reports. Copilot is untouched and still unmeasured. The
+// lesson is worth keeping next to the clause: "the Responses API documents this parameter" was the
+// argument for both cells, and it turned out not to be an argument about either endpoint.
 //
 // ## Input space
 //
@@ -114,8 +124,18 @@ const UPSTREAMS: readonly OutputLengthUpstream[] = [
 ]
 
 const KIRO = UPSTREAMS[0]!
-/** The two upstreams the fourth clause names, driven from the same table as Kiro. */
-const NATIVE_UPSTREAMS = [UPSTREAMS[1]!, UPSTREAMS[2]!] as const
+/**
+ * The two non-Kiro rows, driven from the same table as Kiro.
+ *
+ * Renamed from `NATIVE_UPSTREAMS`: since spike §11.2 measured `codex.outputLength` as `degrade`,
+ * "the native ones" is no longer what these two rows have in common. What they have in common is
+ * that the Responses API documents a field for the limit — which turned out not to settle whether a
+ * given Responses endpoint accepts it.
+ */
+const UPSTREAMS_WITH_A_WIRE_TARGET = [UPSTREAMS[1]!, UPSTREAMS[2]!] as const
+
+/** The rows whose own declaration says this feature is silent, read from the declaration. */
+const SILENT_OUTPUT_LENGTH_UPSTREAMS = UPSTREAMS.filter((upstream) => upstream.declaredOutputLength === "native")
 
 /**
  * What a caller can observe about one feature after resolution: nothing, one notice, or a failed
@@ -352,11 +372,19 @@ describe("Output length is reported rather than refused", () => {
     expect(CHANNEL_BY_POLICY[KIRO.declaredSampling]).toBe("rejection")
 
     // …and the declarations really do differ across upstreams, which is what the fourth clause
-    // observes (Requirement 10.10).
-    for (const upstream of NATIVE_UPSTREAMS) {
+    // observes (Requirement 10.10). Restated: this used to assert that both non-Kiro rows differ
+    // from Kiro's cell and are silent, which encoded `codex.outputLength: "native"`. Spike §11.2
+    // measured that cell `degrade`, so Codex now agrees with Kiro on this one cell while Copilot is
+    // the only silent row left. The divergence claim is kept by naming what still diverges — at
+    // least one row silent, at least one row not — instead of by asserting the old partition.
+    const channels = UPSTREAMS.map((upstream) => CHANNEL_BY_POLICY[upstream.declaredOutputLength])
+    expect(new Set(channels).size).toBeGreaterThan(1)
+    expect(channels).toContain("silent")
+    for (const upstream of SILENT_OUTPUT_LENGTH_UPSTREAMS) {
       expect(upstream.declaredOutputLength).not.toBe(KIRO.declaredOutputLength)
       expect(CHANNEL_BY_POLICY[upstream.declaredOutputLength]).toBe("silent")
     }
+    expect(SILENT_OUTPUT_LENGTH_UPSTREAMS.length).toBeGreaterThan(0)
   })
 
   /**
@@ -509,31 +537,54 @@ describe("Output length is reported rather than refused", () => {
   })
 
   /**
-   * The fourth clause: on Codex and Copilot the same output-length request produces **zero** notices,
-   * with `outputLength` still present in `resolvedFeatures()`.
+   * The fourth clause: the same output-length request is **silent on Copilot** and **reported on
+   * Codex**, with `outputLength` present in `resolvedFeatures()` either way.
    *
-   * Both halves matter and neither implies the other. Zero notices is the declared `native` policy
-   * being honoured; presence in the resolved set is what keeps the field visible to the no-silent-drop
-   * set comparison (Requirement 10.8) instead of being invisibly skipped because its outcome is quiet.
+   * Restated. It used to read "on Codex and Copilot the same request produces zero notices", with
+   * both cells `native`. `.omc/research/kiro-wire-spike.md` §11.2 sent `max_output_tokens: 16` to the
+   * Codex Responses endpoint and measured `400 {"detail":"Unsupported parameter: max_output_tokens"}`,
+   * so that cell is `degrade` (§11.5) and Codex moved to the reporting side alongside Kiro. Copilot's
+   * cell is untouched, still `native`, still unmeasured — a different endpoint, and no account to
+   * probe it with.
    *
-   * `strict` is varied here because `native` does not escalate, so nothing about the open strict
-   * question is being decided.
+   * The clause is split rather than softened, and the split is the finding: two upstreams that
+   * looked interchangeable on this cell are not. Both halves of each row still matter and neither
+   * implies the other — the channel is the declared policy being honoured, and presence in the
+   * resolved set is what keeps the field visible to the no-silent-drop set comparison (Requirement
+   * 10.8) instead of being invisibly skipped because its outcome is quiet.
+   *
+   * `strict` is varied on both rows. On Copilot `native` does not escalate, so nothing about the open
+   * strict question is decided there. On Codex a `degrade` **does** escalate, and that is asserted
+   * through `assertDeclaredOutputLengthOutcome()`, which derives it from the declaration — the same
+   * escalation Property 5 owns in general, not a decision taken here.
    *
    * **Validates: Requirement 10.10**
    */
-  test("Feature: native-api-mode, Property 40: an output-length limit is silent but accounted for on Codex and Copilot", () => {
+  test("Feature: native-api-mode, Property 40: an output-length limit is silent on Copilot and reported on Codex, accounted for on both", () => {
     fc.assert(
-      fc.property(fc.constantFrom(...NATIVE_UPSTREAMS), outputLengthArb, fc.boolean(), (upstream, maxOutputTokens, strict) => {
+      fc.property(fc.constantFrom(...UPSTREAMS_WITH_A_WIRE_TARGET), outputLengthArb, fc.boolean(), (upstream, maxOutputTokens, strict) => {
         const decisions = upstream.resolve(requestWithSampling({ maxOutputTokens }), { strict })
 
-        // Zero notices for the feature, and zero for the whole request — it carries nothing else.
-        expect(noticesFor(decisions, OUTPUT_LENGTH)).toEqual([])
-        expect(decisions.notices()).toEqual([])
-        expect(decisions.firstRejection()).toBeUndefined()
-
-        // Still accounted for.
+        // Accounted for on every row, whatever the channel.
         expect(decisions.resolvedFeatures().has(OUTPUT_LENGTH)).toBe(true)
-        expect(assertDeclaredOutputLengthOutcome(upstream, { maxOutputTokens }, strict)).toBe("silent")
+
+        const observed = assertDeclaredOutputLengthOutcome(upstream, { maxOutputTokens }, strict)
+
+        if (upstream.declaredOutputLength === "native") {
+          // Zero notices for the feature, and zero for the whole request — it carries nothing else.
+          expect(noticesFor(decisions, OUTPUT_LENGTH)).toEqual([])
+          expect(decisions.notices()).toEqual([])
+          expect(decisions.firstRejection()).toBeUndefined()
+          expect(observed).toBe("silent")
+        } else {
+          // The measured Codex row: never silent, and the client is told which limit went missing.
+          expect(observed).toBe(strict ? "rejection" : "notice")
+          if (!strict) {
+            expect(noticesFor(decisions, OUTPUT_LENGTH)).toHaveLength(1)
+            expect(noticesFor(decisions, OUTPUT_LENGTH)[0]!.detail).toContain(String(maxOutputTokens))
+            expect(decisions.firstRejection()).toBeUndefined()
+          }
+        }
       }),
       { numRuns: 300 },
     )
@@ -541,7 +592,7 @@ describe("Output length is reported rather than refused", () => {
 
   /**
    * The negative control across the whole table: a request with no limit resolves `outputLength` on
-   * nobody. Without this, "zero notices on Codex" and "one notice on Kiro" could both be passing for
+   * nobody. Without this, "one notice on Codex" and "one notice on Kiro" could both be passing for
    * reasons unrelated to the field — and silence about a field the client never sent is correct, while
    * silence about one they did is the drop this milestone removes.
    *
@@ -586,7 +637,7 @@ describe("Output length is reported rather than refused", () => {
         const request = requestWithSampling({ maxOutputTokens })
 
         const kiroFirst = KIRO.resolve(request, { strict: false })
-        for (const upstream of NATIVE_UPSTREAMS) upstream.resolve(request, { strict: false })
+        for (const upstream of UPSTREAMS_WITH_A_WIRE_TARGET) upstream.resolve(request, { strict: false })
         const kiroSecond = KIRO.resolve(request, { strict: false })
 
         expect(kiroSecond.notices()).toEqual(kiroFirst.notices())

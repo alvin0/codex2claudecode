@@ -424,6 +424,24 @@ describe("no silent drop — the deliveries are observable on a Kiro response", 
     expect(upstreamCalls()).toBe(0)
   })
 
+  /**
+   * The unit-level twin of the `no-silent-drop` live case: one request carrying both a
+   * `reject`-declared and a `degrade`-declared feature. Task 14b — the rejection reports every
+   * other outcome the request decided, so a single request now delivers both `http_400` and
+   * `feature_notice`. `DELIVERIES` and `observedOutcome()` need no change: the walk reads per
+   * feature, and per feature each delivery is still exactly one thing.
+   */
+  test("a rejection carries the notices the same request decided, exactly once, with no upstream call", async () => {
+    const { provider: kiro, upstreamCalls } = provider()
+    const result = await kiro.proxy(requestWith(FEATURE_PRESENCE.sampling, FEATURE_PRESENCE.toolChoiceForced))
+    expect(result.type).toBe("canonical_error")
+    if (result.type !== "canonical_error") return
+    expect(result.status).toBe(400)
+    expect(result.body).toContain("sampling")
+    // Exactly once, and the rejected feature contributes no notice of its own.
+    expect(result.featureNotices?.map((notice) => notice.feature)).toEqual(["toolChoiceForced"])
+    expect(upstreamCalls()).toBe(0)
+  })
   test("a reported feature becomes a featureNotices entry on a 200", async () => {
     const { provider: kiro } = provider()
     const result = await kiro.proxy(requestWith(FEATURE_PRESENCE.toolChoiceForced))

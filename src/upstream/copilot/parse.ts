@@ -1,17 +1,31 @@
 import type { Canonical_ContentBlock, Canonical_Request, Canonical_Response, Canonical_StreamResponse, Canonical_Usage } from "../../core/canonical"
 import { canonicalUsageFromWireUsage } from "../../core/usage"
 import type { JsonObject } from "../../core/types"
+import { forwardCopilotHostedTools } from "./hosted-tools"
+import { copilotSamplingFields } from "./sampling"
 
+/**
+ * Build the Responses body this upstream posts.
+ *
+ * Generation controls come from {@link copilotSamplingFields}, which owns the canonical → Responses
+ * spellings (`max_output_tokens`, `temperature`, `top_p`) and the one canonical sub-member with no
+ * target here (`stopSequences`). Spread rather than assigned field by field so this function stays
+ * ignorant of which controls exist: adding one is an edit to `./sampling.ts` alone.
+ */
 export function buildCopilotResponsesBody(request: Canonical_Request): JsonObject {
   return {
     model: request.model,
     instructions: request.instructions ?? "You are a helpful assistant.",
     input: canonicalInputToResponsesInput(request.input),
-    ...(request.tools ? { tools: request.tools } : {}),
+    // Hosted tools keep their own `type` — `forwardCopilotHostedTools()` (`./hosted-tools.ts`) is
+    // identity for every type this protocol has, and translates the one it does not: a canonical
+    // fetch leaves as a search, reported under `webFetch`.
+    ...(request.tools ? { tools: forwardCopilotHostedTools(request.tools) } : {}),
     ...(request.toolChoice ? { tool_choice: request.toolChoice } : {}),
     ...(request.include ? { include: request.include } : {}),
     ...(request.textFormat ? { text: { format: request.textFormat } } : {}),
     ...(request.reasoningEffort ? { reasoning: { effort: request.reasoningEffort } } : {}),
+    ...copilotSamplingFields(request.sampling),
     stream: false,
     store: false,
   }

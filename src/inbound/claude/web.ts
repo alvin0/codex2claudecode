@@ -1,3 +1,4 @@
+import { CANONICAL_WEB_FETCH_TOOL_TYPE, isCanonicalWebFetchToolType } from "../../core/canonical-tools"
 import type { ClaudeTool, JsonObject } from "../types"
 
 import type { ClaudeServerToolAdapter } from "./server-tool-adapter"
@@ -159,10 +160,18 @@ export const webServerToolAdapter: ClaudeServerToolAdapter = {
     const mapped = claudeWebToolToResponsesTool(tool)
     return {
       tool: mapped,
-      include: mapped.type === "web_search" ? ["web_search_call.action.sources"] : undefined,
+      // Both members below are deliberately **not** narrowed to the search tool now that `mapped.type`
+      // can be a fetch. They were written as `mapped.type === "web_search"` when that condition was
+      // always true, so narrowing them here would be a second, unrequested behaviour change riding
+      // along with the type fix: a fetch-only request would lose the sources `include` and the
+      // web-tool line in `instructions` that it gets today.
+      include: ["web_search_call.action.sources"],
       toolChoiceName: toolName,
+      // Still the search choice, for either kind. A forced `tool_choice` naming a fetch tool is a
+      // separate question from what the tool list carries, and no upstream reads a fetch-typed tool
+      // choice yet; changing it here would swap one unsupported wire value for another.
       toolChoice: { type: "web_search" },
-      hasWebTool: mapped.type === "web_search",
+      hasWebTool: true,
     }
   },
   matchesOutputItem(item) {
@@ -190,9 +199,35 @@ function isClaudeWebTool(tool: ClaudeTool) {
   return tool?.type !== "mcp_toolset" && typeof tool.type === "string" && /^web[_-]?(search|fetch)(?:_\d+)?$/i.test(tool.type)
 }
 
+/**
+ * Whether this Claude web tool is the fetch one.
+ *
+ * Reads the same predicate the canonical vocabulary exposes rather than a second regex of its own,
+ * so "Claude sent a fetch tool" and "this canonical tool is a fetch" cannot drift apart across the
+ * boundary this module converts.
+ */
+function isClaudeWebFetchTool(tool: ClaudeTool) {
+  return isCanonicalWebFetchToolType(tool.type)
+}
+
+/**
+ * A Claude web tool, as the canonical tool the rest of the pipeline reads.
+ *
+ * The `type` is the whole point of this function. A `web_search_*` tool becomes `web_search` and a
+ * `web_fetch_*` tool becomes {@link CANONICAL_WEB_FETCH_TOOL_TYPE} — the client's dated type name is
+ * dropped, but the *kind* of tool it asked for is not. Collapsing a fetch into a search here (which
+ * is what this function used to do) meant no upstream could tell the two apart: the fetch never
+ * reached a fetch-capable upstream as a fetch, and nothing on the request recorded the swap, which
+ * is the silent substitution Requirement 10.1 forbids. Where a substitution is still the right
+ * answer — an upstream whose wire protocol has no fetch tool — it now happens at that upstream's
+ * boundary, which is the layer that knows its own vocabulary and declares the policy for it.
+ *
+ * Everything else is unchanged and shared by both kinds: `allowed_domains` travels as `filters` and
+ * `user_location` is normalized once, because a client may scope either kind of web tool.
+ */
 function claudeWebToolToResponsesTool(tool: ClaudeTool) {
   return {
-    type: "web_search",
+    type: isClaudeWebFetchTool(tool) ? CANONICAL_WEB_FETCH_TOOL_TYPE : "web_search",
     ...(Array.isArray(tool.allowed_domains) && tool.allowed_domains.length > 0
       ? { filters: { allowed_domains: tool.allowed_domains } }
       : {}),

@@ -63,7 +63,7 @@ function noticeKey(feature: ProviderFeature, detail: string): string {
  * const decisions = new FeatureDecisions(CAPABILITIES.features, strict)
  * decisions.resolve("sampling", "temperature=0.2 was not sent upstream", "an upstream that honours it")
  * // …one resolve() per client-supplied field the matrix covers…
- * const rejection = decisions.firstRejection()
+ * const rejection = decisions.rejectionReport()
  * if (rejection) return canonicalError(400, rejection.message)
  * for (const notice of decisions.notices()) yield { type: "feature_notice", ...notice }
  * ```
@@ -74,7 +74,11 @@ function noticeKey(feature: ProviderFeature, detail: string): string {
  *    still records, so `resolvedFeatures()` stays a complete account of what was
  *    covered even on a request that will end in a 400. The caller decides when
  *    to bail — usually after resolving everything, so one request produces one
- *    400 rather than a race between two failing fields.
+ *    400 rather than a race between two failing fields. That one 400 reports
+ *    every rejection through {@link FeatureDecisions.rejectionReport}: which
+ *    feature *caused* it is still the first one, and the rest are named rather
+ *    than discarded, so a client fixing several unsupported fields learns about
+ *    them together instead of one retry at a time.
  * 2. **`strict` is held, never read.** It is stored only to be handed to
  *    {@link resolveFeature}, which is the single function in the repository that
  *    interprets it (design decision D3). There is no `if (this.strict)` here,
@@ -99,7 +103,18 @@ export class FeatureDecisions {
   private readonly noticesByKey = new Map<string, Canonical_FeatureNotice>()
   /** Features that went through `resolve()`, whatever the outcome. */
   private readonly resolved = new Set<ProviderFeature>()
-  private rejection?: FeatureRejection
+  /**
+   * Every rejection recorded, in resolution order.
+   *
+   * A list rather than a single slot, because "which feature failed the request" and "which
+   * features the request was refused over" are two different questions and a client needs both:
+   * the first is the cause, and it stays the head of this list forever
+   * ({@link FeatureDecisions.firstRejection} reads `[0]`); the rest are fields the same request
+   * would also have been refused over, and dropping them made a client fix one field, retry, and
+   * discover the next. Recording them costs nothing — resolution already ran past the first
+   * rejection to keep {@link FeatureDecisions.resolvedFeatures} complete.
+   */
+  private readonly rejectionsRecorded: FeatureRejection[] = []
 
   constructor(features: DeclaredFeaturePolicies, strict: boolean) {
     this.features = features
@@ -146,8 +161,8 @@ export class FeatureDecisions {
       if (!this.noticesByKey.has(key)) this.noticesByKey.set(key, notice)
     }
 
-    if (isFeatureRejection(outcome) && !this.rejection) {
-      this.rejection = { feature: outcome.feature, message: outcome.message }
+    if (isFeatureRejection(outcome) && !this.rejectionsRecorded.some((recorded) => recorded.feature === outcome.feature)) {
+      this.rejectionsRecorded.push({ feature: outcome.feature, message: outcome.message })
     }
 
     return outcome
@@ -174,7 +189,47 @@ export class FeatureDecisions {
    * inspected last.
    */
   firstRejection(): FeatureRejection | undefined {
-    return this.rejection ? { ...this.rejection } : undefined
+    const first = this.rejectionsRecorded[0]
+    return first ? { ...first } : undefined
+  }
+
+  /**
+   * Every rejection recorded, in resolution order, one entry per feature.
+   *
+   * The set {@link FeatureDecisions.firstRejection} is the head of. Deduped by feature for the
+   * same reason notices are deduped by `(feature, detail)`: one field refused twice is one fact.
+   *
+   * Fresh copies, so a caller cannot edit the record on its way to a message.
+   */
+  rejections(): FeatureRejection[] {
+    return this.rejectionsRecorded.map((recorded) => ({ ...recorded }))
+  }
+
+  /**
+   * The one rejection a caller turns into one 400, reporting **every** feature that was rejected.
+   *
+   * `feature` is {@link FeatureDecisions.firstRejection}'s feature — which field caused the 400 is
+   * unchanged by this method — and `message` is that rejection's message when it is the only one,
+   * byte for byte, so a request with a single rejected field produces exactly the body it produced
+   * before this existed (Requirement 10.12). With two or more, the message continues with each
+   * further rejection's own message, so one 400 is the complete account of what the request was
+   * refused over (Requirement 10.3 read over every rejected field, not only the first).
+   *
+   * Composed here rather than in an upstream, because a rejection message is already core's prose
+   * (`resolveFeature()` in `./feature-policy.ts` builds each one) and an upstream that stitched
+   * them would be a second place the wording lives. Rendering it into an API's wire shape stays
+   * `src/inbound/<provider>/`'s job — this is the same provider-agnostic prose channel the single
+   * message already used.
+   */
+  rejectionReport(): FeatureRejection | undefined {
+    const [first, ...rest] = this.rejectionsRecorded
+    if (!first) return undefined
+    if (!rest.length) return { ...first }
+    const further = rest.length === 1 ? "one further feature" : `${rest.length} further features`
+    return {
+      feature: first.feature,
+      message: `${first.message} This request was also rejected on ${further}. ${rest.map((rejection) => rejection.message).join(" ")}`,
+    }
   }
 
   /**

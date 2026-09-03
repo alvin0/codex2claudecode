@@ -5,11 +5,12 @@ import { LOG_BODY_PREVIEW_LIMIT } from "../../core/constants"
 import { createKiroDebugBundle, kiroDebugOnErrorEnabled, redactSensitiveText } from "../../core/debug-capture"
 import { createLogPreview } from "../../core/log-preview"
 import { StreamTelemetryCollector } from "../../core/stream-telemetry"
-import { canonicalResponseTelemetrySummary, streamTelemetrySummary } from "../../core/stream-telemetry-summary"
+import { canonicalErrorTelemetrySummary, canonicalResponseTelemetrySummary, streamTelemetrySummary } from "../../core/stream-telemetry-summary"
 import type { RequestOptions, RequestProxyLog } from "../../core/types"
 import { claudeToCanonicalRequest, countClaudeInputTokens } from "./convert"
 import { claudeUpstreamErrorMessage } from "./context-limit"
 import { claudeErrorResponse } from "./errors"
+import { prependClaudeWarning, renderClaudeFeatureWarning } from "./notice"
 import { canonicalResponseToClaudeMessage, claudeCanonicalStreamResponse } from "./response"
 import { Model_Catalog, claudeSettingsModelResolver } from "./models"
 import type { ModelResolverFn } from "./models"
@@ -160,6 +161,13 @@ export class Claude_Inbound_Provider implements Inbound_Provider {
           error: previewText(result.body) || "-",
           requestBody,
           responseBody: shouldCaptureProxyBody ? previewText(result.body) || undefined : undefined,
+          // A rejected request made no upstream call, so there is no collector and no
+          // response to read — but it did decide things before it bailed, and those
+          // decisions ride the error result (Requirement 8.8). Same presence semantics as
+          // the 200 paths, produced by the same module rather than by an object literal
+          // here, so the three projections cannot drift. Unconditional on body capture:
+          // telemetry is not a body preview.
+          telemetry: canonicalErrorTelemetrySummary(result),
         }
         if (this.expectedUpstreamKind === "kiro" && kiroDebugOnErrorEnabled()) {
           proxyLog.debug = createKiroDebugBundle({
@@ -175,7 +183,20 @@ export class Claude_Inbound_Provider implements Inbound_Provider {
         }
         context.onProxy(proxyLog)
       }
-      return claudeErrorResponse(claudeUpstreamErrorMessage(result.status, result.body), result.status)
+      // The notices the rejected request decided are rendered through the same channel the
+      // 200 path uses — one combined warning segment, leading the one prose field the error
+      // shape has (Requirement 9.7). No member is added to the error body, and no block
+      // type, SSE event name, or header appears that a notice-free error lacks. An empty
+      // render is a pass-through, so an error carrying no `degrade` notice — including one
+      // carrying only `emulate` notices, which stay telemetry-only (Requirement 9.2) — is
+      // byte-identical to what this branch produced before (Requirement 9.8).
+      return claudeErrorResponse(
+        prependClaudeWarning(
+          claudeUpstreamErrorMessage(result.status, result.body),
+          renderClaudeFeatureWarning(result.featureNotices ?? []),
+        ),
+        result.status,
+      )
     }
 
     const proxyLog: RequestProxyLog | undefined = context.onProxy ? {

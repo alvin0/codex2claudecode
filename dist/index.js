@@ -3196,15 +3196,15 @@ It can also happen if the client has a browser extension installed which messes 
         refCount: 0
       };
     }
-    function retainCache(cache) {
-      cache.controller.signal.aborted && console.warn("A cache instance was retained after it was already freed. This likely indicates a bug in React.");
-      cache.refCount++;
+    function retainCache(cache2) {
+      cache2.controller.signal.aborted && console.warn("A cache instance was retained after it was already freed. This likely indicates a bug in React.");
+      cache2.refCount++;
     }
-    function releaseCache(cache) {
-      cache.refCount--;
-      0 > cache.refCount && console.warn("A cache instance was released after it was already freed. This likely indicates a bug in React.");
-      cache.refCount === 0 && scheduleCallback$2(NormalPriority, function() {
-        cache.controller.abort();
+    function releaseCache(cache2) {
+      cache2.refCount--;
+      0 > cache2.refCount && console.warn("A cache instance was released after it was already freed. This likely indicates a bug in React.");
+      cache2.refCount === 0 && scheduleCallback$2(NormalPriority, function() {
+        cache2.controller.abort();
       });
     }
     function startUpdateTimerByLane(lane, method2, fiber) {
@@ -11351,8 +11351,8 @@ Check the top-level render call using <` + componentName2 + ">.");
     didWarnAboutUndefinedSnapshotBeforeUpdate = new Set;
     var offscreenSubtreeIsHidden = false, offscreenSubtreeWasHidden = false, needsFormReset = false, PossiblyWeakSet = typeof WeakSet === "function" ? WeakSet : Set, nextEffect = null, inProgressLanes = null, inProgressRoot = null, hostParent = null, hostParentIsContainer = false, currentHoistableRoot = null, inHydratedSubtree = false, suspenseyCommitFlag = 8192, DefaultAsyncDispatcher = {
       getCacheForType: function(resourceType) {
-        var cache = readContext(CacheContext), cacheForType = cache.data.get(resourceType);
-        cacheForType === undefined && (cacheForType = resourceType(), cache.data.set(resourceType, cacheForType));
+        var cache2 = readContext(CacheContext), cacheForType = cache2.data.get(resourceType);
+        cacheForType === undefined && (cacheForType = resourceType(), cache2.data.set(resourceType, cacheForType));
         return cacheForType;
       },
       cacheSignal: function() {
@@ -11860,7 +11860,7 @@ var require_backend = __commonJS((exports, module) => {
           var ErrorStackParser = __webpack_require__2(206), React = __webpack_require__2(189), assign2 = Object.assign, ReactSharedInternals = React.__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE, REACT_CONTEXT_TYPE = Symbol.for("react.context"), REACT_MEMO_CACHE_SENTINEL = Symbol.for("react.memo_cache_sentinel"), hasOwnProperty = Object.prototype.hasOwnProperty, hookLog = [], primitiveStackCache = null;
           function getPrimitiveStackCache() {
             if (primitiveStackCache === null) {
-              var cache3 = new Map;
+              var cache4 = new Map;
               try {
                 Dispatcher.useContext({
                   _currentValue: null
@@ -11926,9 +11926,9 @@ var require_backend = __commonJS((exports, module) => {
               }
               for (var i = 0;i < readHookLog.length; i++) {
                 var hook = readHookLog[i];
-                cache3.set(hook.primitive, ErrorStackParser.parse(hook.stackError));
+                cache4.set(hook.primitive, ErrorStackParser.parse(hook.stackError));
               }
-              primitiveStackCache = cache3;
+              primitiveStackCache = cache4;
             }
             return primitiveStackCache;
           }
@@ -15583,7 +15583,7 @@ In order to be iterable, non-array objects must have a [Symbol.iterator]() metho
                   return "html_all_collection";
                 }
               }
-              if (!isPlainObject2(data)) {
+              if (!isPlainObject3(data)) {
                 return "class_instance";
               }
               return "object";
@@ -15842,7 +15842,7 @@ In order to be iterable, non-array objects must have a [Symbol.iterator]() metho
               }
             case "thenable":
               var displayName;
-              if (isPlainObject2(data)) {
+              if (isPlainObject3(data)) {
                 displayName = "Thenable";
               } else {
                 var _resolvedConstructorName = data.constructor.name;
@@ -15910,7 +15910,7 @@ In order to be iterable, non-array objects must have a [Symbol.iterator]() metho
               }
           }
         }
-        var isPlainObject2 = function isPlainObject3(object) {
+        var isPlainObject3 = function isPlainObject4(object) {
           var objectPrototype = Object.getPrototypeOf(object);
           if (!objectPrototype)
             return true;
@@ -16630,13 +16630,13 @@ In order to be iterable, non-array objects must have a [Symbol.iterator]() metho
           if (typeof data === "function") {
             return data.toString();
           }
-          var cache3 = new Set;
+          var cache4 = new Set;
           return JSON.stringify(data, function(key, value) {
             if (backend_utils_typeof(value) === "object" && value !== null) {
-              if (cache3.has(value)) {
+              if (cache4.has(value)) {
                 return;
               }
-              cache3.add(value);
+              cache4.add(value);
             }
             if (typeof value === "bigint") {
               return value.toString() + "n";
@@ -18607,8 +18607,8 @@ In order to be iterable, non-array objects must have a [Symbol.iterator]() metho
               }
               _this._bridge.send("profilingStatus", _this._isProfiling);
             });
-            agent_defineProperty(_this, "stopInspectingNative", function(selected) {
-              _this._bridge.send("stopInspectingHost", selected);
+            agent_defineProperty(_this, "stopInspectingNative", function(selected2) {
+              _this._bridge.send("stopInspectingHost", selected2);
             });
             agent_defineProperty(_this, "storeAsGlobal", function(_ref23) {
               var { count, id, path, rendererID } = _ref23;
@@ -29284,6 +29284,8 @@ var package_default = {
     "test:kiro:api": "bun scripts/kiro-api-smoke.ts",
     "probe:kiro:mcp": "bun scripts/kiro-mcp-probe.ts",
     "probe:codex:effort": "bun scripts/codex-effort-probe.ts",
+    "probe:codex:sampling": "bun scripts/codex-sampling-probe.ts",
+    "probe:native:combined": "bun scripts/native-combined-session.ts",
     "test:native:live": "NATIVE_LIVE=1 bun test test/native/live.test.ts",
     "test:native:verify": "bun scripts/native-verify.ts"
   },
@@ -29620,6 +29622,202 @@ function maxDefined(...values) {
   return numbers.length ? Math.max(...numbers) : undefined;
 }
 
+// src/core/provider-capabilities.ts
+var FEATURE_POLICIES = ["native", "emulate", "degrade", "reject"];
+var DEFAULT_RETRY_POLICY = {
+  maxRetries: 3,
+  baseDelayMs: 1000,
+  retryableStatuses: [408, 409, 429, 500, 502, 503, 504]
+};
+var DEFAULT_TIMEOUT_POLICY = {
+  requestTimeoutMs: 0,
+  streamIdleTimeoutMs: 300000,
+  firstTokenTimeoutMs: 0
+};
+
+// src/core/feature-policy.ts
+function resolvedDetail(input) {
+  const detail = input.detail.trim();
+  if (detail.length > 0)
+    return detail;
+  return `${input.feature} was not applied as requested by this upstream`;
+}
+function resolvedAlternative(input) {
+  const alternative = input.alternative.trim();
+  if (alternative.length > 0)
+    return alternative;
+  return "a different upstream, or omit the field";
+}
+function buildNotice(input, policy) {
+  return { feature: input.feature, policy, detail: resolvedDetail(input) };
+}
+function rejectionMessage(input) {
+  return `This upstream does not support ${input.feature}: ${resolvedDetail(input)}. Use ${resolvedAlternative(input)} instead.`;
+}
+function rejection(input) {
+  return { kind: "reject", feature: input.feature, message: rejectionMessage(input) };
+}
+function resolveFeature(input) {
+  switch (input.policy) {
+    case "native":
+      return { kind: "native" };
+    case "emulate":
+      return { kind: "emulate", notice: buildNotice(input, "emulate") };
+    case "reject":
+      return rejection(input);
+    case "degrade":
+      return input.strict ? rejection(input) : { kind: "degrade", notice: buildNotice(input, "degrade") };
+    default:
+      return unknownPolicy(input, input.policy);
+  }
+}
+function unknownPolicy(input, policy) {
+  return {
+    kind: "reject",
+    feature: input.feature,
+    message: `This upstream declares an unrecognised policy (${String(policy)}) for ${input.feature}. Use ${resolvedAlternative(input)} instead.`
+  };
+}
+function isFeatureRejection(outcome) {
+  return outcome.kind === "reject";
+}
+function featureOutcomeNotice(outcome) {
+  return "notice" in outcome ? outcome.notice : undefined;
+}
+function resolveHostedToolPolicy(map, type) {
+  if (!map || !Object.hasOwn(map, type))
+    return;
+  const policy = map[type];
+  return isFeaturePolicy(policy) ? policy : undefined;
+}
+function isFeaturePolicy(value) {
+  return typeof value === "string" && FEATURE_POLICIES.includes(value);
+}
+
+// src/core/canonical-tools.ts
+var CANONICAL_WEB_FETCH_TOOL_TYPE = "web_fetch";
+function isCanonicalWebFetchToolType(type) {
+  return typeof type === "string" && /^web[_-]?fetch(?:_\d+)?$/i.test(type);
+}
+function isCanonicalWebFetchTool(tool) {
+  return isCanonicalWebFetchToolType(tool.type);
+}
+
+// src/upstream/codex/capabilities.ts
+var CODEX_CAPABILITIES = {
+  streaming: true,
+  passthrough: true,
+  usageSupport: true,
+  environmentsSupport: true,
+  usageEndpointSupport: true,
+  tokenCountingSupport: true,
+  modelListingSupport: false,
+  retryPolicy: DEFAULT_RETRY_POLICY,
+  timeoutPolicy: DEFAULT_TIMEOUT_POLICY,
+  logBodyDefault: true,
+  features: {
+    sampling: "degrade",
+    outputLength: "degrade",
+    stopSequences: "degrade",
+    thinkingBudget: "degrade",
+    systemPrompt: "native",
+    promptCache: "degrade",
+    strictToolSchema: "native",
+    toolChoiceForced: "native",
+    structuredOutput: "native",
+    webSearch: "native",
+    webFetch: "degrade",
+    mcpToolset: "native"
+  },
+  hostedTools: {
+    image_generation: "native",
+    web_search: "native",
+    web_search_preview: "native",
+    file_search: "native",
+    computer: "native",
+    computer_use_preview: "native",
+    code_interpreter: "native",
+    mcp: "native",
+    local_shell: "native",
+    tool_search: "native"
+  }
+};
+var CODEX_UNDECLARED_HOSTED_TOOL_POLICY = "degrade";
+
+// src/upstream/codex/hosted-tools.ts
+var FUNCTION_TOOL_TYPE = "function";
+var HOSTED_TOOL_FEATURES = {
+  web_search: "webSearch",
+  web_search_preview: "webSearch"
+};
+var DEFAULT_HOSTED_TOOL_FEATURE = "mcpToolset";
+function hostedToolFeature(type) {
+  return Object.hasOwn(HOSTED_TOOL_FEATURES, type) ? HOSTED_TOOL_FEATURES[type] : DEFAULT_HOSTED_TOOL_FEATURE;
+}
+function isCodexHostedTool(tool) {
+  return typeof tool.type === "string" && tool.type.length > 0 && tool.type !== FUNCTION_TOOL_TYPE;
+}
+function codexHostedToolTypes(tools) {
+  const seen = new Set;
+  for (const tool of tools ?? []) {
+    if (isCodexHostedTool(tool))
+      seen.add(tool.type);
+  }
+  return [...seen];
+}
+function forwardCodexHostedTools(tools) {
+  if (!tools)
+    return;
+  return dedupeSearchTools(tools.map(forwardOneCodexTool));
+}
+function forwardOneCodexTool(tool) {
+  if (!isCanonicalWebFetchTool(tool))
+    return tool;
+  return { ...tool, type: WEB_SEARCH_TOOL_TYPE };
+}
+function dedupeSearchTools(tools) {
+  return tools.filter((tool, index) => tool.type !== WEB_SEARCH_TOOL_TYPE || tools.findIndex((item) => item.type === WEB_SEARCH_TOOL_TYPE) === index);
+}
+var WEB_SEARCH_TOOL_TYPE = "web_search";
+function resolveCodexHostedTools(tools, decisions) {
+  for (const type of codexHostedToolTypes(tools)) {
+    if (isCanonicalWebFetchToolType(type)) {
+      decisions.resolveWithPolicy("webFetch", CODEX_CAPABILITIES.features.webFetch, substitutedFetchDetail(type), FETCH_ALTERNATIVE);
+      continue;
+    }
+    const declared = resolveHostedToolPolicy(CODEX_CAPABILITIES.hostedTools, type);
+    decisions.resolveWithPolicy(hostedToolFeature(type), declared ?? CODEX_UNDECLARED_HOSTED_TOOL_POLICY, declared === undefined ? undeclaredDetail(type) : declaredDetail(type), declared === undefined ? UNDECLARED_ALTERNATIVE : DECLARED_ALTERNATIVE);
+  }
+}
+function declaredDetail(type) {
+  return `the '${type}' tool is one of this endpoint's own hosted tool types, so it is sent on with that type rather than reshaped into a function tool`;
+}
+function undeclaredDetail(type) {
+  return `the '${type}' tool is not one of the hosted tool types this upstream declares, so it is sent on as written and may not be run at all`;
+}
+function substitutedFetchDetail(type) {
+  return `this endpoint has no fetch tool of its own, so the '${type}' tool was sent as a web search instead; a page is still reached, as a search that opens it, and the domain and location scoping of the fetch was kept`;
+}
+var DECLARED_ALTERNATIVE = "a client function tool, if the hosted version is not wanted";
+var UNDECLARED_ALTERNATIVE = "one of the hosted tool types this upstream declares, or a client function tool";
+var FETCH_ALTERNATIVE = "a client function tool that performs the fetch, or an upstream with a hosted fetch tool";
+
+// src/upstream/codex/sampling.ts
+var RESPONSES_REJECTED_FIELDS = [
+  "max_output_tokens",
+  "temperature",
+  "top_p",
+  "max_tokens",
+  "max_completion_tokens",
+  "stop",
+  "stop_sequences",
+  "top_k"
+];
+var REJECTED_FIELD_SET = new Set(RESPONSES_REJECTED_FIELDS);
+function omitResponsesRejectedFields(body) {
+  return Object.fromEntries(Object.entries(body).filter(([key]) => !REJECTED_FIELD_SET.has(key)));
+}
+
 // src/upstream/codex/parse.ts
 var THINKING_SIGNATURE_PREFIX = "sig_";
 var UPSTREAM_THINKING_EVENTS = {
@@ -29668,9 +29866,9 @@ var UPSTREAM_THINKING_TEXT_EVENTS = new Set([
   "response.code_interpreter_call_code.done"
 ]);
 function canonicalToCodexBody(request) {
-  return {
+  return omitResponsesRejectedFields({
     model: request.model,
-    ...request.reasoningEffort && { reasoning_effort: request.reasoningEffort },
+    ...request.reasoningEffort && { reasoning: { effort: request.reasoningEffort, summary: "auto" } },
     ...request.instructions && { instructions: request.instructions },
     input: request.input.flatMap((message) => {
       const messageContent = message.content.filter((block) => !isRawInputItem(block));
@@ -29687,11 +29885,11 @@ function canonicalToCodexBody(request) {
     }),
     store: false,
     stream: request.stream,
-    ...request.tools && { tools: request.tools },
+    ...request.tools && { tools: forwardCodexHostedTools(request.tools) },
     ...request.include && { include: request.include },
     ...request.toolChoice && { tool_choice: request.toolChoice },
     ...request.textFormat && { text: { format: request.textFormat } }
-  };
+  });
 }
 function canonicalToCodexInputTokensBody(request) {
   const { stream: _stream, store: _store, service_tier: _serviceTier, ...body } = canonicalToCodexBody(request);
@@ -30744,7 +30942,7 @@ function redactDebugText(text) {
   return redactSensitiveText(text).replace(/\b[A-Za-z0-9._~+/=-]{32,}\b/g, "[redacted]");
 }
 function redactSensitiveText(text) {
-  return text.replace(/Bearer\s+[A-Za-z0-9._~+/=-]+/g, "Bearer [redacted]").replace(/"?(authorization|authorization_token|x-api-key|anthropic-api-key|accessToken|refreshToken|idToken|profileArn|mcpAuthorization|clientSecret|access_token|refresh_token|id_token)"?\s*:\s*"[^"]+"/gi, '"$1":"[redacted]"');
+  return text.replace(/Bearer\s+[A-Za-z0-9._~+/=-]+/g, "Bearer [redacted]").replace(/"?(authorization|authorization_token|x-api-key|anthropic-api-key|accessToken|refreshToken|idToken|profileArn|mcpAuthorization|clientSecret|access_token|refresh_token|id_token|signature)"?\s*:\s*"[^"]+"/gi, '"$1":"[redacted]"');
 }
 function preview(value) {
   if (value === undefined)
@@ -30753,7 +30951,7 @@ function preview(value) {
   return redacted.length > DEBUG_PREVIEW_LIMIT ? `${redacted.slice(0, DEBUG_PREVIEW_LIMIT)}...[truncated]` : redacted;
 }
 function isSecretKey(key) {
-  return /authorization|access[_-]?token|refresh[_-]?token|id[_-]?token|profile[_-]?arn|mcp[_-]?authorization|client[_-]?secret/i.test(key);
+  return /authorization|access[_-]?token|refresh[_-]?token|id[_-]?token|profile[_-]?arn|mcp[_-]?authorization|client[_-]?secret|signature/i.test(key);
 }
 
 // src/core/log-preview.ts
@@ -30868,6 +31066,12 @@ function canonicalResponseTelemetrySummary(response) {
   return {
     ...response.featureNotices ? { featureNotices: [...response.featureNotices] } : {},
     providerCredits: response.usage.providerCredits
+  };
+}
+function canonicalErrorTelemetrySummary(error) {
+  return {
+    ...error.featureNotices ? { featureNotices: [...error.featureNotices] } : {},
+    providerCredits: undefined
   };
 }
 
@@ -35330,6 +35534,96 @@ class GptEncoding {
 // node_modules/gpt-tokenizer/esm/encoding/o200k_base.js
 var api = GptEncoding.getEncodingApi("o200k_base", () => o200k_base_default);
 var { decode, decodeAsyncGenerator, decodeGenerator, encode, encodeGenerator, isWithinTokenLimit, countTokens, encodeChat, encodeChatGenerator, vocabularySize, setMergeCacheSize, clearMergeCache, estimateCost } = api;
+// src/inbound/claude/sampling.ts
+var CANONICAL_THINKING_MODES = ["enabled", "disabled", "adaptive"];
+function claudeSamplingMembers(body) {
+  const sampling = claudeSampling(body);
+  const thinking = claudeThinking(body.thinking);
+  const cacheHint = claudeCacheHints(body);
+  const parallelToolCalls = claudeParallelToolCalls(body);
+  return {
+    ...sampling && { sampling },
+    ...thinking && { thinking },
+    ...cacheHint.length > 0 && { cacheHint },
+    ...parallelToolCalls !== undefined && { parallelToolCalls }
+  };
+}
+function claudeSampling(body) {
+  const maxOutputTokens = finiteNumber(body.max_tokens);
+  const temperature = finiteNumber(body.temperature);
+  const topP = finiteNumber(body.top_p);
+  const stopSequences = stopSequenceList(body.stop_sequences);
+  const sampling = {
+    ...maxOutputTokens !== undefined && { maxOutputTokens },
+    ...temperature !== undefined && { temperature },
+    ...topP !== undefined && { topP },
+    ...stopSequences && { stopSequences }
+  };
+  return Object.keys(sampling).length > 0 ? sampling : undefined;
+}
+function claudeThinking(thinking) {
+  if (!isRecord(thinking))
+    return;
+  const budgetTokens = positiveNumber(thinking.budget_tokens);
+  const mode = isCanonicalThinkingMode(thinking.type) ? thinking.type : budgetTokens !== undefined ? "enabled" : undefined;
+  if (!mode)
+    return;
+  return { mode, ...budgetTokens !== undefined && { budgetTokens } };
+}
+function claudeCacheHints(body) {
+  return [
+    ...collectCacheHints(body.tools, "tools"),
+    ...collectCacheHints(body.system, "system"),
+    ...(body.messages ?? []).flatMap((message) => collectCacheHints(message?.content, "history"))
+  ];
+}
+function collectCacheHints(blocks, scope) {
+  if (!Array.isArray(blocks))
+    return [];
+  return blocks.flatMap((block) => {
+    const marker = cacheControlMarker(block);
+    if (!marker)
+      return [];
+    const ttl = nonEmptyString(marker.ttl);
+    return [{ scope, ...ttl !== undefined && { ttl } }];
+  });
+}
+function cacheControlMarker(block) {
+  if (!isRecord(block))
+    return;
+  const marker = block.cache_control;
+  return isRecord(marker) ? marker : undefined;
+}
+function claudeParallelToolCalls(body) {
+  const toolChoice = body.tool_choice?.disable_parallel_tool_use;
+  if (typeof toolChoice === "boolean")
+    return !toolChoice;
+  const disabledByToolset = (body.tools ?? []).some((tool) => tool.disable_parallel_tool_use === true);
+  return disabledByToolset ? false : undefined;
+}
+function isCanonicalThinkingMode(value) {
+  return typeof value === "string" && CANONICAL_THINKING_MODES.some((mode) => mode === value);
+}
+function isRecord(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+function finiteNumber(value) {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+function positiveNumber(value) {
+  const numeric = finiteNumber(value);
+  return numeric !== undefined && numeric > 0 ? numeric : undefined;
+}
+function nonEmptyString(value) {
+  return typeof value === "string" && value.trim().length > 0 ? value : undefined;
+}
+function stopSequenceList(value) {
+  if (!Array.isArray(value))
+    return;
+  const sequences = value.filter((entry) => typeof entry === "string" && entry.length > 0);
+  return sequences.length > 0 ? sequences : undefined;
+}
+
 // src/inbound/claude/mcp.ts
 var MCP_TOOL_RESULT_INCLUDE = "mcp_call.output";
 var MCP_APPROVAL_INCLUDE = "mcp_call.approval_request_id";
@@ -35706,10 +36000,10 @@ var webServerToolAdapter = {
     const mapped = claudeWebToolToResponsesTool(tool);
     return {
       tool: mapped,
-      include: mapped.type === "web_search" ? ["web_search_call.action.sources"] : undefined,
+      include: ["web_search_call.action.sources"],
       toolChoiceName: toolName,
       toolChoice: { type: "web_search" },
-      hasWebTool: mapped.type === "web_search"
+      hasWebTool: true
     };
   },
   matchesOutputItem(item) {
@@ -35736,9 +36030,12 @@ var webServerToolAdapter = {
 function isClaudeWebTool(tool) {
   return tool?.type !== "mcp_toolset" && typeof tool.type === "string" && /^web[_-]?(search|fetch)(?:_\d+)?$/i.test(tool.type);
 }
+function isClaudeWebFetchTool(tool) {
+  return isCanonicalWebFetchToolType(tool.type);
+}
 function claudeWebToolToResponsesTool(tool) {
   return {
-    type: "web_search",
+    type: isClaudeWebFetchTool(tool) ? CANONICAL_WEB_FETCH_TOOL_TYPE : "web_search",
     ...Array.isArray(tool.allowed_domains) && tool.allowed_domains.length > 0 ? { filters: { allowed_domains: tool.allowed_domains } } : {},
     ...tool.user_location && typeof tool.user_location === "object" ? { user_location: claudeUserLocationToResponsesUserLocation(tool.user_location) } : {}
   };
@@ -35856,6 +36153,8 @@ function claudeFunctionToolToResponsesTool(tool) {
 }
 function dedupeTools(tools) {
   return tools.filter((tool, index, mapped) => {
+    if (tool.type === CANONICAL_WEB_FETCH_TOOL_TYPE)
+      return mapped.findIndex((item) => item.type === CANONICAL_WEB_FETCH_TOOL_TYPE) === index;
     if (tool.type === "web_search")
       return mapped.findIndex((item) => item.type === "web_search") === index;
     if (tool.type === "mcp" && typeof tool.server_label === "string") {
@@ -35872,6 +36171,7 @@ function claudeToCanonicalRequest(body) {
   return {
     model: body.model,
     ...body.output_config?.effort && { reasoningEffort: body.output_config.effort },
+    ...claudeSamplingMembers(body),
     instructions: [
       claudeSystemToText(body.system) || "You are a helpful assistant.",
       resolvedTools.hasWebTool ? "When web search is available and the user asks for current or recent information, use web search internally and answer directly with the found information. Do not respond that you are going to search." : undefined
@@ -36354,6 +36654,7 @@ function claudeErrorType(status) {
     return "overloaded_error";
   return "api_error";
 }
+
 // src/inbound/claude/notice.ts
 var CLAUDE_NOTICE_MARKER = "[gateway]";
 var WARNING_SEPARATOR = `
@@ -36394,7 +36695,6 @@ function prependClaudeWarning(text, warning) {
     return warning;
   return `${warning}${WARNING_SEPARATOR}${text}`;
 }
-
 // src/inbound/claude/sse-writer.ts
 class ClaudeSseWriter {
   encoder = new TextEncoder;
@@ -38087,7 +38387,8 @@ class Claude_Inbound_Provider {
           durationMs,
           error: previewText(result.body) || "-",
           requestBody,
-          responseBody: shouldCaptureProxyBody ? previewText(result.body) || undefined : undefined
+          responseBody: shouldCaptureProxyBody ? previewText(result.body) || undefined : undefined,
+          telemetry: canonicalErrorTelemetrySummary(result)
         };
         if (this.expectedUpstreamKind === "kiro" && kiroDebugOnErrorEnabled()) {
           proxyLog2.debug = createKiroDebugBundle({
@@ -38103,7 +38404,7 @@ class Claude_Inbound_Provider {
         }
         context.onProxy(proxyLog2);
       }
-      return claudeErrorResponse(claudeUpstreamErrorMessage(result.status, result.body), result.status);
+      return claudeErrorResponse(prependClaudeWarning(claudeUpstreamErrorMessage(result.status, result.body), renderClaudeFeatureWarning(result.featureNotices ?? [])), result.status);
     }
     const proxyLog = context.onProxy ? {
       label: this.upstreamLogLabel,
@@ -38305,19 +38606,26 @@ function normalizeReasoningBody(body) {
     ...normalizeReasoningModel(body)
   };
 }
+var REASONING_MODEL_PATTERN = /^(gpt-5(?:\.[^_]+)?)(?:_(none|low|medium|high|xhigh|max|ultra))?$/;
+function parseReasoningModel(model) {
+  const match = model.match(REASONING_MODEL_PATTERN);
+  if (!match)
+    return;
+  const [, base, effort = "medium"] = match;
+  return { base, effort: normalizeReasoningEffort(effort) };
+}
 function normalizeReasoningModel(body) {
   if (typeof body.model !== "string")
     return {};
-  const match = body.model.match(/^(gpt-5(?:\.[^_]+)?)(?:_(none|low|medium|high|xhigh|max|ultra))?$/);
-  if (!match)
+  const parsed = parseReasoningModel(body.model);
+  if (!parsed)
     return {};
-  const [, model, effort = "medium"] = match;
   const reasoning = body.reasoning && typeof body.reasoning === "object" && !Array.isArray(body.reasoning) ? body.reasoning : {};
   return {
-    model,
+    model: parsed.base,
     reasoning: {
       ...reasoning,
-      effort: normalizeReasoningEffort(reasoning.effort ?? body.reasoning_effort ?? effort)
+      effort: normalizeReasoningEffort(reasoning.effort ?? body.reasoning_effort ?? parsed.effort)
     }
   };
 }
@@ -38750,17 +39058,121 @@ var COPILOT_EDITOR_PLUGIN_VERSION = `copilot-chat/${COPILOT_GITHUB_VERSION}`;
 var COPILOT_USER_AGENT = `GitHubCopilotChat/${COPILOT_GITHUB_VERSION}`;
 var COPILOT_API_VERSION = "2025-04-01";
 
+// src/upstream/copilot/capabilities.ts
+var COPILOT_CAPABILITIES = {
+  streaming: true,
+  passthrough: false,
+  usageSupport: true,
+  environmentsSupport: false,
+  usageEndpointSupport: true,
+  tokenCountingSupport: false,
+  modelListingSupport: true,
+  retryPolicy: DEFAULT_RETRY_POLICY,
+  timeoutPolicy: DEFAULT_TIMEOUT_POLICY,
+  logBodyDefault: true,
+  features: {
+    sampling: "native",
+    outputLength: "native",
+    stopSequences: "degrade",
+    thinkingBudget: "native",
+    systemPrompt: "native",
+    promptCache: "degrade",
+    strictToolSchema: "native",
+    toolChoiceForced: "native",
+    structuredOutput: "native",
+    webSearch: "native",
+    webFetch: "degrade",
+    mcpToolset: "native"
+  },
+  hostedTools: {
+    image_generation: "native",
+    web_search: "native",
+    web_search_preview: "native",
+    file_search: "native",
+    computer: "native",
+    computer_use_preview: "native",
+    code_interpreter: "native",
+    mcp: "native",
+    local_shell: "native",
+    tool_search: "native"
+  }
+};
+var COPILOT_UNDECLARED_HOSTED_TOOL_POLICY = "degrade";
+
+// src/upstream/copilot/hosted-tools.ts
+var FUNCTION_TOOL_TYPE2 = "function";
+var HOSTED_TOOL_FEATURES2 = {
+  web_search: "webSearch",
+  web_search_preview: "webSearch"
+};
+var DEFAULT_HOSTED_TOOL_FEATURE2 = "mcpToolset";
+function hostedToolFeature2(type) {
+  return Object.hasOwn(HOSTED_TOOL_FEATURES2, type) ? HOSTED_TOOL_FEATURES2[type] : DEFAULT_HOSTED_TOOL_FEATURE2;
+}
+function isCopilotHostedTool(tool) {
+  return typeof tool.type === "string" && tool.type.length > 0 && tool.type !== FUNCTION_TOOL_TYPE2;
+}
+function copilotHostedToolTypes(tools) {
+  const seen = new Set;
+  for (const tool of tools ?? []) {
+    if (isCopilotHostedTool(tool))
+      seen.add(tool.type);
+  }
+  return [...seen];
+}
+function forwardCopilotHostedTools(tools) {
+  if (!tools)
+    return;
+  const forwarded = tools.map((tool) => isCanonicalWebFetchTool(tool) ? { ...tool, type: WEB_SEARCH_TOOL_TYPE2 } : tool);
+  return forwarded.filter((tool, index) => tool.type !== WEB_SEARCH_TOOL_TYPE2 || forwarded.findIndex((item) => item.type === WEB_SEARCH_TOOL_TYPE2) === index);
+}
+var WEB_SEARCH_TOOL_TYPE2 = "web_search";
+function resolveCopilotHostedTools(tools, decisions) {
+  for (const type of copilotHostedToolTypes(tools)) {
+    if (isCanonicalWebFetchToolType(type)) {
+      decisions.resolveWithPolicy("webFetch", COPILOT_CAPABILITIES.features.webFetch, substitutedFetchDetail2(type), FETCH_ALTERNATIVE2);
+      continue;
+    }
+    const declared = resolveHostedToolPolicy(COPILOT_CAPABILITIES.hostedTools, type);
+    decisions.resolveWithPolicy(hostedToolFeature2(type), declared ?? COPILOT_UNDECLARED_HOSTED_TOOL_POLICY, declared === undefined ? undeclaredDetail2(type) : declaredDetail2(type), declared === undefined ? UNDECLARED_ALTERNATIVE2 : DECLARED_ALTERNATIVE2);
+  }
+}
+function declaredDetail2(type) {
+  return `the '${type}' tool is one of the hosted tool types this upstream declares, so it is sent on with that type rather than reshaped into a function tool`;
+}
+function undeclaredDetail2(type) {
+  return `the '${type}' tool is not one of the hosted tool types this upstream declares, so it is sent on as written and may not be run at all`;
+}
+function substitutedFetchDetail2(type) {
+  return `this endpoint has no fetch tool of its own, so the '${type}' tool was sent as a web search instead; the domain and location scoping of the fetch was kept`;
+}
+var DECLARED_ALTERNATIVE2 = "a client function tool, if the hosted version is not wanted";
+var UNDECLARED_ALTERNATIVE2 = "one of the hosted tool types this upstream declares, or a client function tool";
+var FETCH_ALTERNATIVE2 = "a client function tool that performs the fetch, or an upstream with a hosted fetch tool";
+
+// src/upstream/copilot/sampling.ts
+function copilotSamplingFields(sampling) {
+  if (!sampling)
+    return {};
+  return {
+    ...typeof sampling.maxOutputTokens === "number" ? { max_output_tokens: sampling.maxOutputTokens } : {},
+    ...typeof sampling.temperature === "number" ? { temperature: sampling.temperature } : {},
+    ...typeof sampling.topP === "number" ? { top_p: sampling.topP } : {}
+  };
+}
+
 // src/upstream/copilot/parse.ts
 function buildCopilotResponsesBody(request) {
   return {
     model: request.model,
     instructions: request.instructions ?? "You are a helpful assistant.",
     input: canonicalInputToResponsesInput(request.input),
-    ...request.tools ? { tools: request.tools } : {},
+    ...request.tools ? { tools: forwardCopilotHostedTools(request.tools) } : {},
     ...request.toolChoice ? { tool_choice: request.toolChoice } : {},
     ...request.include ? { include: request.include } : {},
     ...request.textFormat ? { text: { format: request.textFormat } } : {},
     ...request.reasoningEffort ? { reasoning: { effort: request.reasoningEffort } } : {},
+    ...copilotSamplingFields(request.sampling),
     stream: false,
     store: false
   };
@@ -39002,12 +39414,20 @@ function withCopilotFeatureNotices(result, notices) {
     return responseWithNotices(result, notices);
   if (result.type === "canonical_stream")
     return streamWithNotices(result, notices);
+  if (result.type === "canonical_error")
+    return errorWithNotices(result, notices);
   return result;
 }
 function responseWithNotices(response, notices) {
   return {
     ...response,
     featureNotices: [...notices.map(copyNotice), ...response.featureNotices ?? []]
+  };
+}
+function errorWithNotices(error, notices) {
+  return {
+    ...error,
+    featureNotices: [...notices.map(copyNotice), ...error.featureNotices ?? []]
   };
 }
 function streamWithNotices(stream, notices) {
@@ -39029,68 +39449,6 @@ function copyNotice(notice) {
   return { ...notice };
 }
 
-// src/core/provider-capabilities.ts
-var DEFAULT_RETRY_POLICY = {
-  maxRetries: 3,
-  baseDelayMs: 1000,
-  retryableStatuses: [408, 409, 429, 500, 502, 503, 504]
-};
-var DEFAULT_TIMEOUT_POLICY = {
-  requestTimeoutMs: 0,
-  streamIdleTimeoutMs: 300000,
-  firstTokenTimeoutMs: 0
-};
-
-// src/core/feature-policy.ts
-function resolvedDetail(input) {
-  const detail = input.detail.trim();
-  if (detail.length > 0)
-    return detail;
-  return `${input.feature} was not applied as requested by this upstream`;
-}
-function resolvedAlternative(input) {
-  const alternative = input.alternative.trim();
-  if (alternative.length > 0)
-    return alternative;
-  return "a different upstream, or omit the field";
-}
-function buildNotice(input, policy) {
-  return { feature: input.feature, policy, detail: resolvedDetail(input) };
-}
-function rejectionMessage(input) {
-  return `This upstream does not support ${input.feature}: ${resolvedDetail(input)}. Use ${resolvedAlternative(input)} instead.`;
-}
-function rejection(input) {
-  return { kind: "reject", feature: input.feature, message: rejectionMessage(input) };
-}
-function resolveFeature(input) {
-  switch (input.policy) {
-    case "native":
-      return { kind: "native" };
-    case "emulate":
-      return { kind: "emulate", notice: buildNotice(input, "emulate") };
-    case "reject":
-      return rejection(input);
-    case "degrade":
-      return input.strict ? rejection(input) : { kind: "degrade", notice: buildNotice(input, "degrade") };
-    default:
-      return unknownPolicy(input, input.policy);
-  }
-}
-function unknownPolicy(input, policy) {
-  return {
-    kind: "reject",
-    feature: input.feature,
-    message: `This upstream declares an unrecognised policy (${String(policy)}) for ${input.feature}. Use ${resolvedAlternative(input)} instead.`
-  };
-}
-function isFeatureRejection(outcome) {
-  return outcome.kind === "reject";
-}
-function featureOutcomeNotice(outcome) {
-  return "notice" in outcome ? outcome.notice : undefined;
-}
-
 // src/core/feature-decisions.ts
 function noticeKey(feature, detail) {
   return JSON.stringify([feature, detail]);
@@ -39101,7 +39459,7 @@ class FeatureDecisions {
   strict;
   noticesByKey = new Map;
   resolved = new Set;
-  rejection;
+  rejectionsRecorded = [];
   constructor(features, strict) {
     this.features = features;
     this.strict = strict;
@@ -39118,8 +39476,8 @@ class FeatureDecisions {
       if (!this.noticesByKey.has(key))
         this.noticesByKey.set(key, notice);
     }
-    if (isFeatureRejection(outcome) && !this.rejection) {
-      this.rejection = { feature: outcome.feature, message: outcome.message };
+    if (isFeatureRejection(outcome) && !this.rejectionsRecorded.some((recorded) => recorded.feature === outcome.feature)) {
+      this.rejectionsRecorded.push({ feature: outcome.feature, message: outcome.message });
     }
     return outcome;
   }
@@ -39127,71 +39485,46 @@ class FeatureDecisions {
     return [...this.noticesByKey.values()].map((notice) => ({ ...notice }));
   }
   firstRejection() {
-    return this.rejection ? { ...this.rejection } : undefined;
+    const first = this.rejectionsRecorded[0];
+    return first ? { ...first } : undefined;
+  }
+  rejections() {
+    return this.rejectionsRecorded.map((recorded) => ({ ...recorded }));
+  }
+  rejectionReport() {
+    const [first, ...rest] = this.rejectionsRecorded;
+    if (!first)
+      return;
+    if (!rest.length)
+      return { ...first };
+    const further = rest.length === 1 ? "one further feature" : `${rest.length} further features`;
+    return {
+      feature: first.feature,
+      message: `${first.message} This request was also rejected on ${further}. ${rest.map((rejection2) => rejection2.message).join(" ")}`
+    };
   }
   resolvedFeatures() {
     return new Set(this.resolved);
   }
 }
 
-// src/upstream/copilot/capabilities.ts
-var COPILOT_CAPABILITIES = {
-  streaming: true,
-  passthrough: false,
-  usageSupport: true,
-  environmentsSupport: false,
-  usageEndpointSupport: true,
-  tokenCountingSupport: false,
-  modelListingSupport: true,
-  retryPolicy: DEFAULT_RETRY_POLICY,
-  timeoutPolicy: DEFAULT_TIMEOUT_POLICY,
-  logBodyDefault: true,
-  features: {
-    sampling: "native",
-    outputLength: "native",
-    stopSequences: "degrade",
-    thinkingBudget: "native",
-    systemPrompt: "native",
-    promptCache: "degrade",
-    strictToolSchema: "native",
-    toolChoiceForced: "native",
-    structuredOutput: "native",
-    webSearch: "native",
-    webFetch: "degrade",
-    mcpToolset: "native"
-  },
-  hostedTools: {
-    image_generation: "native",
-    web_search: "native",
-    web_search_preview: "native",
-    file_search: "native",
-    computer: "native",
-    computer_use_preview: "native",
-    code_interpreter: "native",
-    mcp: "native",
-    local_shell: "native",
-    tool_search: "native"
-  }
-};
-
 // src/upstream/copilot/features.ts
 function resolveCopilotFeatures(request, options = {}) {
   const decisions = new FeatureDecisions(COPILOT_CAPABILITIES.features, options.strict ?? false);
-  const view = request;
-  const sampling = requestedSamplingControls(view);
+  const sampling = requestedSamplingControls(request);
   if (sampling.length) {
     decisions.resolve("sampling", `this endpoint takes generation controls of its own, so the requested ${joinControls(sampling)} is passed on as sent`, "an upstream that honors generation controls, or omit them");
   }
-  if (requestedOutputLengthLimit(view)) {
+  if (requestedOutputLengthLimit(request)) {
     decisions.resolve("outputLength", "this wire format has a field for an upper bound on reply length, so the requested limit is forwarded as stated rather than dropped at this boundary", "an upstream measured to enforce an output length limit, or omit it");
   }
-  if (requestedStopSequences(view).length) {
+  if (requestedStopSequences(request).length) {
     decisions.resolve("stopSequences", "this endpoint has no stop-sequence field, so generation cannot be halted on the requested strings", "an upstream that honors stop sequences, or truncate the reply on the client");
   }
   if (request.reasoningEffort?.trim()) {
     decisions.resolve("thinkingBudget", "this endpoint takes a reasoning level of its own, so the requested level is passed on as stated rather than mapped to something else", "an upstream that honors the requested reasoning level, or omit it");
   }
-  if (requestsPromptCache(view)) {
+  if (requestsPromptCache(request)) {
     decisions.resolve("promptCache", "this endpoint caches prompt prefixes on its own schedule and takes no client cache instructions, so the requested cache points cannot be placed where they were asked for", "an upstream with a client-addressable prompt cache, or drop the cache hints");
   }
   if (request.instructions?.trim()) {
@@ -39833,9 +40166,10 @@ class Copilot_Upstream_Provider {
   }
   async proxy(request, options) {
     const decisions = resolveCopilotFeatures(request, { strict: this.strict });
-    const rejection2 = decisions.firstRejection();
+    resolveCopilotHostedTools(request.tools, decisions);
+    const rejection2 = decisions.rejectionReport();
     if (rejection2)
-      return canonicalError(400, rejection2.message);
+      return withCopilotFeatureNotices(canonicalError(400, rejection2.message), decisions.notices());
     const response = await this.client.proxy(request, options);
     if (!response.ok)
       return await toCanonicalError(response);
@@ -40739,6 +41073,57 @@ class CodexStandaloneClient {
   }
 }
 
+// src/upstream/codex/effort.ts
+function codexEffortMetadata(metadata) {
+  if (!metadata || metadata.thinkingEfforts.length === 0)
+    return;
+  return {
+    levels: metadata.thinkingEfforts.map((effort) => effort.thinkingEffort),
+    ...metadata.defaultThinkingEffort !== undefined && { defaultLevel: metadata.defaultThinkingEffort }
+  };
+}
+function selectCodexEffortLevel(metadata, intent = {}) {
+  if (intent.thinking?.mode === "disabled")
+    return { kind: "absent", reason: "thinking_disabled" };
+  const requested = normalizeRequested(intent.requested);
+  if (requested !== undefined)
+    return { kind: "selected", source: "explicit", level: requested };
+  if (!metadata)
+    return { kind: "absent", reason: "no_model_default" };
+  const fromBudget = codexBudgetToLevel(intent.thinking?.budgetTokens, metadata.levels);
+  if (fromBudget !== undefined)
+    return { kind: "selected", source: "budget", level: fromBudget };
+  const defaultLevel = metadata.defaultLevel;
+  if (defaultLevel !== undefined && metadata.levels.includes(defaultLevel)) {
+    return { kind: "selected", source: "model_default", level: defaultLevel };
+  }
+  return { kind: "absent", reason: "no_model_default" };
+}
+function applyCodexEffortDefault(request, metadata) {
+  const decision = selectCodexEffortLevel(metadata, effortIntentFromRequest(request));
+  if (decision.kind === "selected") {
+    if (request.reasoningEffort === decision.level)
+      return request;
+    return { ...request, reasoningEffort: decision.level };
+  }
+  if (!request.reasoningEffort)
+    return request;
+  const { reasoningEffort: _dropped, ...rest } = request;
+  return rest;
+}
+function effortIntentFromRequest(request) {
+  return {
+    ...request.reasoningEffort !== undefined && { requested: request.reasoningEffort },
+    ...request.thinking !== undefined && { thinking: request.thinking }
+  };
+}
+function codexBudgetToLevel(budgetTokens, levels) {
+  return;
+}
+function normalizeRequested(requested) {
+  return typeof requested === "string" && requested.length ? requested : undefined;
+}
+
 // src/upstream/codex/feature-notices.ts
 function withCodexFeatureNotices(result, notices) {
   if (!notices.length)
@@ -40747,12 +41132,20 @@ function withCodexFeatureNotices(result, notices) {
     return responseWithNotices2(result, notices);
   if (result.type === "canonical_stream")
     return streamWithNotices2(result, notices);
+  if (result.type === "canonical_error")
+    return errorWithNotices2(result, notices);
   return result;
 }
 function responseWithNotices2(response, notices) {
   return {
     ...response,
     featureNotices: [...notices.map(copyNotice2), ...response.featureNotices ?? []]
+  };
+}
+function errorWithNotices2(error, notices) {
+  return {
+    ...error,
+    featureNotices: [...notices.map(copyNotice2), ...error.featureNotices ?? []]
   };
 }
 function streamWithNotices2(stream, notices) {
@@ -40774,61 +41167,21 @@ function copyNotice2(notice) {
   return { ...notice };
 }
 
-// src/upstream/codex/capabilities.ts
-var CODEX_CAPABILITIES = {
-  streaming: true,
-  passthrough: true,
-  usageSupport: true,
-  environmentsSupport: true,
-  usageEndpointSupport: true,
-  tokenCountingSupport: true,
-  modelListingSupport: false,
-  retryPolicy: DEFAULT_RETRY_POLICY,
-  timeoutPolicy: DEFAULT_TIMEOUT_POLICY,
-  logBodyDefault: true,
-  features: {
-    sampling: "native",
-    outputLength: "native",
-    stopSequences: "degrade",
-    thinkingBudget: "degrade",
-    systemPrompt: "native",
-    promptCache: "degrade",
-    strictToolSchema: "native",
-    toolChoiceForced: "native",
-    structuredOutput: "native",
-    webSearch: "native",
-    webFetch: "degrade",
-    mcpToolset: "native"
-  },
-  hostedTools: {
-    image_generation: "native",
-    web_search: "native",
-    web_search_preview: "native",
-    file_search: "native",
-    computer: "native",
-    computer_use_preview: "native",
-    code_interpreter: "native",
-    mcp: "native",
-    local_shell: "native",
-    tool_search: "native"
-  }
-};
-
 // src/upstream/codex/features.ts
 function resolveCodexFeatures(request, options = {}) {
   const decisions = new FeatureDecisions(CODEX_CAPABILITIES.features, options.strict ?? false);
-  const view = request;
-  const sampling = requestedSamplingControls2(view);
+  const sampling = requestedSamplingControls2(request);
   if (sampling.length) {
-    decisions.resolve("sampling", `this endpoint takes generation controls of its own, so the requested ${joinControls2(sampling)} is passed on as sent`, "an upstream that honors generation controls, or omit them");
+    decisions.resolve("sampling", `this endpoint refuses generation controls outright, so the requested ${joinControls2(sampling)} was left off the request and the model sampled with its own defaults instead`, "an upstream that honors generation controls, or omit them");
   }
-  if (requestedOutputLengthLimit2(view)) {
-    decisions.resolve("outputLength", "this endpoint takes an upper bound on reply length of its own, so the requested limit is passed on as sent instead of being dropped on the way", "an upstream that honors an output length limit, or omit it");
+  const limit = requestedOutputLengthLimit2(request);
+  if (limit !== undefined) {
+    decisions.resolve("outputLength", `this endpoint refuses an output-length parameter outright, so the requested limit of ${limit} was left off the request and the reply is not capped at it`, "an upstream that honors an output length limit, or omit it");
   }
-  if (requestedStopSequences2(view).length) {
+  if (requestedStopSequences2(request).length) {
     decisions.resolve("stopSequences", "this endpoint has no stop-sequence field, so generation cannot be halted on the requested strings", "an upstream that honors stop sequences, or truncate the reply on the client");
   }
-  if (requestsPromptCache2(view)) {
+  if (requestsPromptCache2(request)) {
     decisions.resolve("promptCache", "this endpoint caches prompt prefixes on its own schedule and takes no client cache instructions, so the requested cache points cannot be placed where they were asked for", "an upstream with a client-addressable prompt cache, or drop the cache hints");
   }
   if (request.instructions?.trim()) {
@@ -40856,7 +41209,8 @@ function requestedSamplingControls2(request) {
   ].filter((name) => name !== undefined);
 }
 function requestedOutputLengthLimit2(request) {
-  return typeof request.sampling?.maxOutputTokens === "number";
+  const limit = request.sampling?.maxOutputTokens;
+  return typeof limit === "number" ? limit : undefined;
 }
 function joinControls2(names) {
   if (names.length === 1)
@@ -41048,10 +41402,11 @@ class Codex_Upstream_Provider {
   }
   async proxy(request, options) {
     const decisions = resolveCodexFeatures(request, { strict: this.strict });
-    const rejection2 = decisions.firstRejection();
+    resolveCodexHostedTools(request.tools, decisions);
+    const rejection2 = decisions.rejectionReport();
     if (rejection2)
-      return canonicalError2(400, rejection2.message);
-    const body = await this.applyFastMode(canonicalToCodexBody(request));
+      return withCodexFeatureNotices(canonicalError2(400, rejection2.message), decisions.notices());
+    const body = await this.applyFastMode(canonicalToCodexBody(this.withResolvedEffort(request)));
     options?.onRequestBody?.(JSON.stringify(body));
     const rawResponse = await this.client.proxy(body, options);
     const response = options?.onResponseBodyChunk ? withChunkCallback(rawResponse, options.onResponseBodyChunk) : rawResponse;
@@ -41131,6 +41486,9 @@ class Codex_Upstream_Provider {
   get tokens() {
     return this.client.tokens;
   }
+  withResolvedEffort(request) {
+    return applyCodexEffortDefault(request, codexEffortMetadata(this.modelMetadata.get(request.model)));
+  }
   async applyFastMode(body) {
     if (body.service_tier)
       return body;
@@ -41209,6 +41567,12 @@ function parsePositiveNumber(value) {
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
 }
+var REASONING_EFFORT_BUDGETS = {
+  low: 4000,
+  medium: 8000,
+  high: 16000,
+  xhigh: 32000
+};
 var USER_AGENT_TEMPLATE = "aws-sdk-js/1.0.27 ua/2.1 os/{platform}#{version} lang/js md/nodejs#{nodeVersion} api/codewhispererstreaming#1.0.27 m/E KiroIDE-{kiroVersion}-{fingerprint}";
 var X_AMZ_USER_AGENT_TEMPLATE = "aws-sdk-js/1.0.27 KiroIDE-{kiroVersion}-{fingerprint}";
 var KIRO_STATE_FILE_NAME = "provider-state.json";
@@ -41218,9 +41582,59 @@ var HIDDEN_KIRO_MODELS = [
   "claude-haiku-4.5"
 ];
 
+// src/upstream/kiro/capabilities.ts
+var KIRO_CAPABILITIES = {
+  streaming: true,
+  passthrough: false,
+  usageSupport: true,
+  environmentsSupport: false,
+  usageEndpointSupport: false,
+  tokenCountingSupport: false,
+  modelListingSupport: true,
+  retryPolicy: {
+    ...DEFAULT_RETRY_POLICY,
+    maxRetries: 3
+  },
+  timeoutPolicy: {
+    requestTimeoutMs: 0,
+    streamIdleTimeoutMs: 300000,
+    firstTokenTimeoutMs: KIRO_FIRST_TOKEN_TIMEOUT_MS
+  },
+  logBodyDefault: true,
+  features: {
+    sampling: "reject",
+    outputLength: "degrade",
+    stopSequences: "reject",
+    thinkingBudget: "degrade",
+    systemPrompt: "emulate",
+    promptCache: "reject",
+    strictToolSchema: "degrade",
+    toolChoiceForced: "degrade",
+    structuredOutput: "emulate",
+    webSearch: "emulate",
+    webFetch: "emulate",
+    mcpToolset: "emulate"
+  },
+  hostedTools: {
+    image_generation: "reject",
+    web_search: "emulate",
+    web_search_preview: "emulate",
+    file_search: "reject",
+    computer: "reject",
+    computer_use_preview: "reject",
+    code_interpreter: "reject",
+    mcp: "emulate",
+    local_shell: "reject",
+    tool_search: "reject"
+  }
+};
+var KIRO_UNDECLARED_HOSTED_TOOL_POLICY = "degrade";
+var KIRO_MCP_APPROVAL_REQUIRED_POLICY = "reject";
+var KIRO_MCP_APPROVAL_SELECTIVE_POLICY = "degrade";
+
 // src/upstream/kiro/errors.ts
 var REDACTED = "[redacted]";
-var SECRET_KEYS = /authorization|access[_-]?token|refresh[_-]?token|id[_-]?token|profile[_-]?arn|mcp[_-]?authorization|client[_-]?secret/i;
+var SECRET_KEYS = /authorization|access[_-]?token|refresh[_-]?token|id[_-]?token|profile[_-]?arn|mcp[_-]?authorization|client[_-]?secret|signature/i;
 var TOKEN_LIKE = /\b(?:Bearer\s+)?[A-Za-z0-9._~+/=-]{24,}\b/g;
 function classifyNetworkError(error) {
   const detail = errorMessage(error);
@@ -41866,6 +42280,267 @@ async function readDeviceRegistrationFile(filePath) {
   }
 }
 
+// src/core/mcp/errors.ts
+class McpProtocolError extends Error {
+  category;
+  status;
+  code;
+  data;
+  constructor(category, message, details = {}) {
+    super(message, details.cause !== undefined ? { cause: details.cause } : undefined);
+    this.name = "McpProtocolError";
+    this.category = category;
+    if (details.status !== undefined)
+      this.status = details.status;
+    if (details.code !== undefined)
+      this.code = details.code;
+    if (details.data !== undefined)
+      this.data = details.data;
+  }
+}
+function isMcpProtocolError(error) {
+  return error instanceof McpProtocolError;
+}
+function categoryForStatus(status) {
+  return status === 401 || status === 403 ? "unauthorized" : "http";
+}
+function categoryForJsonRpcCode(code) {
+  if (code === 401 || code === 403 || code === -32001)
+    return "unauthorized";
+  if (code !== undefined && code <= -32000 && code >= -32768)
+    return "protocol";
+  return "tool_error";
+}
+
+// src/core/mcp/client.ts
+var MCP_PROTOCOL_VERSION = "2025-06-18";
+var MCP_CLIENT_INFO = { name: "mcp-gateway", version: "1.0.0" };
+var MCP_DEFAULT_TIMEOUT_MS = 60000;
+
+class McpClient {
+  serverUrl;
+  auth;
+  fetchFn;
+  signal;
+  onUnauthorized;
+  timeoutMs;
+  nextRequestId;
+  authorization;
+  constructor(serverUrl, auth = {}, options = {}) {
+    this.serverUrl = serverUrl;
+    this.auth = auth;
+    this.authorization = auth.authorization;
+    this.fetchFn = options.fetch ?? fetch;
+    this.signal = options.signal;
+    this.onUnauthorized = options.onUnauthorized;
+    this.timeoutMs = options.timeoutMs ?? MCP_DEFAULT_TIMEOUT_MS;
+    this.nextRequestId = options.requestId ?? (() => `mcp_${crypto.randomUUID().replace(/-/g, "")}`);
+  }
+  async initialize(options = {}) {
+    await this.request("initialize", {
+      protocolVersion: MCP_PROTOCOL_VERSION,
+      capabilities: {},
+      clientInfo: { ...MCP_CLIENT_INFO }
+    }, options);
+  }
+  async listTools(options = {}) {
+    const result = this.expectObjectResult(await this.request("tools/list", {}, options), "tools/list");
+    if (!Array.isArray(result.tools)) {
+      throw new McpProtocolError("protocol", "MCP tools/list returned no tools array");
+    }
+    return result.tools.flatMap((entry) => {
+      if (!entry || typeof entry !== "object" || Array.isArray(entry))
+        return [];
+      const tool = entry;
+      if (typeof tool.name !== "string" || !tool.name)
+        return [];
+      return [
+        {
+          name: tool.name,
+          ...typeof tool.description === "string" ? { description: tool.description } : {},
+          ...isPlainObject(tool.inputSchema) ? { inputSchema: tool.inputSchema } : {}
+        }
+      ];
+    });
+  }
+  async callTool(name, args, options = {}) {
+    const result = this.expectObjectResult(await this.request("tools/call", { name, arguments: args ?? {} }, options), "tools/call");
+    return {
+      content: parseMcpTextEnvelope(result.content),
+      isError: result.isError === true
+    };
+  }
+  async request(method, params, options = {}) {
+    const body = buildJsonRpcRequest(this.nextRequestId(), method, params);
+    const response = await this.send(body, options);
+    return readJsonRpcResult(await this.readJson(response, method), method);
+  }
+  async requestRaw(method, params, options = {}) {
+    const body = buildJsonRpcRequest(this.nextRequestId(), method, params);
+    const response = await this.send(body, options);
+    return await this.readJson(response, method);
+  }
+  async send(body, options) {
+    const response = await this.fetchOnce(body, options);
+    if (response.status !== 401 && response.status !== 403) {
+      if (!response.ok)
+        throw await this.toHttpError(response);
+      return response;
+    }
+    if (!this.onUnauthorized)
+      throw await this.toHttpError(response);
+    const refreshed = await this.onUnauthorized();
+    if (refreshed !== undefined)
+      this.authorization = refreshed;
+    const retried = await this.fetchOnce(body, options);
+    if (!retried.ok)
+      throw await this.toHttpError(retried);
+    return retried;
+  }
+  async fetchOnce(body, options) {
+    const callerSignal = mergeSignals(this.signal, options.signal);
+    const request = withTimeout(callerSignal, this.timeoutMs);
+    try {
+      return await this.fetchFn(this.serverUrl, {
+        method: "POST",
+        headers: this.headers(options.auth),
+        body,
+        signal: request.signal
+      });
+    } catch (error) {
+      if (isAbortError(error) && callerSignal?.aborted)
+        throw error;
+      throw new McpProtocolError("transport", `MCP request failed: ${errorMessage2(error)}`, { cause: error });
+    } finally {
+      request.cleanup();
+    }
+  }
+  headers(callAuth) {
+    const headers = new Headers;
+    headers.set("content-type", "application/json");
+    for (const [key, value] of Object.entries({ ...this.auth.headers, ...callAuth?.headers })) {
+      if (typeof value === "string")
+        headers.set(key, value);
+    }
+    const authorization = callAuth?.authorization ?? this.authorization;
+    if (authorization)
+      headers.set("authorization", asAuthorizationHeader(authorization));
+    return headers;
+  }
+  async readJson(response, method) {
+    const text = await response.text();
+    let parsed;
+    try {
+      parsed = JSON.parse(text);
+    } catch (error) {
+      throw new McpProtocolError("protocol", `MCP ${method} returned a non-JSON body: ${errorMessage2(error)}`, {
+        status: response.status,
+        cause: error
+      });
+    }
+    if (!isPlainObject(parsed)) {
+      throw new McpProtocolError("protocol", `MCP ${method} returned a non-object JSON-RPC body`, {
+        status: response.status
+      });
+    }
+    return parsed;
+  }
+  expectObjectResult(result, method) {
+    if (!isPlainObject(result)) {
+      throw new McpProtocolError("protocol", `MCP ${method} returned a non-object result`);
+    }
+    return result;
+  }
+  async toHttpError(response) {
+    const body = await response.text().catch(() => "");
+    return new McpProtocolError(categoryForStatus(response.status), `MCP server returned HTTP ${response.status}${body ? `: ${truncate(body)}` : ""}`, { status: response.status });
+  }
+}
+function buildJsonRpcRequest(id, method, params) {
+  return JSON.stringify({
+    id,
+    jsonrpc: "2.0",
+    method,
+    ...params === undefined ? {} : { params }
+  });
+}
+function readJsonRpcResult(body, method) {
+  if (body.jsonrpc !== undefined && body.jsonrpc !== "2.0") {
+    throw new McpProtocolError("protocol", `MCP ${method} reply declared jsonrpc ${JSON.stringify(body.jsonrpc)}`);
+  }
+  if (body.error !== undefined && body.error !== null) {
+    const error = isPlainObject(body.error) ? body.error : {};
+    const code = typeof error.code === "number" ? error.code : undefined;
+    const message = typeof error.message === "string" && error.message ? error.message : JSON.stringify(body.error);
+    throw new McpProtocolError(categoryForJsonRpcCode(code), `MCP ${method} failed: ${message}`, {
+      ...code !== undefined ? { code } : {},
+      ...error.data !== undefined ? { data: error.data } : {}
+    });
+  }
+  if (body.result === undefined || body.result === null) {
+    throw new McpProtocolError("protocol", `MCP ${method} reply carried neither result nor error`);
+  }
+  return body.result;
+}
+function parseMcpTextEnvelope(content) {
+  if (!Array.isArray(content) || content.length !== 1)
+    return content;
+  const first = content[0];
+  if (!isPlainObject(first) || first.type !== "text" || typeof first.text !== "string")
+    return content;
+  try {
+    return JSON.parse(first.text);
+  } catch (error) {
+    throw new McpProtocolError("malformed_payload", `MCP result text is not valid JSON: ${errorMessage2(error)}`, { cause: error });
+  }
+}
+function asAuthorizationHeader(authorization) {
+  return /^\S+\s+\S/.test(authorization) ? authorization : `Bearer ${authorization}`;
+}
+function isPlainObject(value) {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+function mergeSignals(first, second) {
+  if (!first)
+    return second;
+  if (!second || first === second)
+    return first;
+  const controller = new AbortController;
+  for (const signal of [first, second]) {
+    if (signal.aborted) {
+      controller.abort(signal.reason);
+      return controller.signal;
+    }
+    signal.addEventListener("abort", () => controller.abort(signal.reason), { once: true });
+  }
+  return controller.signal;
+}
+function withTimeout(signal, timeoutMs) {
+  const controller = new AbortController;
+  const abortFromCaller = () => controller.abort(signal?.reason);
+  if (signal?.aborted)
+    abortFromCaller();
+  else
+    signal?.addEventListener("abort", abortFromCaller, { once: true });
+  const timeout = setTimeout(() => controller.abort(new DOMException("Signal timed out", "AbortError")), timeoutMs);
+  return {
+    signal: controller.signal,
+    cleanup: () => {
+      clearTimeout(timeout);
+      signal?.removeEventListener("abort", abortFromCaller);
+    }
+  };
+}
+function isAbortError(error) {
+  return (error instanceof DOMException || error instanceof Error) && error.name === "AbortError";
+}
+function errorMessage2(error) {
+  return error instanceof Error ? error.message : String(error);
+}
+function truncate(value, limit = 500) {
+  return value.length > limit ? `${value.slice(0, limit)}\u2026` : value;
+}
+
 // src/upstream/kiro/types.ts
 class ToolNameTooLongError extends Error {
   constructor(message) {
@@ -41917,7 +42592,7 @@ class KiroMcpError extends Error {
   }
 }
 
-// src/upstream/kiro/mcp.ts
+// src/upstream/kiro/web-search.ts
 function kiroWebSearchTool() {
   return {
     type: "function",
@@ -42039,6 +42714,8 @@ function publishedDate(timestampMs) {
 }
 
 // src/upstream/kiro/client.ts
+var LIST_AVAILABLE_MODELS_MAX_PAGES = 10;
+
 class Kiro_Client {
   auth;
   fetchFn;
@@ -42077,7 +42754,49 @@ class Kiro_Client {
     return this.requestWithRetries(this.modelsUrl().toString(), "GET");
   }
   async listAvailableModelsFull() {
-    const response = await this.requestWithRetries(this.modelsUrl().toString(), "GET");
+    const firstPage = await this.fetchModelsPage(undefined);
+    if (!isRecord2(firstPage))
+      return firstPage;
+    const merged = { ...firstPage };
+    const models = arrayField(firstPage, "models");
+    const modelIds = arrayField(firstPage, "modelIds");
+    let token = stringField(firstPage, "nextToken");
+    let pages = 1;
+    let capReached = false;
+    while (token !== undefined) {
+      if (pages >= LIST_AVAILABLE_MODELS_MAX_PAGES) {
+        capReached = true;
+        break;
+      }
+      let page;
+      try {
+        page = await this.fetchModelsPage(token);
+      } catch {
+        break;
+      }
+      if (!isRecord2(page))
+        break;
+      pages += 1;
+      models.push(...arrayField(page, "models"));
+      modelIds.push(...arrayField(page, "modelIds"));
+      const next = stringField(page, "nextToken");
+      if (next === undefined || next === token)
+        break;
+      token = next;
+    }
+    if (models.length)
+      merged.models = models;
+    if (modelIds.length)
+      merged.modelIds = modelIds;
+    delete merged.nextToken;
+    merged.modelPagination = { pages, capReached, maxPages: LIST_AVAILABLE_MODELS_MAX_PAGES };
+    return merged;
+  }
+  async fetchModelsPage(nextToken) {
+    const url = this.modelsUrl();
+    if (nextToken !== undefined)
+      url.searchParams.set("nextToken", nextToken);
+    const response = await this.requestWithRetries(url.toString(), "GET");
     return response.json().catch(() => {
       return;
     });
@@ -42109,19 +42828,8 @@ class Kiro_Client {
   async callMcpWebSearch(query, options = {}) {
     const toolUseId = options.toolUseId ?? `srvtoolu_${crypto.randomUUID().replace(/-/g, "").slice(0, 32)}`;
     const requestId = `web_search_tooluse_${randomId(22)}_${Date.now()}_${randomId(8)}`;
-    const body = JSON.stringify({
-      id: requestId,
-      jsonrpc: "2.0",
-      method: "tools/call",
-      params: {
-        name: "web_search",
-        arguments: { query }
-      }
-    });
-    const response = await this.requestMcpOnce(this.url("/mcp"), body, options);
-    if (!response.ok)
-      throw await this.toHttpError(response);
-    const results = parseMcpWebSearchResults(await response.json());
+    const body = await this.requestMcpOnce(requestId, "tools/call", { name: "web_search", arguments: { query } }, options);
+    const results = parseMcpWebSearchResults(body);
     return {
       toolUseId,
       results,
@@ -42159,40 +42867,54 @@ class Kiro_Client {
         signal: requestSignal.signal
       });
     } catch (error) {
-      if (isAbortError(error) && (options.signal?.aborted || options.timeoutMs !== undefined && !options.stream))
+      if (isAbortError2(error) && (options.signal?.aborted || options.timeoutMs !== undefined && !options.stream))
         throw error;
       throw new KiroNetworkError(error);
     } finally {
       requestSignal.cleanup();
     }
   }
-  async requestMcpOnce(url, body, options = {}) {
-    const request = async () => {
-      const accessToken = await this.auth.getAccessToken();
-      const requestSignal = createRequestSignal({ signal: options.signal, timeoutMs: 60000 });
-      try {
-        return this.fetchFn(url, {
-          method: "POST",
-          headers: this.mcpHeaders(accessToken),
-          body,
-          signal: requestSignal.signal
-        });
-      } finally {
-        requestSignal.cleanup();
-      }
-    };
-    try {
-      let response = await request();
-      if (response.status !== 403)
-        return response;
-      await this.auth.refresh();
-      response = await request();
+  async requestMcpOnce(requestId, method, params, options = {}) {
+    let lastResponse;
+    const observingFetch = async (input, init) => {
+      const response = await this.fetchFn(input, init);
+      lastResponse = response.clone();
       return response;
+    };
+    const client = new McpClient(this.url("/mcp"), {
+      authorization: await this.auth.getAccessToken(),
+      headers: { "x-amzn-codewhisperer-optout": "false" }
+    }, {
+      fetch: observingFetch,
+      ...options.signal ? { signal: options.signal } : {},
+      timeoutMs: 60000,
+      requestId: () => requestId,
+      onUnauthorized: async () => {
+        try {
+          await this.auth.refresh();
+        } catch (error) {
+          throw new KiroNetworkError(error);
+        }
+        return this.auth.getAccessToken();
+      }
+    });
+    try {
+      return await client.requestRaw(method, params);
     } catch (error) {
-      if (isAbortError(error) && options.signal?.aborted)
-        throw error;
-      throw new KiroNetworkError(error);
+      throw await this.toKiroMcpError(error, lastResponse);
     }
+  }
+  async toKiroMcpError(error, response) {
+    if (!isMcpProtocolError(error))
+      return error;
+    if (error.category === "http" || error.category === "unauthorized") {
+      if (response && response.status === error.status)
+        return await this.toHttpError(response);
+      return new KiroHttpError(error.status ?? 502, new Headers, error.message);
+    }
+    if (error.category === "transport")
+      return new KiroNetworkError(error.cause ?? error);
+    return new KiroMcpError(error.message);
   }
   headers(accessToken, method, attempt = 1) {
     const headers = new Headers;
@@ -42204,13 +42926,6 @@ class Kiro_Client {
     headers.set("x-amzn-kiro-agent-mode", "vibe");
     headers.set("amz-sdk-invocation-id", crypto.randomUUID());
     headers.set("amz-sdk-request", `attempt=${attempt}; max=${MAX_RETRIES}`);
-    return headers;
-  }
-  mcpHeaders(accessToken) {
-    const headers = new Headers;
-    headers.set("Authorization", `Bearer ${accessToken}`);
-    headers.set("Content-Type", "application/json");
-    headers.set("x-amzn-codewhisperer-optout", "false");
     return headers;
   }
   url(path) {
@@ -42232,6 +42947,17 @@ class Kiro_Client {
   async toHttpError(response) {
     return new KiroHttpError(response.status, responseHeaders(response.headers), await response.text());
   }
+}
+function isRecord2(value) {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+function arrayField(body, key) {
+  const value = body[key];
+  return Array.isArray(value) ? [...value] : [];
+}
+function stringField(body, key) {
+  const value = body[key];
+  return typeof value === "string" && value.length ? value : undefined;
 }
 function randomId(length) {
   const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
@@ -42261,7 +42987,7 @@ function createRequestSignal(options) {
 function renderTemplate(template, fingerprint, kiroVersion) {
   return template.replaceAll("{platform}", process.platform).replaceAll("{version}", process.version).replaceAll("{nodeVersion}", process.version.replace(/^v/, "")).replaceAll("{kiroVersion}", kiroVersion).replaceAll("{fingerprint}", fingerprint);
 }
-function isAbortError(error) {
+function isAbortError2(error) {
   return error instanceof DOMException && error.name === "AbortError" || error instanceof Error && error.name === "AbortError";
 }
 function healthError(status) {
@@ -42284,12 +43010,20 @@ function withKiroFeatureNotices(result, notices) {
     return responseWithNotices3(result, notices);
   if (result.type === "canonical_stream")
     return streamWithNotices3(result, notices);
+  if (result.type === "canonical_error")
+    return errorWithNotices3(result, notices);
   return result;
 }
 function responseWithNotices3(response, notices) {
   return {
     ...response,
     featureNotices: [...notices.map(copyNotice3), ...response.featureNotices ?? []]
+  };
+}
+function errorWithNotices3(error, notices) {
+  return {
+    ...error,
+    featureNotices: [...notices.map(copyNotice3), ...error.featureNotices ?? []]
   };
 }
 function streamWithNotices3(stream, notices) {
@@ -42311,68 +43045,20 @@ function copyNotice3(notice) {
   return { ...notice };
 }
 
-// src/upstream/kiro/capabilities.ts
-var KIRO_CAPABILITIES = {
-  streaming: true,
-  passthrough: false,
-  usageSupport: true,
-  environmentsSupport: false,
-  usageEndpointSupport: false,
-  tokenCountingSupport: false,
-  modelListingSupport: true,
-  retryPolicy: {
-    ...DEFAULT_RETRY_POLICY,
-    maxRetries: 3
-  },
-  timeoutPolicy: {
-    requestTimeoutMs: 0,
-    streamIdleTimeoutMs: 300000,
-    firstTokenTimeoutMs: KIRO_FIRST_TOKEN_TIMEOUT_MS
-  },
-  logBodyDefault: true,
-  features: {
-    sampling: "reject",
-    outputLength: "degrade",
-    stopSequences: "reject",
-    thinkingBudget: "degrade",
-    systemPrompt: "emulate",
-    promptCache: "reject",
-    strictToolSchema: "degrade",
-    toolChoiceForced: "degrade",
-    structuredOutput: "emulate",
-    webSearch: "emulate",
-    webFetch: "emulate",
-    mcpToolset: "emulate"
-  },
-  hostedTools: {
-    image_generation: "reject",
-    web_search: "emulate",
-    web_search_preview: "emulate",
-    file_search: "reject",
-    computer: "reject",
-    computer_use_preview: "reject",
-    code_interpreter: "reject",
-    mcp: "emulate",
-    local_shell: "reject",
-    tool_search: "reject"
-  }
-};
-
 // src/upstream/kiro/features.ts
 function resolveKiroFeatures(request, options = {}) {
   const decisions = new FeatureDecisions(KIRO_CAPABILITIES.features, options.strict ?? false);
-  const view = request;
-  const sampling = requestedSamplingControls3(view);
+  const sampling = requestedSamplingControls3(request);
   if (sampling.length) {
     decisions.resolve("sampling", `this endpoint exposes no generation controls, so the requested ${joinControls3(sampling)} cannot reach the model \u2014 there is nothing here to carry the value, and an invented carrier would be answered with a 200 and discarded, which reads as honored while changing nothing`, "an upstream that honors generation controls, or omit them");
   }
-  if (requestedOutputLengthLimit3(view)) {
+  if (requestedOutputLengthLimit3(request)) {
     decisions.resolve("outputLength", "this endpoint accepts an output length limit and then disregards it \u2014 a limit of a handful of tokens was measured answering 200 and still streaming a full-length essay \u2014 so the limit is left off the request rather than sent to be ignored, and the reply may run well past the length that was asked for", "an upstream that enforces an output length limit, or stop reading the reply on the client once it is long enough");
   }
-  if (requestedStopSequences3(view).length) {
+  if (requestedStopSequences3(request).length) {
     decisions.resolve("stopSequences", "this endpoint has no stop-sequence field, so generation cannot be halted on the requested strings", "an upstream that honors stop sequences, or truncate the reply on the client");
   }
-  if (requestsPromptCache3(view)) {
+  if (requestsPromptCache3(request)) {
     decisions.resolve("promptCache", "this endpoint exposes no prompt cache: reusing a conversation reduced no spend and reported no cached-input counter, so the requested cache hints cannot be applied", "an upstream with a prompt cache, or drop the cache hints");
   }
   const forced = forcedToolChoice3(request.toolChoice);
@@ -42446,6 +43132,898 @@ function schemaClosesShape3(schema, depth = 0) {
 }
 function isJsonObject3(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+// src/upstream/kiro/hosted-tools.ts
+var FUNCTION_TOOL_TYPE3 = "function";
+var HOSTED_TOOL_FEATURES3 = {
+  web_search: "webSearch",
+  web_search_preview: "webSearch"
+};
+var WEB_SEARCH_DETAIL_SUBJECT = "'web_search' (or its 'web_search_preview' alias)";
+var HOSTED_TOOL_DETAIL_SUBJECTS = {
+  web_search: WEB_SEARCH_DETAIL_SUBJECT,
+  web_search_preview: WEB_SEARCH_DETAIL_SUBJECT
+};
+function hostedToolDetailSubject(type) {
+  return Object.hasOwn(HOSTED_TOOL_DETAIL_SUBJECTS, type) ? HOSTED_TOOL_DETAIL_SUBJECTS[type] : `'${type}'`;
+}
+var DEFAULT_HOSTED_TOOL_FEATURE3 = "mcpToolset";
+function hostedToolFeature3(type) {
+  return Object.hasOwn(HOSTED_TOOL_FEATURES3, type) ? HOSTED_TOOL_FEATURES3[type] : DEFAULT_HOSTED_TOOL_FEATURE3;
+}
+function isKiroHostedTool(tool) {
+  return typeof tool.type === "string" && tool.type.length > 0 && tool.type !== FUNCTION_TOOL_TYPE3;
+}
+function kiroHostedToolTypes(tools) {
+  const seen = new Set;
+  for (const tool of tools ?? []) {
+    if (isKiroHostedTool(tool))
+      seen.add(tool.type);
+  }
+  return [...seen];
+}
+function resolveKiroHostedTools(tools, decisions) {
+  for (const type of kiroHostedToolTypes(tools)) {
+    if (isCanonicalWebFetchToolType(type)) {
+      decisions.resolveWithPolicy("webFetch", KIRO_CAPABILITIES.features.webFetch, emulatedFetchDetail(type), FETCH_ALTERNATIVE3);
+      continue;
+    }
+    const declared = resolveHostedToolPolicy(KIRO_CAPABILITIES.hostedTools, type);
+    decisions.resolveWithPolicy(hostedToolFeature3(type), declared ?? KIRO_UNDECLARED_HOSTED_TOOL_POLICY, declared === undefined ? undeclaredDetail3(type) : declaredDetail3(type), declared === undefined ? UNDECLARED_ALTERNATIVE3 : DECLARED_ALTERNATIVE3);
+  }
+}
+function declaredDetail3(type) {
+  return `this endpoint has no hosted tool field, so the ${hostedToolDetailSubject(type)} tool is not sent upstream as a hosted tool \u2014 the gateway runs it on the request's behalf where it can, and where it cannot the tool cannot run at all`;
+}
+function undeclaredDetail3(type) {
+  return `the '${type}' tool is not one of the hosted tool types this upstream declares, so nothing here claims to run it and it may not run at all`;
+}
+function emulatedFetchDetail(type) {
+  return `this endpoint has no server-side fetch tool, so the '${type}' tool is not sent upstream \u2014 the gateway fetches the URL itself and returns the page as a web_fetch_tool_result`;
+}
+var FETCH_ALTERNATIVE3 = "a client function tool that fetches the URL, or an upstream that hosts a fetch tool";
+var DECLARED_ALTERNATIVE3 = "a client function tool, or the gateway's own web_search helper";
+var UNDECLARED_ALTERNATIVE3 = "one of the hosted tool types this upstream declares, or a client function tool";
+
+// src/upstream/kiro/effort.ts
+function selectEffortLevel(metadata, intent = {}) {
+  if (intent.thinking?.mode === "disabled")
+    return { kind: "absent", reason: "thinking_disabled" };
+  const requested = normalizeRequested2(intent.requested);
+  if (requested !== undefined) {
+    if (!metadata)
+      return { kind: "unsupported", requested };
+    if (metadata.levels.includes(requested))
+      return selected("explicit", metadata.schemaPath, requested);
+    return { kind: "out_of_enum", requested, levels: [...metadata.levels], schemaPath: metadata.schemaPath };
+  }
+  if (!metadata)
+    return { kind: "absent", reason: "no_model_default" };
+  const fromBudget = budgetToLevel(intent.thinking?.budgetTokens, metadata.levels);
+  if (fromBudget !== undefined)
+    return selected("budget", metadata.schemaPath, fromBudget);
+  const defaultLevel = metadata.defaultLevel;
+  if (defaultLevel !== undefined && metadata.levels.includes(defaultLevel)) {
+    return selected("model_default", metadata.schemaPath, defaultLevel);
+  }
+  return { kind: "absent", reason: "no_model_default" };
+}
+function validateKiroEffort(metadata, requested) {
+  if (normalizeRequested2(requested) === undefined)
+    return { ok: true };
+  if (metadata === null)
+    return { ok: false, code: "metadata_unavailable", status: 503 };
+  const decision = selectEffortLevel(metadata, { requested });
+  switch (decision.kind) {
+    case "unsupported":
+      return { ok: false, code: "effort_unsupported", requested: decision.requested };
+    case "out_of_enum":
+      return {
+        ok: false,
+        code: "effort_not_in_enum",
+        requested: decision.requested,
+        levels: decision.levels,
+        nearest: nearestEnumLevel(decision.requested, decision.levels)
+      };
+    default:
+      return { ok: true };
+  }
+}
+var KNOWN_LEVEL_ORDER = ["minimal", "low", "medium", "high", "xhigh", "max"];
+function nearestEnumLevel(requested, levels) {
+  const rankOf = (level) => KNOWN_LEVEL_ORDER.indexOf(level);
+  const ranked = levels.map((level) => ({ level, rank: rankOf(level) })).filter((candidate) => candidate.rank >= 0);
+  if (!ranked.length)
+    return levels[levels.length - 1] ?? requested;
+  const requestedRank = rankOf(requested);
+  if (requestedRank < 0)
+    return ranked.reduce((best, candidate) => candidate.rank > best.rank ? candidate : best).level;
+  return ranked.reduce((best, candidate) => {
+    const candidateDistance = Math.abs(candidate.rank - requestedRank);
+    const bestDistance = Math.abs(best.rank - requestedRank);
+    if (candidateDistance < bestDistance)
+      return candidate;
+    if (candidateDistance === bestDistance && candidate.rank > best.rank)
+      return candidate;
+    return best;
+  }).level;
+}
+function budgetToLevel(budgetTokens, levels) {
+  if (typeof budgetTokens !== "number" || !Number.isFinite(budgetTokens) || budgetTokens <= 0)
+    return;
+  const candidates = levels.map((level) => ({ level, budget: REASONING_EFFORT_BUDGETS[level] })).filter((candidate) => typeof candidate.budget === "number");
+  if (!candidates.length)
+    return;
+  return candidates.reduce((best, candidate) => {
+    const candidateDistance = Math.abs(candidate.budget - budgetTokens);
+    const bestDistance = Math.abs(best.budget - budgetTokens);
+    if (candidateDistance < bestDistance)
+      return candidate;
+    if (candidateDistance === bestDistance && candidate.budget > best.budget)
+      return candidate;
+    return best;
+  }).level;
+}
+var EFFORT_SUFFIX_NAMES = ["none", ...KNOWN_LEVEL_ORDER, "ultra"];
+function requestStatesEffortIntent(request) {
+  if (normalizeRequested2(request.reasoningEffort) !== undefined)
+    return true;
+  if (request.thinking?.mode === "disabled")
+    return false;
+  return typeof request.thinking?.budgetTokens === "number";
+}
+function normalizeRequested2(requested) {
+  return typeof requested === "string" && requested.length ? requested : undefined;
+}
+function selected(source, schemaPath, level) {
+  return { kind: "selected", source, effort: { schemaPath, level } };
+}
+
+// src/upstream/kiro/web-fetch.ts
+var KIRO_WEB_FETCH_TOOL_NAME = "web_fetch";
+var KIRO_WEB_FETCH_MAX_CONTENT_CHARS = 1e5;
+var KIRO_WEB_FETCH_TIMEOUT_MS = 20000;
+var FETCHABLE_PROTOCOLS = new Set(["http:", "https:"]);
+function kiroWebFetchTool() {
+  return {
+    type: "function",
+    name: KIRO_WEB_FETCH_TOOL_NAME,
+    description: "Fetch the contents of a specific web page by URL and return its text. Use this when the user names a URL and wants its content, rather than searching. Always pass an absolute http or https URL, verbatim as the user wrote it.",
+    parameters: {
+      type: "object",
+      properties: {
+        url: { type: "string", description: "Absolute http or https URL to fetch, copied verbatim from the request." }
+      },
+      required: ["url"]
+    }
+  };
+}
+function isFetchableUrl(input) {
+  const trimmed = input.trim();
+  if (!trimmed)
+    return false;
+  let parsed;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    return false;
+  }
+  if (!FETCHABLE_PROTOCOLS.has(parsed.protocol))
+    return false;
+  return parsed.hostname.length > 0;
+}
+function webFetchInvalidInputMessage(input) {
+  return `Kiro web_fetch received an input that is not a URL: ${JSON.stringify(input)}. Provide an absolute http or https URL.`;
+}
+function validateKiroWebFetchInput(input) {
+  const trimmed = input.trim();
+  if (!isFetchableUrl(trimmed))
+    return { ok: false, message: webFetchInvalidInputMessage(input) };
+  return { ok: true, url: trimmed };
+}
+function extractWebFetchUrl(argumentsJson) {
+  try {
+    const parsed = JSON.parse(argumentsJson);
+    return typeof parsed.url === "string" ? parsed.url.trim() : "";
+  } catch {
+    return "";
+  }
+}
+function webFetchBlocks(toolUseId, document2) {
+  return [
+    {
+      type: "server_tool_use",
+      id: toolUseId,
+      name: KIRO_WEB_FETCH_TOOL_NAME,
+      input: { url: document2.url }
+    },
+    {
+      type: "web_fetch_tool_result",
+      tool_use_id: toolUseId,
+      content: {
+        type: "web_fetch_result",
+        url: document2.url,
+        content: {
+          type: "document",
+          source: {
+            type: "text",
+            media_type: "text/plain",
+            data: document2.data
+          },
+          ...document2.title ? { title: document2.title } : {}
+        },
+        retrieved_at: document2.retrievedAt
+      }
+    }
+  ];
+}
+function webFetchRequestsFromBlocks(blocks) {
+  return blocks.filter((block) => block.type === "web_fetch_tool_result").length;
+}
+async function executeKiroWebFetch(input, options = {}) {
+  const validation = validateKiroWebFetchInput(input);
+  if (!validation.ok)
+    return validation;
+  const fetchImpl = options.fetchImpl ?? fetch;
+  const maxChars = options.maxContentChars ?? KIRO_WEB_FETCH_MAX_CONTENT_CHARS;
+  const now = options.now ?? (() => new Date);
+  const signal = combineSignals(options.signal, options.timeoutMs ?? KIRO_WEB_FETCH_TIMEOUT_MS);
+  let response;
+  try {
+    response = await fetchImpl(validation.url, {
+      redirect: "follow",
+      headers: { accept: "text/html,text/plain;q=0.9,*/*;q=0.8" },
+      ...signal ? { signal } : {}
+    });
+  } catch (error) {
+    return { ok: false, message: `Kiro web_fetch could not reach ${validation.url}: ${errorText(error)}` };
+  }
+  if (!response.ok) {
+    return { ok: false, message: `Kiro web_fetch could not fetch ${validation.url}: upstream responded ${response.status}.` };
+  }
+  let body;
+  try {
+    body = await response.text();
+  } catch (error) {
+    return { ok: false, message: `Kiro web_fetch could not read ${validation.url}: ${errorText(error)}` };
+  }
+  const title = extractHtmlTitle(body);
+  return {
+    ok: true,
+    execution: {
+      toolUseId: options.toolUseId ?? webFetchToolUseId(),
+      document: {
+        url: validation.url,
+        data: extractText(body).slice(0, maxChars),
+        ...title ? { title } : {},
+        retrievedAt: now().toISOString()
+      }
+    }
+  };
+}
+async function* maybeHandleKiroWebFetch(call, handlers) {
+  if (call.name !== KIRO_WEB_FETCH_TOOL_NAME || !handlers?.webFetch) {
+    yield { type: "tool_call_done", callId: call.callId, name: call.name, arguments: call.arguments };
+    return;
+  }
+  const candidate = extractWebFetchUrl(call.arguments) || call.arguments.trim();
+  const validation = validateKiroWebFetchInput(candidate);
+  if (!validation.ok) {
+    yield { type: "error", message: validation.message };
+    return;
+  }
+  const result = await handlers.webFetch(validation.url);
+  if (!result) {
+    yield { type: "tool_call_done", callId: call.callId, name: call.name, arguments: call.arguments };
+    return;
+  }
+  if (!result.ok) {
+    yield { type: "error", message: result.message };
+    return;
+  }
+  yield { type: "server_tool_block", blocks: webFetchBlocks(result.execution.toolUseId, result.execution.document) };
+}
+function webFetchToolUseId() {
+  return `srvtoolu_${crypto.randomUUID().replace(/-/g, "")}`;
+}
+function combineSignals(signal, timeoutMs) {
+  const timeout = typeof AbortSignal.timeout === "function" && timeoutMs > 0 ? AbortSignal.timeout(timeoutMs) : undefined;
+  if (!signal)
+    return timeout;
+  if (!timeout)
+    return signal;
+  if (typeof AbortSignal.any === "function")
+    return AbortSignal.any([signal, timeout]);
+  return signal;
+}
+function errorText(error) {
+  return error instanceof Error ? error.message : String(error);
+}
+function extractHtmlTitle(body) {
+  const match = /<title[^>]*>([\s\S]*?)<\/title>/i.exec(body);
+  if (!match)
+    return;
+  const title = decodeEntities(match[1]).replace(/\s+/g, " ").trim();
+  return title || undefined;
+}
+function extractText(body) {
+  const stripped = body.replace(/<!--[\s\S]*?-->/g, " ").replace(/<(script|style|noscript)\b[\s\S]*?<\/\1>/gi, " ").replace(/<br\s*\/?>/gi, `
+`).replace(/<\/(p|div|li|h[1-6]|tr|section|article)>/gi, `
+`).replace(/<[^>]+>/g, " ");
+  return decodeEntities(stripped).replace(/[ \t\f\v\u00a0]+/g, " ").replace(/ *\n[ \n]*/g, `
+`).trim();
+}
+function decodeEntities(text) {
+  return text.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#0*39;/g, "'").replace(/&apos;/g, "'").replace(/&nbsp;/g, " ").replace(/&amp;/g, "&");
+}
+
+// src/core/mcp/naming.ts
+import { createHash } from "crypto";
+var NAME_PREFIX = "mcp__";
+var SEGMENT_SEPARATOR = "__";
+var DIGEST_LENGTH = 8;
+var MANGLED_OVERHEAD = NAME_PREFIX.length + SEGMENT_SEPARATOR.length * 2 + DIGEST_LENGTH;
+var MCP_EXPOSED_NAME_MIN_LENGTH = MANGLED_OVERHEAD + 2 + 2;
+var BASE32_ALPHABET = "abcdefghijklmnopqrstuvwxyz234567";
+var ILLEGAL_CHARACTERS = /[^A-Za-z0-9_-]/g;
+function sanitizeSegment(value) {
+  return value.replace(ILLEGAL_CHARACTERS, "_");
+}
+function identityKey(identity) {
+  return `${identity.serverUrl}\x00${identity.serverLabel}\x00${identity.toolName}`;
+}
+function digest8(key) {
+  const bytes = createHash("sha256").update(key, "utf8").digest();
+  let bits = 0;
+  let accumulator = 0;
+  let out = "";
+  for (const byte of bytes) {
+    accumulator = accumulator << 8 | byte;
+    bits += 8;
+    while (bits >= 5) {
+      bits -= 5;
+      out += BASE32_ALPHABET[accumulator >>> bits & 31];
+      if (out.length === DIGEST_LENGTH)
+        return out;
+    }
+  }
+  return out;
+}
+function allocateSegmentBudget(budget, serverLength, toolLength) {
+  if (budget <= 0)
+    return { server: 0, tool: 0 };
+  const total = serverLength + toolLength;
+  if (total <= budget)
+    return { server: serverLength, tool: toolLength };
+  let server = Math.min(Math.round(budget * serverLength / total), serverLength, budget);
+  let tool = budget - server;
+  if (tool > toolLength) {
+    tool = toolLength;
+    server = budget - tool;
+  }
+  if (serverLength > 0 && server === 0 && tool > 1) {
+    server = 1;
+    tool -= 1;
+  }
+  if (toolLength > 0 && tool === 0 && server > 1) {
+    tool = 1;
+    server -= 1;
+  }
+  return { server, tool };
+}
+function createMcpToolNameMap(options) {
+  const maxNameLength = options.maxNameLength;
+  if (!Number.isInteger(maxNameLength) || maxNameLength < MCP_EXPOSED_NAME_MIN_LENGTH) {
+    throw new RangeError(`maxNameLength must be an integer of at least ${MCP_EXPOSED_NAME_MIN_LENGTH}, received ${String(maxNameLength)}`);
+  }
+  const byIdentity = new Map;
+  const byName = new Map;
+  function register(key, name, identity) {
+    byIdentity.set(key, name);
+    byName.set(name, { ...identity });
+    return name;
+  }
+  function fallbackName() {
+    for (let index = 1;; index += 1) {
+      const candidate = `${NAME_PREFIX}${index}`;
+      if (candidate.length <= maxNameLength && !byName.has(candidate))
+        return candidate;
+    }
+  }
+  return {
+    exposedName(identity) {
+      const key = identityKey(identity);
+      const existing = byIdentity.get(key);
+      if (existing !== undefined)
+        return existing;
+      const server = sanitizeSegment(identity.serverLabel);
+      const tool = sanitizeSegment(identity.toolName);
+      const plain = `${NAME_PREFIX}${server}${SEGMENT_SEPARATOR}${tool}`;
+      if (plain.length <= maxNameLength && !byName.has(plain))
+        return register(key, plain, identity);
+      const digest = digest8(key);
+      for (let counter = 1;; counter += 1) {
+        const suffix = counter === 1 ? "" : `_${counter}`;
+        const budget = maxNameLength - MANGLED_OVERHEAD - suffix.length;
+        if (budget < 2)
+          return register(key, fallbackName(), identity);
+        const kept = allocateSegmentBudget(budget, server.length, tool.length);
+        const candidate = NAME_PREFIX + server.slice(0, kept.server) + SEGMENT_SEPARATOR + tool.slice(0, kept.tool) + SEGMENT_SEPARATOR + digest + suffix;
+        if (!byName.has(candidate))
+          return register(key, candidate, identity);
+      }
+    },
+    resolve(exposedName) {
+      const identity = byName.get(exposedName);
+      return identity ? { ...identity } : undefined;
+    },
+    entries() {
+      return [...byName.entries()].map(([name, identity]) => [name, { ...identity }]);
+    }
+  };
+}
+
+// src/core/mcp/toolset.ts
+var MCP_FEATURE = "mcpToolset";
+async function expandMcpToolsets(specs, deps) {
+  const map = deps.map ?? createMcpToolNameMap({ maxNameLength: deps.maxNameLength });
+  const tools = [];
+  const notices = [];
+  const seenNames = new Set;
+  for (const spec of specs) {
+    const serverUrl = spec.server_url?.trim();
+    if (!serverUrl) {
+      notices.push(notice(spec, `MCP toolset ${describe(spec)} declares no server_url, so its tools were not made available for this request.`));
+      continue;
+    }
+    let remoteTools;
+    try {
+      const client = clientFor(spec, serverUrl, deps);
+      if (deps.initialize !== false)
+        await client.initialize();
+      remoteTools = await client.listTools();
+    } catch (error) {
+      if (isCallerAbort(error, deps.signal))
+        throw error;
+      notices.push(notice(spec, `MCP toolset ${describe(spec)} could not list its tools (${categoryOf(error)}), so its tools were not made ` + `available for this request: ${redact2(messageOf(error), spec)}`));
+      continue;
+    }
+    const selection = selectionSet(spec);
+    for (const remote of remoteTools) {
+      if (selection && !selection.has(remote.name))
+        continue;
+      const exposedName = map.exposedName({
+        serverLabel: spec.server_label,
+        serverUrl,
+        toolName: remote.name
+      });
+      if (seenNames.has(exposedName))
+        continue;
+      seenNames.add(exposedName);
+      tools.push(functionTool(exposedName, remote));
+    }
+  }
+  return { tools, map, notices };
+}
+function selectionSet(spec) {
+  const named = [...spec.allowed_tools ?? [], ...spec.tool_names ?? []].filter((name) => typeof name === "string" && name.length > 0);
+  return named.length > 0 ? new Set(named) : undefined;
+}
+function functionTool(exposedName, remote) {
+  return {
+    type: "function",
+    name: exposedName,
+    ...remote.description ? { description: remote.description } : {},
+    parameters: { type: "object", properties: {}, ...remote.inputSchema ?? {} },
+    strict: false
+  };
+}
+async function executeMcpToolCall(map, call, deps) {
+  const identity = map.resolve(call.name);
+  if (!identity)
+    return;
+  const args = parseArguments(call.arguments);
+  const spec = findSpec(deps.specs, identity);
+  if (!spec) {
+    return {
+      identity,
+      exposedName: call.name,
+      arguments: args,
+      content: `No MCP toolset is registered for server ${identity.serverLabel}.`,
+      isError: true,
+      errorCategory: "protocol"
+    };
+  }
+  try {
+    const client = clientFor(spec, identity.serverUrl, deps);
+    if (deps.initialize !== false)
+      await client.initialize();
+    const result = await client.callTool(identity.toolName, args);
+    return {
+      identity,
+      exposedName: call.name,
+      arguments: args,
+      content: result.content,
+      isError: result.isError
+    };
+  } catch (error) {
+    if (isCallerAbort(error, deps.signal))
+      throw error;
+    return {
+      identity,
+      exposedName: call.name,
+      arguments: args,
+      content: redact2(messageOf(error), spec),
+      isError: true,
+      errorCategory: categoryOf(error)
+    };
+  }
+}
+function findSpec(specs, identity) {
+  return specs.find((spec) => spec.server_url?.trim() === identity.serverUrl && spec.server_label === identity.serverLabel);
+}
+function parseArguments(args) {
+  if (typeof args !== "string")
+    return args ?? {};
+  if (args.trim() === "")
+    return {};
+  try {
+    return JSON.parse(args);
+  } catch {
+    return args;
+  }
+}
+function clientFor(spec, serverUrl, deps) {
+  const auth = {
+    ...spec.authorization ? { authorization: spec.authorization } : {},
+    ...spec.headers ? { headers: spec.headers } : {}
+  };
+  if (deps.createClient)
+    return deps.createClient(spec, auth);
+  return new McpClient(serverUrl, auth, {
+    ...deps.fetch ? { fetch: deps.fetch } : {},
+    ...deps.signal ? { signal: deps.signal } : {},
+    ...deps.timeoutMs !== undefined ? { timeoutMs: deps.timeoutMs } : {},
+    ...deps.onUnauthorized ? { onUnauthorized: () => deps.onUnauthorized(spec) } : {}
+  });
+}
+function notice(spec, detail) {
+  return { feature: MCP_FEATURE, policy: "degrade", detail: redact2(detail, spec) };
+}
+function describe(spec) {
+  return JSON.stringify(spec.server_label);
+}
+function categoryOf(error) {
+  return isMcpProtocolError(error) ? error.category : "transport";
+}
+function messageOf(error) {
+  return error instanceof Error ? error.message : String(error);
+}
+function redact2(text, spec) {
+  let out = text;
+  const secrets = [spec.authorization, ...Object.values(spec.headers ?? {})];
+  for (const secret of secrets) {
+    if (typeof secret === "string" && secret.length >= 8)
+      out = out.split(secret).join("[REDACTED]");
+  }
+  return out;
+}
+function isCallerAbort(error, signal) {
+  const isAbort = (error instanceof DOMException || error instanceof Error) && error.name === "AbortError";
+  return isAbort && signal?.aborted === true;
+}
+
+// src/upstream/kiro/mcp-toolset.ts
+var KIRO_MCP_TOOL_NAME_MAX_LENGTH = TOOL_NAME_MAX_LENGTH;
+function kiroMcpToolsets(tools = []) {
+  return tools.flatMap((tool) => {
+    if (!tool || tool.type !== "mcp")
+      return [];
+    const serverLabel = typeof tool.server_label === "string" ? tool.server_label : undefined;
+    if (!serverLabel)
+      return [];
+    const serverUrl = httpUrl(tool.server_url);
+    return [
+      {
+        type: "mcp",
+        server_label: serverLabel,
+        ...serverUrl ? { server_url: serverUrl } : {},
+        ...typeof tool.connector_id === "string" ? { connector_id: tool.connector_id } : {},
+        ...stringArray(tool.allowed_tools) ? { allowed_tools: stringArray(tool.allowed_tools) } : {},
+        ...stringArray(tool.tool_names) ? { tool_names: stringArray(tool.tool_names) } : {},
+        ...typeof tool.authorization === "string" ? { authorization: tool.authorization } : {},
+        ...stringRecord(tool.headers) ? { headers: stringRecord(tool.headers) } : {},
+        ...requireApproval(tool.require_approval) ? { require_approval: requireApproval(tool.require_approval) } : {}
+      }
+    ];
+  });
+}
+function requireApproval(value) {
+  if (value === undefined || value === null)
+    return;
+  if (value === "always" || value === "never")
+    return value;
+  if (typeof value !== "object" || Array.isArray(value))
+    return {};
+  const object = value;
+  return {
+    ...typeof object.read_only === "boolean" ? { read_only: object.read_only } : {},
+    ...stringArray(object.tool_names) ? { tool_names: stringArray(object.tool_names) } : {}
+  };
+}
+function requestDeclaresMcpToolsets(tools = []) {
+  return tools.some((tool) => Boolean(tool) && tool.type === "mcp");
+}
+function kiroMcpServerUrls(specs) {
+  const urls = new Set;
+  for (const spec of specs) {
+    const normalized = normalizeUrl(spec.server_url);
+    if (normalized)
+      urls.add(normalized);
+  }
+  return urls;
+}
+function confineFetch(fetchFn, allowed) {
+  return async (input, init) => {
+    const requested = requestUrl(input);
+    const normalized = normalizeUrl(requested);
+    if (!normalized || !allowed.has(normalized)) {
+      throw new Error(`MCP egress refused: ${JSON.stringify(redact(requested))} is not a server URL declared in mcp_servers`);
+    }
+    return fetchFn(input, { ...init ?? {}, redirect: "manual" });
+  };
+}
+function kiroMcpApprovalKind(value) {
+  if (value === undefined)
+    return "unrestricted";
+  if (value === "never")
+    return "unrestricted";
+  if (value === "always")
+    return "required";
+  return "selective";
+}
+function resolveKiroMcpApproval(specs, decisions) {
+  const allowed = [];
+  const withheld = [];
+  for (const spec of specs) {
+    const kind = kiroMcpApprovalKind(spec.require_approval);
+    if (kind === "unrestricted") {
+      allowed.push(spec);
+      continue;
+    }
+    withheld.push({ spec, kind });
+    decisions?.resolveWithPolicy("mcpToolset", kind === "required" ? KIRO_MCP_APPROVAL_REQUIRED_POLICY : KIRO_MCP_APPROVAL_SELECTIVE_POLICY, redactSpecSecrets(approvalDetail(spec, kind), specs), APPROVAL_ALTERNATIVE);
+  }
+  return { allowed, withheld };
+}
+var APPROVAL_ALTERNATIVE = 'require_approval: "never" for that server, which states the calls need no approval, or an upstream that can ask you to approve each call';
+function approvalDetail(spec, kind) {
+  const server = JSON.stringify(spec.server_label);
+  if (kind === "required") {
+    return `MCP toolset ${server} asks for your approval before each tool call, and this gateway is one-way \u2014 a request ` + `arrives and a stream goes back, with no channel on which to ask you \u2014 so no call to that server can be approved ` + `and none was attempted`;
+  }
+  return `MCP toolset ${server} selects which tool calls need your approval, and this gateway has no channel on which to ask ` + `you for one; the selection can be read as naming the tools that need approval or as naming the ones exempt from it, ` + `so the most restrictive reading was taken \u2014 every tool on that server is treated as needing approval, and none of ` + `its tools were made available for this request`;
+}
+async function createKiroMcpSession(tools = [], options = {}) {
+  const declared = kiroMcpToolsets(tools);
+  const { allowed: specs } = resolveKiroMcpApproval(declared, options.decisions);
+  const serverUrls = kiroMcpServerUrls(specs);
+  const toBlocks = options.toBlocks ?? mcpCallItemToBlocks;
+  const nextCallId = options.callId ?? (() => `mcp_${crypto.randomUUID().replace(/-/g, "")}`);
+  const connection = {
+    fetch: confineFetch(options.fetch ?? fetch, serverUrls),
+    ...options.signal ? { signal: options.signal } : {},
+    ...options.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {},
+    ...options.initialize !== undefined ? { initialize: options.initialize } : {},
+    ...options.createClient ? { createClient: options.createClient } : {},
+    ...options.onUnauthorized ? { onUnauthorized: options.onUnauthorized } : {}
+  };
+  const expansion = specs.length ? await expandMcpToolsets(specs, {
+    ...connection,
+    maxNameLength: options.maxNameLength ?? KIRO_MCP_TOOL_NAME_MAX_LENGTH
+  }) : undefined;
+  const map = expansion?.map;
+  const tools_ = expansion?.tools ?? [];
+  const notices = (expansion?.notices ?? []).map((notice2) => redactNotice(notice2, specs));
+  let mcpCalls = 0;
+  const session = {
+    tools: tools_,
+    notices,
+    serverUrls,
+    get mcpCalls() {
+      return mcpCalls;
+    },
+    get active() {
+      return tools_.length > 0;
+    },
+    handles(name) {
+      return Boolean(map?.resolve(name));
+    },
+    handleToolCall(call) {
+      return handle(call);
+    },
+    serverToolUseDelta() {
+      return mcpCalls ? { mcpCalls } : undefined;
+    }
+  };
+  async function* handle(call) {
+    if (!map?.resolve(call.name)) {
+      yield passThrough(call);
+      return;
+    }
+    let outcome;
+    try {
+      outcome = await executeMcpToolCall(map, { name: call.name, arguments: call.arguments }, { ...connection, specs });
+    } catch (error) {
+      if (isCallerAbort2(error, options.signal))
+        throw error;
+      outcome = {
+        identity: { serverLabel: "unknown", serverUrl: "", toolName: call.name },
+        exposedName: call.name,
+        arguments: parsedArguments(call.arguments),
+        content: redactSpecSecrets(messageOf2(error), specs),
+        isError: true,
+        errorCategory: "transport"
+      };
+    }
+    if (!outcome) {
+      yield passThrough(call);
+      return;
+    }
+    mcpCalls += 1;
+    yield { type: "server_tool_block", blocks: kiroMcpBlocks(outcome, { id: nextCallId(), specs, toBlocks }) };
+  }
+  return session;
+}
+function passThrough(call) {
+  return { type: "tool_call_done", callId: call.callId, name: call.name, arguments: call.arguments };
+}
+function mcpCallOutputItem(outcome, options = {}) {
+  const specs = options.specs ?? [];
+  return {
+    type: "mcp_call",
+    id: options.id ?? `mcp_${crypto.randomUUID().replace(/-/g, "")}`,
+    name: outcome.identity.toolName,
+    server_label: outcome.identity.serverLabel,
+    arguments: JSON.stringify(outcome.arguments ?? {}),
+    output: redactDeep(outcome.content, specs),
+    status: outcome.isError ? "failed" : "completed"
+  };
+}
+function kiroMcpBlocks(outcome, options = {}) {
+  const write = options.toBlocks ?? mcpCallItemToBlocks;
+  return write(mcpCallOutputItem(outcome, options));
+}
+function mcpCallItemToBlocks(item, fallbackOutput) {
+  if (!item || typeof item !== "object")
+    return [];
+  const outputItem = item;
+  if (outputItem.type !== "mcp_call")
+    return [];
+  const id = typeof outputItem.id === "string" ? outputItem.id : `mcp_${crypto.randomUUID().replace(/-/g, "")}`;
+  return [
+    {
+      type: "mcp_tool_use",
+      id,
+      name: typeof outputItem.name === "string" ? outputItem.name : "unknown",
+      server_name: typeof outputItem.server_label === "string" ? outputItem.server_label : "unknown",
+      input: parseJsonObject2(typeof outputItem.arguments === "string" ? outputItem.arguments : "{}"),
+      ...typeof outputItem.approval_request_id === "string" ? { approval_request_id: outputItem.approval_request_id } : {}
+    },
+    {
+      type: "mcp_tool_result",
+      tool_use_id: id,
+      is_error: outputItem.status === "failed" || Boolean(outputItem.error),
+      content: mcpOutputToClaudeContent2(outputItem.output ?? fallbackOutput)
+    }
+  ];
+}
+function mcpOutputToClaudeContent2(output) {
+  if (typeof output === "string")
+    return [{ type: "text", text: output }];
+  if (Array.isArray(output)) {
+    return output.flatMap((item) => {
+      if (typeof item === "string")
+        return [{ type: "text", text: item }];
+      if (!item || typeof item !== "object")
+        return [];
+      const part = item;
+      if (part.type === "text" && typeof part.text === "string")
+        return [{ type: "text", text: part.text }];
+      return [{ type: "text", text: JSON.stringify(item) }];
+    });
+  }
+  if (output && typeof output === "object")
+    return [{ type: "text", text: JSON.stringify(output) }];
+  return [];
+}
+function parseJsonObject2(value) {
+  try {
+    return JSON.parse(value);
+  } catch {
+    return {};
+  }
+}
+function redactSpecSecrets(text, specs) {
+  let out = redact(text);
+  for (const spec of specs) {
+    for (const secret of [spec.authorization, ...Object.values(spec.headers ?? {})]) {
+      if (typeof secret === "string" && secret.length >= 8)
+        out = out.split(secret).join("[redacted]");
+    }
+  }
+  return out;
+}
+function redactDeep(value, specs) {
+  if (typeof value === "string")
+    return redactSpecSecrets(value, specs);
+  if (Array.isArray(value))
+    return value.map((item) => redactDeep(item, specs));
+  if (value && typeof value === "object") {
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, redactDeep(item, specs)]));
+  }
+  return value;
+}
+function redactNotice(notice2, specs) {
+  return { ...notice2, detail: redactSpecSecrets(notice2.detail, specs) };
+}
+function httpUrl(value) {
+  if (typeof value !== "string")
+    return;
+  const trimmed = value.trim();
+  if (!trimmed)
+    return;
+  try {
+    const url = new URL(trimmed);
+    return url.protocol === "http:" || url.protocol === "https:" ? trimmed : undefined;
+  } catch {
+    return;
+  }
+}
+function normalizeUrl(value) {
+  if (typeof value !== "string" || !value.trim())
+    return;
+  try {
+    return new URL(value.trim()).toString();
+  } catch {
+    return;
+  }
+}
+function requestUrl(input) {
+  if (typeof input === "string")
+    return input;
+  if (input instanceof URL)
+    return input.toString();
+  return input.url ?? String(input);
+}
+function stringArray(value) {
+  if (!Array.isArray(value))
+    return;
+  const names = value.filter((item) => typeof item === "string" && item.trim().length > 0);
+  return names.length ? names : undefined;
+}
+function stringRecord(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value))
+    return;
+  const entries = Object.entries(value).filter((entry) => typeof entry[1] === "string");
+  return entries.length ? Object.fromEntries(entries) : undefined;
+}
+function parsedArguments(value) {
+  if (!value.trim())
+    return {};
+  try {
+    return JSON.parse(value);
+  } catch {
+    return value;
+  }
+}
+function messageOf2(error) {
+  return error instanceof Error ? error.message : String(error);
+}
+function isCallerAbort2(error, signal) {
+  const isAbort = (error instanceof DOMException || error instanceof Error) && error.name === "AbortError";
+  return isAbort && signal?.aborted === true;
 }
 
 // src/upstream/kiro/payload.ts
@@ -42777,15 +44355,15 @@ function trimPayload(payload, tools, options, instructions) {
     throw new PayloadTooLargeError(`Kiro payload exceeds ${limit} bytes after trimming`);
   const removedHistoryEntries = originalHistoryEntries - (current.conversationState.history?.length ?? 0);
   if (removedHistoryEntries > 0) {
-    const notice = {
+    const notice2 = {
       originalSize,
       finalSize,
       limit,
       removedHistoryEntries,
       remainingHistoryEntries: current.conversationState.history?.length ?? 0
     };
-    console.warn(trimNoticeText(notice));
-    options.onTrim?.(notice);
+    console.warn(trimNoticeText(notice2));
+    options.onTrim?.(notice2);
   }
   return current;
 }
@@ -42848,10 +44426,10 @@ function historyTrimPoints(history) {
 function payloadSizeLimitBytes(override) {
   return typeof override === "number" && Number.isFinite(override) && override > 0 ? Math.floor(override) : kiroPayloadSizeLimitBytes();
 }
-function trimNoticeText(notice) {
+function trimNoticeText(notice2) {
   return [
     "[Gateway warning] Kiro request context was shortened because the payload exceeded the upstream size limit.",
-    `Omitted ${notice.removedHistoryEntries} older history entr${notice.removedHistoryEntries === 1 ? "y" : "ies"}; payload size went from ${notice.originalSize} to ${notice.finalSize} bytes (limit ${notice.limit}).`,
+    `Omitted ${notice2.removedHistoryEntries} older history entr${notice2.removedHistoryEntries === 1 ? "y" : "ies"}; payload size went from ${notice2.originalSize} to ${notice2.finalSize} bytes (limit ${notice2.limit}).`,
     "The latest user message was kept. If the answer misses earlier details, resend the relevant context."
   ].join(" ");
 }
@@ -42881,7 +44459,7 @@ function functionCallToToolUse(item) {
   return {
     toolUseId: item.call_id,
     name: item.name,
-    input: parseJsonObject2(typeof item.arguments === "string" ? item.arguments : JSON.stringify(item.arguments ?? {}))
+    input: parseJsonObject3(typeof item.arguments === "string" ? item.arguments : JSON.stringify(item.arguments ?? {}))
   };
 }
 function functionOutputToToolResult(item) {
@@ -42971,7 +44549,7 @@ function appendText(content, addition) {
 
 ${addition}`;
 }
-function parseJsonObject2(value) {
+function parseJsonObject3(value) {
   try {
     const parsed = JSON.parse(value);
     if (parsed && typeof parsed === "object" && !Array.isArray(parsed))
@@ -43228,7 +44806,7 @@ class ThinkingBlockExtractor {
     return {};
   }
 }
-function streamKiroResponse(response, fallbackModel, effectiveTools, inputTokenEstimate, serverTools, initialServerToolBlocks = [], prefaceText = "", maxInputTokens = DEFAULT_MAX_INPUT_TOKENS) {
+function streamKiroResponse(response, fallbackModel, effectiveTools, inputTokenEstimate, serverTools, initialServerToolBlocks = [], prefaceText = "", maxInputTokens = DEFAULT_MAX_INPUT_TOKENS, mcp) {
   const id = `resp_${crypto.randomUUID().replace(/-/g, "")}`;
   return {
     type: "canonical_stream",
@@ -43237,12 +44815,12 @@ function streamKiroResponse(response, fallbackModel, effectiveTools, inputTokenE
     model: fallbackModel,
     events: {
       async* [Symbol.asyncIterator]() {
-        yield* iterateKiroEvents(response.body, inputTokenEstimate, effectiveTools, serverTools, true, initialServerToolBlocks, prefaceText, maxInputTokens);
+        yield* iterateKiroEvents(response.body, inputTokenEstimate, effectiveTools, serverTools, true, initialServerToolBlocks, prefaceText, maxInputTokens, mcp);
       }
     }
   };
 }
-async function collectKiroResponse(response, fallbackModel, effectiveTools, inputTokenEstimate, serverTools, initialServerToolBlocks = [], prefaceText = "", maxInputTokens = DEFAULT_MAX_INPUT_TOKENS) {
+async function collectKiroResponse(response, fallbackModel, effectiveTools, inputTokenEstimate, serverTools, initialServerToolBlocks = [], prefaceText = "", maxInputTokens = DEFAULT_MAX_INPUT_TOKENS, mcp) {
   const content = [];
   let pendingText = "";
   let pendingThinking;
@@ -43271,7 +44849,7 @@ async function collectKiroResponse(response, fallbackModel, effectiveTools, inpu
     content.push({ type: "thinking", thinking: pendingThinking.thinking, signature: pendingThinking.signature ?? `sig_${crypto.randomUUID().replace(/-/g, "").slice(0, 32)}` });
     pendingThinking = undefined;
   };
-  for await (const event of iterateKiroEvents(response.body, inputTokenEstimate, effectiveTools, serverTools, false, initialServerToolBlocks, prefaceText, maxInputTokens)) {
+  for await (const event of iterateKiroEvents(response.body, inputTokenEstimate, effectiveTools, serverTools, false, initialServerToolBlocks, prefaceText, maxInputTokens, mcp)) {
     if (event.type === "text_delta") {
       flushThinking();
       pendingText += event.delta;
@@ -43337,7 +44915,7 @@ async function collectKiroResponse(response, fallbackModel, effectiveTools, inpu
     ...featureNotices.length ? { featureNotices } : {}
   };
 }
-async function* iterateKiroEvents(stream, inputTokenEstimate, effectiveTools = [], serverTools, emitBracketToolCalls = true, initialServerToolBlocks = [], prefaceText = "", maxInputTokens = DEFAULT_MAX_INPUT_TOKENS) {
+async function* iterateKiroEvents(stream, inputTokenEstimate, effectiveTools = [], serverTools, emitBracketToolCalls = true, initialServerToolBlocks = [], prefaceText = "", maxInputTokens = DEFAULT_MAX_INPUT_TOKENS, mcp) {
   const parser = new AwsEventStreamParser;
   const thinking = new ThinkingBlockExtractor;
   let text = prefaceText;
@@ -43354,6 +44932,7 @@ async function* iterateKiroEvents(stream, inputTokenEstimate, effectiveTools = [
   let nextBlockIndex = 0;
   const initialServerToolUse = serverToolUseFromBlocks(initialServerToolBlocks);
   let webSearchRequests = initialServerToolUse?.webSearchRequests ?? 0;
+  let webFetchRequests = initialServerToolUse?.webFetchRequests ?? 0;
   const emittedToolCalls = [];
   const reader = stream?.getReader();
   if (prefaceText)
@@ -43372,9 +44951,22 @@ async function* iterateKiroEvents(stream, inputTokenEstimate, effectiveTools = [
     yield { type: "message_stop", stopReason };
     return;
   }
+  async function* handleKiroToolCall(call) {
+    if (mcp?.handles(call.name)) {
+      yield* mcp.handleToolCall(call);
+      return;
+    }
+    for await (const event of maybeHandleKiroServerTool(call, serverTools)) {
+      if (isPassthroughOf(event, call)) {
+        yield* maybeHandleKiroWebFetch(call, serverTools);
+        continue;
+      }
+      yield event;
+    }
+  }
   async function* emitToolCall(call) {
     let emittedClientTool = false;
-    for await (const event of maybeHandleKiroServerTool(call, serverTools)) {
+    for await (const event of handleKiroToolCall(call)) {
       if (event.type === "tool_call_done") {
         emittedClientTool = true;
         emittedToolCalls.push({
@@ -43387,6 +44979,9 @@ async function* iterateKiroEvents(stream, inputTokenEstimate, effectiveTools = [
       }
       if (event.type === "server_tool_block" && event.blocks.some((block) => block.type === "web_search_tool_result")) {
         webSearchRequests += 1;
+      }
+      if (event.type === "server_tool_block") {
+        webFetchRequests += webFetchRequestsFromBlocks(event.blocks);
       }
       if (event.type === "text_delta") {
         text += event.delta;
@@ -43487,7 +45082,10 @@ async function* iterateKiroEvents(stream, inputTokenEstimate, effectiveTools = [
     }
   }
   const outputTokens = usageOutputTokens ?? (text ? estimateKiroFallbackTokens(text) : 0);
-  const serverToolUse = mergeServerToolUse(upstreamUsage.serverToolUse, webSearchRequests ? { webSearchRequests } : undefined);
+  const serverToolUse = mergeServerToolUse(mergeServerToolUse(upstreamUsage.serverToolUse, webSearchRequests || webFetchRequests ? {
+    ...webSearchRequests ? { webSearchRequests } : {},
+    ...webFetchRequests ? { webFetchRequests } : {}
+  } : undefined), mcp?.serverToolUseDelta());
   yield {
     type: "usage",
     usage: {
@@ -43501,6 +45099,9 @@ async function* iterateKiroEvents(stream, inputTokenEstimate, effectiveTools = [
     }
   };
   yield { type: "message_stop", stopReason };
+}
+function isPassthroughOf(event, call) {
+  return event.type === "tool_call_done" && event.callId === call.callId && event.name === call.name && event.arguments === call.arguments;
 }
 function closingTagPrefixSuffixLength(value, closeTag) {
   const max = Math.min(value.length, closeTag.length - 1);
@@ -43686,7 +45287,7 @@ async function streamWithFirstTokenRetry(makeResponse, options = {}) {
   for (let attempt = 1;attempt <= maxAttempts; attempt += 1) {
     throwIfAborted(options.signal);
     const attemptController = new AbortController;
-    const signal = combineSignals(options.signal, attemptController.signal);
+    const signal = combineSignals2(options.signal, attemptController.signal);
     const response = await makeResponse(signal);
     const reader = response.body?.getReader();
     if (!reader)
@@ -43752,7 +45353,7 @@ async function readFirstChunk(reader, timeoutMs, signal) {
       signal.removeEventListener("abort", abortListener);
   }
 }
-function combineSignals(...signals) {
+function combineSignals2(...signals) {
   const active = signals.filter((signal) => Boolean(signal));
   if (!active.length)
     return;
@@ -43770,6 +45371,68 @@ class FirstTokenAttemptTimeoutError extends Error {
   constructor() {
     super("Kiro stream first-token timeout");
     this.name = "FirstTokenAttemptTimeoutError";
+  }
+}
+
+// src/upstream/kiro/static-models.ts
+var STATIC_EFFORT_LEVELS = ["low", "medium", "high", "xhigh", "max"];
+var STATIC_EFFORT_SCHEMA_PATH = "output_config";
+var cache;
+function staticKiroEffortDescriptor(modelId) {
+  if (!modelId)
+    return;
+  const descriptors = staticEffortDescriptors();
+  return descriptors.get(modelId) ?? descriptors.get(resolveStaticAlias(modelId)) ?? descriptors.get(modelId.toLowerCase());
+}
+function staticEffortDescriptors() {
+  if (cache)
+    return cache;
+  const descriptors = new Map;
+  try {
+    const models = kiro_models_default.models;
+    if (Array.isArray(models)) {
+      for (const raw of models) {
+        const entry = raw && typeof raw === "object" ? raw : undefined;
+        const id = typeof entry?.id === "string" ? entry.id : undefined;
+        if (!id)
+          continue;
+        const descriptor = effortDescriptorFromCapabilities(entry?.capabilities);
+        if (!descriptor)
+          continue;
+        descriptors.set(id, descriptor);
+        if (!descriptors.has(id.toLowerCase()))
+          descriptors.set(id.toLowerCase(), descriptor);
+      }
+    }
+  } catch {
+    descriptors.clear();
+  }
+  cache = descriptors;
+  return descriptors;
+}
+function effortDescriptorFromCapabilities(capabilities) {
+  if (!capabilities || typeof capabilities !== "object" || Array.isArray(capabilities))
+    return;
+  const flags = capabilities;
+  const levels = STATIC_EFFORT_LEVELS.filter((level) => flags[`effort_${level}`] === true);
+  if (!levels.length)
+    return;
+  return {
+    schemaPath: STATIC_EFFORT_SCHEMA_PATH,
+    levels: [...levels],
+    defaultLevel: levels[0],
+    provenance: "static"
+  };
+}
+function resolveStaticAlias(modelId) {
+  try {
+    const aliases = kiro_models_default.aliases;
+    if (!aliases || typeof aliases !== "object")
+      return modelId;
+    const target = aliases[modelId];
+    return typeof target === "string" ? target : modelId;
+  } catch {
+    return modelId;
   }
 }
 
@@ -43812,7 +45475,22 @@ class KiroModelMetadataRegistry {
         }
       }
     }
+    this.fillEffortGapsFromStaticCatalog();
     this.populatedAt = Date.now();
+  }
+  fillEffortGapsFromStaticCatalog() {
+    for (const [modelId, entry] of this.models) {
+      if (entry.effort || entry.effortSchemaDisclosure === "answered")
+        continue;
+      const fallback = staticKiroEffortDescriptor(modelId);
+      if (fallback)
+        this.models.set(modelId, { ...entry, effort: fallback });
+    }
+    if (this.defaultModel && !this.defaultModel.effort && this.defaultModel.effortSchemaDisclosure === "silent") {
+      const fallback = staticKiroEffortDescriptor(this.defaultModel.modelId);
+      if (fallback)
+        this.defaultModel = { ...this.defaultModel, effort: fallback };
+    }
   }
   clear() {
     this.models.clear();
@@ -43856,6 +45534,7 @@ function createMinimalEntry(modelId) {
     promptCaching: { supportsPromptCaching: false, minimumTokensPerCacheCheckpoint: null, maximumCacheCheckpointsPerRequest: null },
     rateMultiplier: 1,
     rateUnit: "Credit",
+    effortSchemaDisclosure: "silent",
     richMetadata: false
   };
 }
@@ -43886,8 +45565,14 @@ function parseModelEntry(raw) {
     rateMultiplier: typeof entry.rateMultiplier === "number" ? entry.rateMultiplier : 1,
     rateUnit: typeof entry.rateUnit === "string" ? entry.rateUnit : "Credit",
     ...effort ? { effort } : {},
+    effortSchemaDisclosure: effortSchemaDisclosure(entry),
     richMetadata: true
   };
+}
+function effortSchemaDisclosure(entry) {
+  if (!("additionalModelRequestFieldsSchema" in entry))
+    return "silent";
+  return entry.additionalModelRequestFieldsSchema === undefined ? "silent" : "answered";
 }
 function parseEffortMetadata(schema) {
   if (!schema || typeof schema !== "object" || Array.isArray(schema))
@@ -43906,7 +45591,8 @@ function parseEffortMetadata(schema) {
     return {
       schemaPath,
       levels,
-      ...defaultLevel ? { defaultLevel } : {}
+      ...defaultLevel ? { defaultLevel } : {},
+      provenance: "live"
     };
   }
   return;
@@ -43922,31 +45608,48 @@ class Kiro_Upstream_Provider {
   auth;
   client;
   strict;
+  webSearchHeuristics;
+  mcpEmulation;
   modelCache;
   modelMetadata = new KiroModelMetadataRegistry;
   constructor(options) {
     this.auth = options.auth;
     this.client = options.client ?? new Kiro_Client(this.auth);
     this.strict = options.strict ?? false;
+    this.webSearchHeuristics = options.webSearchHeuristics ?? false;
+    this.mcpEmulation = options.mcpEmulation ?? false;
   }
   static async fromAuthFile(path, options) {
     const auth = await Kiro_Auth_Manager.fromAuthFile(path, options);
-    return new Kiro_Upstream_Provider({ auth, client: new Kiro_Client(auth, options), strict: options?.strict });
+    return new Kiro_Upstream_Provider({
+      auth,
+      client: new Kiro_Client(auth, options),
+      strict: options?.strict,
+      webSearchHeuristics: options?.webSearchHeuristics,
+      mcpEmulation: options?.mcpEmulation
+    });
+  }
+  mcpEmulationEnabled() {
+    return this.mcpEmulation && KIRO_CAPABILITIES.features.mcpToolset === "emulate";
   }
   async proxy(request, options) {
-    const serverToolError = validateUnsupportedServerTools(request.tools);
-    if (serverToolError)
-      return serverToolError;
     const decisions = resolveKiroFeatures(request, { strict: this.strict });
+    if (!this.mcpEmulationEnabled() && requestDeclaresMcpToolsets(request.tools)) {
+      return withKiroFeatureNotices(canonicalError3(400, MCP_TOOLSET_UNSUPPORTED_MESSAGE), decisions.notices());
+    }
+    resolveKiroHostedTools(request.tools, decisions);
     const rejection2 = decisions.firstRejection();
-    if (rejection2)
-      return canonicalError3(400, rejection2.message);
-    return withKiroFeatureNotices(await this.generate(request, options), decisions.notices());
+    if (rejection2) {
+      await this.decideDeferredEffort(request, decisions);
+      const reported = decisions.rejectionReport() ?? rejection2;
+      return withKiroFeatureNotices(canonicalError3(400, reported.message), decisions.notices());
+    }
+    return withKiroFeatureNotices(await this.generate(request, decisions, options), decisions.notices());
   }
-  async generate(request, options) {
+  async generate(request, decisions, options) {
     const explicitWebSearch = hasExplicitWebSearchIntent(request);
-    const clientWebSearchCall = clientWebSearchToolCall(request, explicitWebSearch);
-    const clientAllowedDirectoriesCall = clientAllowedDirectoriesToolCall(request);
+    const clientWebSearchCall = this.webSearchHeuristics ? clientWebSearchToolCall(request, explicitWebSearch) : undefined;
+    const clientAllowedDirectoriesCall = this.webSearchHeuristics ? clientAllowedDirectoriesToolCall(request) : undefined;
     const effective = computeEffectiveTools(request.tools, request.toolChoice, {
       autoWebSearch: !hasClientWebSearchTool(request) && webSearchAutoInjectEnabled() && (!request.textFormat || explicitWebSearch)
     });
@@ -43959,12 +45662,22 @@ class Kiro_Upstream_Provider {
     if (clientAllowedDirectoriesCall) {
       return clientToolCallResponse(request, model, clientAllowedDirectoriesCall);
     }
-    const effortResult = await this.resolveRequestedEffort(model, request.reasoningEffort);
+    const effortResult = await this.resolveRequestedEffort(model, request.reasoningEffort, decisions, request.thinking);
     if ("error" in effortResult)
       return canonicalError3(effortResult.status, effortResult.error);
     const effort = effortResult.effort;
+    const mcp = this.mcpEmulationEnabled() ? await createKiroMcpSession(request.tools, { signal: options?.signal, decisions }) : undefined;
+    for (const notice2 of mcp?.notices ?? []) {
+      const outcome = decisions.resolveWithPolicy(notice2.feature, notice2.policy, notice2.detail, MCP_TOOLSET_ALTERNATIVE);
+      if (isFeatureRejection(outcome))
+        return canonicalError3(400, outcome.message);
+    }
+    const mcpRejection = decisions.firstRejection();
+    if (mcpRejection)
+      return canonicalError3(400, mcpRejection.message);
+    const effectiveTools = mcp?.tools.length ? [...effective.tools, ...mcp.tools] : effective.tools;
     const fallbackWebSearchQuery = effective.webSearch ? inferWebSearchFallbackQuery(request) : undefined;
-    const shouldPreflightWebSearch = Boolean(effective.webSearch && explicitWebSearch && fallbackWebSearchQuery);
+    const shouldPreflightWebSearch = Boolean(this.webSearchHeuristics && effective.webSearch && explicitWebSearch && fallbackWebSearchQuery);
     const signalClaudeContextLimit = shouldSignalClaudeContextLimit(request);
     if (shouldPreflightWebSearch && fallbackWebSearchQuery && signalClaudeContextLimit) {
       const requestForContextCheck = {
@@ -43972,7 +45685,7 @@ class Kiro_Upstream_Provider {
         instructions: buildKiroInstructions(request.instructions, request.textFormat, Boolean(effective.webSearch))
       };
       try {
-        convertCanonicalToKiroPayload(requestForContextCheck, effective.tools, {
+        convertCanonicalToKiroPayload(requestForContextCheck, effectiveTools, {
           modelId: model,
           authType: this.auth.getAuthType(),
           profileArn: this.auth.getProfileArn(),
@@ -43989,7 +45702,7 @@ class Kiro_Upstream_Provider {
       }
     }
     if (request.stream && shouldPreflightWebSearch && fallbackWebSearchQuery && !signalClaudeContextLimit) {
-      return this.streamWithWebSearchPreflight(request, options, effective.tools, model, fallbackWebSearchQuery, effort);
+      return this.streamWithWebSearchPreflight(request, options, effectiveTools, model, fallbackWebSearchQuery, effort, Boolean(effective.webFetch), mcp);
     }
     let preflightWebSearch;
     try {
@@ -44009,15 +45722,15 @@ class Kiro_Upstream_Provider {
     let payload;
     let payloadTrimWarning = "";
     try {
-      payload = convertCanonicalToKiroPayload(requestForPayload, effective.tools, {
+      payload = convertCanonicalToKiroPayload(requestForPayload, effectiveTools, {
         modelId: model,
         authType: this.auth.getAuthType(),
         profileArn: this.auth.getProfileArn(),
         instructions: requestForPayload.instructions,
         payloadOverflowMode: signalClaudeContextLimit ? "context_error" : "trim",
         effort,
-        onTrim: (notice) => {
-          payloadTrimWarning = `${trimNoticeText(notice)}
+        onTrim: (notice2) => {
+          payloadTrimWarning = `${trimNoticeText(notice2)}
 
 `;
         }
@@ -44034,15 +45747,18 @@ class Kiro_Upstream_Provider {
     try {
       const upstreamResponse = request.stream ? await streamWithFirstTokenRetry((signal) => this.client.generateAssistantResponse(payload, { signal, stream: true }), { signal: options?.signal }) : await this.client.generateAssistantResponse(payload, { signal: options?.signal, stream: false });
       const response = options?.onResponseBodyChunk ? withChunkCallback(upstreamResponse, options.onResponseBodyChunk) : upstreamResponse;
-      const serverTools = effective.webSearch ? {
-        webSearch: (query) => this.client.callMcpWebSearch(query, { signal: options?.signal }),
-        webSearchFallbackQuery: fallbackWebSearchQuery
+      const serverTools = effective.webSearch || effective.webFetch ? {
+        ...effective.webSearch ? {
+          webSearch: (query) => this.client.callMcpWebSearch(query, { signal: options?.signal }),
+          webSearchFallbackQuery: fallbackWebSearchQuery
+        } : {},
+        ...effective.webFetch ? { webFetch: (url) => executeKiroWebFetch(url, { signal: options?.signal }) } : {}
       } : undefined;
       const initialServerToolBlocks = preflightWebSearch && fallbackWebSearchQuery ? webSearchBlocks2(preflightWebSearch.toolUseId, fallbackWebSearchQuery, preflightWebSearch.results) : [];
       const modelMaxInputTokens = this.modelMetadata.maxInputTokens(model);
       if (request.stream)
-        return streamKiroResponse(response, model, effective.tools, inputTokenEstimate, serverTools, initialServerToolBlocks, payloadTrimWarning, modelMaxInputTokens);
-      return collectKiroResponse(response, model, effective.tools, inputTokenEstimate, serverTools, initialServerToolBlocks, payloadTrimWarning, modelMaxInputTokens);
+        return streamKiroResponse(response, model, effectiveTools, inputTokenEstimate, serverTools, initialServerToolBlocks, payloadTrimWarning, modelMaxInputTokens, mcp);
+      return collectKiroResponse(response, model, effectiveTools, inputTokenEstimate, serverTools, initialServerToolBlocks, payloadTrimWarning, modelMaxInputTokens, mcp);
     } catch (error) {
       const mapped = mapKiroError(error);
       if (mapped)
@@ -44050,7 +45766,7 @@ class Kiro_Upstream_Provider {
       throw error;
     }
   }
-  streamWithWebSearchPreflight(request, options, effectiveTools, model, query, effort) {
+  streamWithWebSearchPreflight(request, options, effectiveTools, model, query, effort, webFetch = false, mcp) {
     const client = this.client;
     const authType = this.auth.getAuthType();
     const profileArn = this.auth.getProfileArn();
@@ -44093,8 +45809,8 @@ class Kiro_Upstream_Provider {
               instructions: requestForPayload.instructions,
               payloadOverflowMode: shouldSignalClaudeContextLimit(request) ? "context_error" : "trim",
               effort,
-              onTrim: (notice) => {
-                payloadTrimWarning = `${trimNoticeText(notice)}
+              onTrim: (notice2) => {
+                payloadTrimWarning = `${trimNoticeText(notice2)}
 
 `;
               }
@@ -44115,8 +45831,9 @@ class Kiro_Upstream_Provider {
           }
           const downstream = streamKiroResponse(response, model, effectiveTools, inputTokenEstimate, {
             webSearch: (nextQuery) => client.callMcpWebSearch(nextQuery, { signal: options?.signal }),
-            webSearchFallbackQuery: query
-          }, [], payloadTrimWarning, modelMaxInputTokens);
+            webSearchFallbackQuery: query,
+            ...webFetch ? { webFetch: (url) => executeKiroWebFetch(url, { signal: options?.signal }) } : {}
+          }, [], payloadTrimWarning, modelMaxInputTokens, mcp);
           for await (const event of downstream.events) {
             if (event.type === "usage") {
               yield {
@@ -44184,25 +45901,43 @@ class Kiro_Upstream_Provider {
       this.modelCache = { models, cachedAt: Date.now() };
     } catch {}
   }
-  async resolveRequestedEffort(model, requested) {
-    if (!requested)
+  async decideDeferredEffort(request, decisions) {
+    if (!requestStatesEffortIntent(request))
+      return;
+    await this.resolveRequestedEffort(normalizeKiroModelName(request.model), request.reasoningEffort, decisions, request.thinking);
+  }
+  async resolveRequestedEffort(model, requested, decisions, thinking) {
+    const budgetTokens = thinking?.mode === "disabled" ? undefined : thinking?.budgetTokens;
+    if (!requested && thinking?.mode === "disabled")
       return {};
     if (!this.modelMetadata.isPopulated)
       await this.refreshModelMetadata();
-    if (!this.modelMetadata.isPopulated) {
-      return { status: 503, error: `Unable to load Kiro model metadata required to validate effort '${requested}' for '${model}'` };
+    const metadata = this.modelMetadata.isPopulated ? this.modelMetadata.get(model)?.effort : null;
+    if (!requested) {
+      const decision = metadata ? selectEffortLevel(metadata, { thinking }) : undefined;
+      if (decision?.kind !== "selected")
+        return {};
+      if (decision.source !== "budget")
+        return { effort: decision.effort };
+      const level = decision.effort.level;
+      const outcome2 = decisions.resolve("thinkingBudget", `Kiro has no thinking budget field, so the requested budget_tokens was mapped onto the nearest effort level this model publishes: ${budgetTokens} \u2192 ${level}; supports: ${metadata.levels.join(", ")}`, "an upstream that honors a thinking token budget, or state an effort level directly");
+      if (isFeatureRejection(outcome2))
+        return { status: 400, error: outcome2.message };
+      return { effort: decision.effort };
     }
-    const metadata = this.modelMetadata.get(model);
-    if (!metadata?.effort) {
-      return { status: 400, error: `Kiro model '${model}' does not support configurable effort` };
+    const validation = validateKiroEffort(metadata, requested);
+    if (validation.ok) {
+      const decision = selectEffortLevel(metadata ?? undefined, { requested });
+      return decision.kind === "selected" ? { effort: decision.effort } : {};
     }
-    if (!metadata.effort.levels.includes(requested)) {
-      return {
-        status: 400,
-        error: `Kiro model '${model}' does not support effort '${requested}'; supports: ${metadata.effort.levels.join(", ")}`
-      };
+    if (validation.code === "metadata_unavailable") {
+      return { status: validation.status, error: `Unable to load Kiro model metadata required to validate effort '${requested}' for '${model}'` };
     }
-    return { effort: { schemaPath: metadata.effort.schemaPath, level: requested } };
+    const degradation = effortDegradation(model, validation, metadata);
+    const outcome = decisions.resolve("thinkingBudget", degradation.detail, degradation.alternative);
+    if (isFeatureRejection(outcome))
+      return { status: 400, error: outcome.message };
+    return degradation.effort ? { effort: degradation.effort } : {};
   }
   async listModelsRaw() {
     return this.client.listAvailableModelsRaw();
@@ -44220,15 +45955,29 @@ class Kiro_Upstream_Provider {
     return this.auth.getProfileArn();
   }
 }
+function isServerWebFetchToolType(type) {
+  return typeof type === "string" && /^web[_-]?fetch(?:_\d+)?$/i.test(type);
+}
 function computeEffectiveTools(tools = [], toolChoice, options = {}) {
   const hasServerWebSearch = tools.some((tool) => tool.type === "web_search");
   const functionTools = tools.filter((tool) => tool.type === "function");
   const shouldProvideWebSearch = hasServerWebSearch || Boolean(options.autoWebSearch);
   const injectedWebSearch = shouldProvideWebSearch && !functionTools.some((tool) => tool.name === "web_search") ? kiroWebSearchTool() : undefined;
-  const allTools = injectedWebSearch ? [injectedWebSearch, ...functionTools] : prioritizeWebSearch(functionTools);
+  const hasServerWebFetch = tools.some((tool) => isServerWebFetchToolType(tool.type));
+  const injectedWebFetch = hasServerWebFetch && !functionTools.some((tool) => tool.name === KIRO_WEB_FETCH_TOOL_NAME) ? kiroWebFetchTool() : undefined;
+  const allTools = [
+    ...injectedWebSearch ? [injectedWebSearch] : [],
+    ...injectedWebFetch ? [injectedWebFetch] : [],
+    ...injectedWebSearch ? functionTools : prioritizeWebSearch(functionTools)
+  ];
   const webSearchEnabled = shouldProvideWebSearch && allTools.some((tool) => tool.name === "web_search");
+  const webFetchEnabled = hasServerWebFetch && allTools.some((tool) => tool.name === KIRO_WEB_FETCH_TOOL_NAME);
+  const webTools = {
+    ...webSearchEnabled ? { webSearch: true } : {},
+    ...webFetchEnabled ? { webFetch: true } : {}
+  };
   if (!toolChoice || toolChoice === "auto")
-    return { tools: allTools, ...webSearchEnabled ? { webSearch: true } : {} };
+    return { tools: allTools, ...webTools };
   if (toolChoice === "none")
     return { tools: [] };
   if (toolChoice === "required") {
@@ -44249,6 +45998,19 @@ function computeEffectiveTools(tools = [], toolChoice, options = {}) {
   }
   return { tools: allTools, ...webSearchEnabled ? { webSearch: true } : {} };
 }
+function effortDegradation(model, validation, metadata) {
+  if (validation.code === "effort_unsupported") {
+    return {
+      detail: `Kiro model '${model}' does not support configurable effort, so the requested effort '${validation.requested}' was left off the request and the model reasons as it sees fit`,
+      alternative: "a model that publishes effort levels, or omit the effort value"
+    };
+  }
+  return {
+    detail: `Kiro model '${model}' does not support effort '${validation.requested}'; the nearest level it accepts, '${validation.nearest}', was sent instead; supports: ${validation.levels.join(", ")}`,
+    alternative: `one of the effort levels this model accepts: ${validation.levels.join(", ")}`,
+    ...metadata ? { effort: { schemaPath: metadata.schemaPath, level: validation.nearest } } : {}
+  };
+}
 function shouldSignalClaudeContextLimit(request) {
   return request.metadata.source === "claude";
 }
@@ -44258,17 +46020,8 @@ function normalizeKiroModelName(model) {
   normalized = normalized.replace(/^(claude-\d+)-(\d+)(-[a-z]+.*)$/, "$1.$2$3");
   return normalized;
 }
-function validateUnsupportedServerTools(tools = []) {
-  const hasWebFetch = tools.some((tool) => tool.type === "web_fetch");
-  const hasMcp = tools.some((tool) => tool.type === "mcp");
-  if (!hasWebFetch && !hasMcp)
-    return;
-  if (hasWebFetch && hasMcp)
-    return canonicalError3(400, "Kiro upstream does not support server-side web_fetch or generic server-side MCP toolsets. Use client function tools, client WebFetch/WebSearch tools, or the gateway web_search helper instead.");
-  if (hasWebFetch)
-    return canonicalError3(400, "Kiro upstream does not support server-side web_fetch. Use client WebFetch function tools or web_search URL queries instead.");
-  return canonicalError3(400, "Kiro upstream does not support generic server-side MCP toolsets. Use normal client function tools or the gateway web_search helper instead.");
-}
+var MCP_TOOLSET_UNSUPPORTED_MESSAGE = "Kiro upstream does not support generic server-side MCP toolsets. Use normal client function tools or the gateway web_search helper instead.";
+var MCP_TOOLSET_ALTERNATIVE = "an upstream that hosts the MCP server itself, a reachable server URL, or plain client function tools";
 function canonicalError3(status, body) {
   return { type: "canonical_error", status, headers: new Headers, body };
 }
@@ -44951,7 +46704,7 @@ async function createProviderRuntime(mode, options) {
   if (mode === "kiro") {
     const authFile2 = resolveProviderAuthFile(mode, options);
     const ensuredAuthFile = await ensureKiroAuthFile(authFile2);
-    const create2 = (account) => Kiro_Upstream_Provider.fromAuthFile(ensuredAuthFile, { authAccount: account, strict: options?.strict });
+    const create2 = (account) => Kiro_Upstream_Provider.fromAuthFile(ensuredAuthFile, { authAccount: account, strict: options?.strict, webSearchHeuristics: options?.kiroWebSearchHeuristics, mcpEmulation: options?.mcpEmulation });
     const upstream2 = await withAccountRotation(mode, ensuredAuthFile, authAccount, options, create2);
     return { authFile: ensuredAuthFile, authAccount, upstream: upstream2 };
   }
@@ -45116,10 +46869,48 @@ function catalogEntry(descriptor) {
   };
 }
 
+// src/inbound/openai/sampling.ts
+function openAISamplingMembers(body) {
+  const sampling = {};
+  const maxOutputTokens = firstFiniteNumber(body, MAX_OUTPUT_TOKENS_FIELDS);
+  if (maxOutputTokens !== undefined)
+    sampling.maxOutputTokens = maxOutputTokens;
+  const temperature = finiteNumber2(body.temperature);
+  if (temperature !== undefined)
+    sampling.temperature = temperature;
+  const topP = finiteNumber2(body.top_p);
+  if (topP !== undefined)
+    sampling.topP = topP;
+  const stopSequences = normalizeStopSequences(body.stop);
+  if (stopSequences)
+    sampling.stopSequences = stopSequences;
+  return {
+    ...Object.keys(sampling).length > 0 ? { sampling } : {},
+    ...typeof body.parallel_tool_calls === "boolean" ? { parallelToolCalls: body.parallel_tool_calls } : {}
+  };
+}
+var MAX_OUTPUT_TOKENS_FIELDS = ["max_output_tokens", "max_completion_tokens", "max_tokens"];
+function firstFiniteNumber(body, fields) {
+  for (const field of fields) {
+    const value = finiteNumber2(body[field]);
+    if (value !== undefined)
+      return value;
+  }
+  return;
+}
+function finiteNumber2(value) {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+function normalizeStopSequences(value) {
+  const entries = typeof value === "string" ? [value] : Array.isArray(value) ? value : [];
+  const stopSequences = entries.filter((entry) => typeof entry === "string" && entry.length > 0);
+  return stopSequences.length > 0 ? stopSequences : undefined;
+}
+
 // src/inbound/openai/normalize.ts
 function normalizeCanonicalRequest(pathname, body, options = {}) {
   const normalizedBody = normalizeReasoningBody(body);
-  const passthrough = false;
+  const passthrough = options.passthrough ?? false;
   const defaultStream = false;
   if (isChatPath(pathname)) {
     const messages = Array.isArray(normalizedBody.messages) ? normalizedBody.messages : [];
@@ -45135,6 +46926,7 @@ function normalizeCanonicalRequest(pathname, body, options = {}) {
       include: Array.isArray(normalizedBody.include) ? normalizedBody.include.filter((item) => typeof item === "string") : undefined,
       textFormat: extractTextFormat(normalizedBody.text) ?? extractChatResponseFormat(normalizedBody.response_format),
       reasoningEffort: extractReasoningEffort(normalizedBody),
+      ...openAISamplingMembers(normalizedBody),
       stream: normalizedBody.stream !== undefined ? Boolean(normalizedBody.stream) : defaultStream,
       passthrough,
       metadata: { source: "openai", path: pathname }
@@ -45151,6 +46943,7 @@ function normalizeCanonicalRequest(pathname, body, options = {}) {
       include: Array.isArray(normalizedBody.include) ? normalizedBody.include.filter((item) => typeof item === "string") : undefined,
       textFormat: extractTextFormat(normalizedBody.text),
       reasoningEffort: extractReasoningEffort(normalizedBody),
+      ...openAISamplingMembers(normalizedBody),
       stream: normalizedBody.stream !== undefined ? Boolean(normalizedBody.stream) : defaultStream,
       passthrough,
       metadata: { source: "openai", path: pathname }
@@ -45513,15 +47306,15 @@ function headerLine2(count) {
 function renderOpenAIFeatureWarning(notices) {
   const lines = [];
   const seen = new Set;
-  for (const notice of notices) {
-    if (notice.policy !== "degrade")
+  for (const notice2 of notices) {
+    if (notice2.policy !== "degrade")
       continue;
-    const detail = flattenDetail2(notice.detail);
-    const key = `${notice.feature}\x00${detail}`;
+    const detail = flattenDetail2(notice2.detail);
+    const key = `${notice2.feature}\x00${detail}`;
     if (seen.has(key))
       continue;
     seen.add(key);
-    lines.push(noticeLine2(notice.feature, detail));
+    lines.push(noticeLine2(notice2.feature, detail));
   }
   if (!lines.length)
     return "";
@@ -46870,6 +48663,7 @@ function openAIProxyRouteDescriptor(route) {
 class OpenAI_Inbound_Provider {
   name;
   routeDescriptors;
+  passthroughOption;
   passthrough;
   upstreamLogLabel;
   upstreamTarget;
@@ -46878,7 +48672,8 @@ class OpenAI_Inbound_Provider {
   constructor(options = {}) {
     this.name = options.name ?? "openai";
     this.routeDescriptors = options.routes ?? OPENAI_NON_EMBEDDINGS_ROUTES.map(openAIProxyRouteDescriptor);
-    this.passthrough = options.passthrough ?? true;
+    this.passthroughOption = options.passthrough ?? true;
+    this.passthrough = typeof this.passthroughOption === "function" ? true : this.passthroughOption;
     this.upstreamLogLabel = options.upstreamLogLabel ?? "Codex responses";
     this.upstreamTarget = options.upstreamTarget ?? "/v1/responses";
     this.expectedUpstreamKind = options.expectedUpstreamKind;
@@ -46886,6 +48681,9 @@ class OpenAI_Inbound_Provider {
   }
   routes() {
     return this.routeDescriptors;
+  }
+  resolvePassthrough(routePath, stream) {
+    return typeof this.passthroughOption === "function" ? this.passthroughOption(routePath, stream) : this.passthroughOption;
   }
   async handle(request, route, upstream, context) {
     const upstreamMismatch = this.upstreamMismatch(upstream);
@@ -46957,7 +48755,9 @@ class OpenAI_Inbound_Provider {
         }
       });
     }
-    const result = await upstream.proxy(normalizeCanonicalRequest(route.path, upstreamBody, { passthrough: this.passthrough }), {
+    const result = await upstream.proxy(normalizeCanonicalRequest(route.path, upstreamBody, {
+      passthrough: this.resolvePassthrough(route.path, Boolean(wireBody.stream))
+    }), {
       headers: request.headers,
       signal: request.signal,
       ...upstreamRequestPreview && upstreamResponsePreview ? {
@@ -47001,7 +48801,8 @@ class OpenAI_Inbound_Provider {
         durationMs,
         error: previewText2(result.body) || "-",
         requestBody: proxyRequestBody,
-        responseBody: shouldCaptureProxyBody ? previewText2(result.body) || undefined : undefined
+        responseBody: shouldCaptureProxyBody ? previewText2(result.body) || undefined : undefined,
+        telemetry: canonicalErrorTelemetrySummary(result)
       } : undefined;
       if (proxyLog && this.expectedUpstreamKind === "kiro" && kiroDebugOnErrorEnabled()) {
         proxyLog.debug = createKiroDebugBundle({
@@ -47018,7 +48819,7 @@ class OpenAI_Inbound_Provider {
       if (proxyLog)
         context.onProxy?.(proxyLog);
       if (!this.passthrough) {
-        return openAIErrorResponse(result.body, result.status, "upstream_error", result.headers);
+        return openAIErrorResponse(prependOpenAIWarning(result.body, renderOpenAIFeatureWarning(result.featureNotices ?? [])), result.status, "upstream_error", result.headers);
       }
       return new Response(result.body, {
         status: result.status,
@@ -47225,6 +49026,14 @@ function passthroughBodyInit(body) {
   return body;
 }
 
+// src/app/passthrough-resolver.ts
+function resolvePassthrough(inputs) {
+  return inputs.routePath === "/v1/responses" && inputs.providerKind === "codex" && inputs.stream === true && inputs.flagEnabled === true;
+}
+function passthroughDecider(bound) {
+  return (routePath, stream) => resolvePassthrough({ ...bound, routePath, stream });
+}
+
 // src/app/endpoint-share.ts
 var ENDPOINT_PROXY_ROUTES = [
   ...CLAUDE_PROXY_ROUTES,
@@ -47294,7 +49103,7 @@ function resolveEndpointProxyDisplayValue(mode, endpoint, proxy) {
     return "Unavailable";
   return sourceMode === mode ? "self" : endpointProxyProviderLabel(sourceMode);
 }
-function endpointProxyRouteProvider(sourceMode, endpoint, upstream) {
+function endpointProxyRouteProvider(sourceMode, endpoint, upstream, passthroughEnabled) {
   const route = endpointProxyRoute(endpoint);
   const upstreamLabels = {
     codex: {
@@ -47329,7 +49138,7 @@ function endpointProxyRouteProvider(sourceMode, endpoint, upstream) {
   const upstreamWithModels = upstream;
   return new OpenAI_Inbound_Provider({
     name: endpointProxyProviderName(sourceMode),
-    passthrough: sourceMode === "codex",
+    passthrough: sourceMode === "codex" ? passthroughDecider({ providerKind: sourceMode, flagEnabled: passthroughEnabled }) : false,
     upstreamLogLabel: upstreamLabels.openai,
     upstreamTarget: "upstream",
     expectedUpstreamKind: sourceMode,
@@ -47344,8 +49153,8 @@ function endpointProxyRouteProvider(sourceMode, endpoint, upstream) {
 function bindInboundProvider(provider, upstream) {
   return new BoundInboundProvider(provider, upstream);
 }
-function buildEndpointProxyProvider(sourceMode, endpoint, upstream) {
-  return bindInboundProvider(endpointProxyRouteProvider(sourceMode, endpoint, upstream), upstream);
+function buildEndpointProxyProvider(sourceMode, endpoint, upstream, passthroughEnabled) {
+  return bindInboundProvider(endpointProxyRouteProvider(sourceMode, endpoint, upstream, passthroughEnabled), upstream);
 }
 async function canUseEndpointProxySource(mode, endpoint, proxy) {
   const sourceMode = resolveEndpointProxySourceMode(mode, endpoint, proxy);
@@ -47420,7 +49229,7 @@ async function readProviderConfig(configPath) {
         return legacyProvider;
       }
     } catch (error) {
-      console.warn(`Warning: failed to read provider config at ${resolvedPath}: ${errorMessage2(error)}`);
+      console.warn(`Warning: failed to read provider config at ${resolvedPath}: ${errorMessage3(error)}`);
       return "codex";
     }
     return "codex";
@@ -47431,14 +49240,14 @@ async function readProviderConfig(configPath) {
   } catch (error) {
     if (errorCode2(error) === "ENOENT")
       return "codex";
-    console.warn(`Warning: failed to read provider config at ${resolvedPath}: ${errorMessage2(error)}`);
+    console.warn(`Warning: failed to read provider config at ${resolvedPath}: ${errorMessage3(error)}`);
     return "codex";
   }
   let parsed;
   try {
     parsed = JSON.parse(content);
   } catch (error) {
-    console.warn(`Warning: invalid JSON in provider config at ${resolvedPath}: ${errorMessage2(error)}`);
+    console.warn(`Warning: invalid JSON in provider config at ${resolvedPath}: ${errorMessage3(error)}`);
     return "codex";
   }
   const provider = typeof parsed === "object" && parsed !== null && !Array.isArray(parsed) ? parsed.provider : undefined;
@@ -47472,7 +49281,7 @@ async function writeProviderConfig(mode, configPath) {
     await writeTextFile(resolvedPath, `${JSON.stringify(existing, null, 2)}
 `);
   } catch (error) {
-    console.warn(`Warning: failed to write provider config to ${resolvedPath}: ${errorMessage2(error)}`);
+    console.warn(`Warning: failed to write provider config to ${resolvedPath}: ${errorMessage3(error)}`);
   }
 }
 async function readLegacyProviderConfig(dir) {
@@ -47501,7 +49310,7 @@ function resolveProviderMode(envVar, configMode) {
     return envVar === "kiro" || envVar === "copilot" ? envVar : "codex";
   return configMode ?? "codex";
 }
-function errorMessage2(error) {
+function errorMessage3(error) {
   return error instanceof Error ? error.message : String(error);
 }
 
@@ -47510,10 +49319,20 @@ async function bootstrapRuntime(options) {
   const configMode = options?.providerMode ? undefined : await readProviderConfig(options?.providerConfigPath);
   const providerMode = options?.providerMode ?? resolveProviderMode(process.env.UPSTREAM_PROVIDER, configMode);
   const nativeFlags = readNativeFlags();
-  const activeRuntime = await createProviderRuntime(providerMode, { ...options, strict: nativeFlags.strict });
+  const activeRuntime = await createProviderRuntime(providerMode, {
+    ...options,
+    strict: nativeFlags.strict,
+    kiroWebSearchHeuristics: nativeFlags.kiroWebSearchHeuristics,
+    mcpEmulation: nativeFlags.mcpEmulation
+  });
   const registry = new Provider_Registry;
   registerClaudeProvider(providerMode, activeRuntime.upstream, registry);
-  await registerEndpointProxyProviders(providerMode, activeRuntime, registry, options?.providerConfigPath, nativeFlags.strict);
+  await registerEndpointProxyProviders(providerMode, activeRuntime, registry, options?.providerConfigPath, {
+    strict: nativeFlags.strict,
+    passthrough: nativeFlags.passthrough,
+    kiroWebSearchHeuristics: nativeFlags.kiroWebSearchHeuristics,
+    mcpEmulation: nativeFlags.mcpEmulation
+  });
   return {
     authFile: activeRuntime.authFile,
     authAccount: activeRuntime.authAccount,
@@ -47533,7 +49352,8 @@ function registerClaudeProvider(mode, upstream, registry) {
   }
   registry.register(new Claude_Codex_Inbound_Adapter(() => upstreamWithModels.listModelDescriptors?.() ?? upstreamWithModels.listModels(), CLAUDE_MODEL_ROUTES));
 }
-async function registerEndpointProxyProviders(mode, activeRuntime, registry, providerConfigPath, strict) {
+async function registerEndpointProxyProviders(mode, activeRuntime, registry, providerConfigPath, flags = {}) {
+  const { strict, passthrough = false, kiroWebSearchHeuristics, mcpEmulation } = flags;
   const endpointProxy = await readEndpointProxyMap(mode, providerConfigPath);
   const sourceRuntimeCache = new Map;
   for (const route of ENDPOINT_PROXY_ROUTES) {
@@ -47542,21 +49362,21 @@ async function registerEndpointProxyProviders(mode, activeRuntime, registry, pro
       continue;
     if (route.endpoint === "embeddings" && sourceMode !== "copilot")
       continue;
-    const sourceRuntime = sourceMode === mode ? activeRuntime : await loadSourceRuntime(sourceMode, sourceRuntimeCache, strict);
+    const sourceRuntime = sourceMode === mode ? activeRuntime : await loadSourceRuntime(sourceMode, sourceRuntimeCache, { strict, kiroWebSearchHeuristics, mcpEmulation });
     if (!sourceRuntime)
       continue;
-    registry.register(buildEndpointProxyProvider(sourceMode, route.endpoint, sourceRuntime.upstream));
+    registry.register(buildEndpointProxyProvider(sourceMode, route.endpoint, sourceRuntime.upstream, passthrough));
   }
 }
-async function loadSourceRuntime(mode, cache, strict) {
-  const cached = cache.get(mode);
+async function loadSourceRuntime(mode, cache2, flags = {}) {
+  const cached = cache2.get(mode);
   if (cached)
     return cached;
   if (!await providerHasConnectedAccounts(mode))
     return;
   try {
-    const runtime = await createProviderRuntime(mode, { strict });
-    cache.set(mode, runtime);
+    const runtime = await createProviderRuntime(mode, { strict: flags.strict, kiroWebSearchHeuristics: flags.kiroWebSearchHeuristics, mcpEmulation: flags.mcpEmulation });
+    cache2.set(mode, runtime);
     return runtime;
   } catch {
     return;
@@ -48154,7 +49974,7 @@ function disableIdleTimeout(bunServer, request, quiet) {
     bunServer.timeout(request, 0);
   } catch (error) {
     if (!quiet)
-      console.warn(`Unable to disable Bun idle timeout: ${errorMessage3(error)}`);
+      console.warn(`Unable to disable Bun idle timeout: ${errorMessage4(error)}`);
   }
 }
 function isV1ApiRoute(route, pathname) {
@@ -48213,12 +50033,12 @@ function notifyRequestLog(callback, entry, quiet) {
     if (isPromiseLike(result)) {
       result.then(undefined, (error) => {
         if (!quiet)
-          console.warn(`Request log callback failed: ${errorMessage3(error)}`);
+          console.warn(`Request log callback failed: ${errorMessage4(error)}`);
       });
     }
   } catch (error) {
     if (!quiet)
-      console.warn(`Request log callback failed: ${errorMessage3(error)}`);
+      console.warn(`Request log callback failed: ${errorMessage4(error)}`);
   }
 }
 function isPromiseLike(value) {
@@ -48359,11 +50179,11 @@ function cancelReasonText(reason) {
     return reason.message;
   return String(reason);
 }
-function errorMessage3(error) {
+function errorMessage4(error) {
   return error instanceof Error ? error.message : String(error);
 }
 function warnRequestLogError(authFile, error) {
-  console.warn(`Request log file unavailable at ${requestLogFilePath(authFile)}: ${errorMessage3(error)}`);
+  console.warn(`Request log file unavailable at ${requestLogFilePath(authFile)}: ${errorMessage4(error)}`);
 }
 async function proxyUpstream(fetcher) {
   try {
@@ -48979,7 +50799,7 @@ var patchConsole = (callback) => {
 var dist_default = patchConsole;
 
 // node_modules/ink/build/ink.js
-var import_constants36 = __toESM(require_constants(), 1);
+var import_constants38 = __toESM(require_constants(), 1);
 
 // node_modules/yoga-layout/dist/binaries/yoga-wasm-base64-esm.js
 var loadYoga = (() => {
@@ -51425,7 +53245,7 @@ var getWindowSize = (stdout) => {
 
 // node_modules/ink/build/reconciler.js
 var import_react_reconciler = __toESM(require_react_reconciler(), 1);
-var import_constants35 = __toESM(require_constants(), 1);
+var import_constants37 = __toESM(require_constants(), 1);
 var Scheduler = __toESM(require_scheduler(), 1);
 import process4 from "process";
 var import_react = __toESM(require_react(), 1);
@@ -51441,7 +53261,7 @@ function widestLine(string) {
 }
 
 // node_modules/ink/build/measure-text.js
-var cache = new Map;
+var cache2 = new Map;
 var measureText = (text) => {
   if (text.length === 0) {
     return {
@@ -51449,7 +53269,7 @@ var measureText = (text) => {
       height: 0
     };
   }
-  const cachedDimensions = cache.get(text);
+  const cachedDimensions = cache2.get(text);
   if (cachedDimensions) {
     return cachedDimensions;
   }
@@ -51457,7 +53277,7 @@ var measureText = (text) => {
   const height = text.split(`
 `).length;
   const dimensions = { width, height };
-  cache.set(text, dimensions);
+  cache2.set(text, dimensions);
   return dimensions;
 };
 var measure_text_default = measureText;
@@ -52432,10 +54252,10 @@ function cliTruncate(text, columns, options = {}) {
 }
 
 // node_modules/ink/build/wrap-text.js
-var cache2 = {};
+var cache3 = {};
 var wrapText = (text, maxWidth, wrapType) => {
   const cacheKey = text + String(maxWidth) + String(wrapType);
-  const cachedText = cache2[cacheKey];
+  const cachedText = cache3[cacheKey];
   if (cachedText) {
     return cachedText;
   }
@@ -52463,7 +54283,7 @@ var wrapText = (text, maxWidth, wrapType) => {
     }
     wrappedText = cliTruncate(text, maxWidth, { position });
   }
-  cache2[cacheKey] = wrappedText;
+  cache3[cacheKey] = wrappedText;
   return wrappedText;
 };
 var wrap_text_default = wrapText;
@@ -53271,7 +55091,7 @@ var cleanupYogaNode = (node) => {
   node?.unsetMeasureFunc();
   node?.freeRecursive();
 };
-var currentUpdatePriority = import_constants35.NoEventPriority;
+var currentUpdatePriority = import_constants37.NoEventPriority;
 var currentRootNode;
 async function loadPackageJson() {
   const fs2 = await import("fs");
@@ -53460,10 +55280,10 @@ var reconciler_default = import_react_reconciler.default({
   },
   getCurrentUpdatePriority: () => currentUpdatePriority,
   resolveUpdatePriority() {
-    if (currentUpdatePriority !== import_constants35.NoEventPriority) {
+    if (currentUpdatePriority !== import_constants37.NoEventPriority) {
       return currentUpdatePriority;
     }
-    return import_constants35.DefaultEventPriority;
+    return import_constants37.DefaultEventPriority;
   },
   maySuspendCommit() {
     return true;
@@ -56278,7 +58098,7 @@ class Ink {
     this.lastOutputHeight = 0;
     this.lastTerminalWidth = getWindowSize(this.options.stdout).columns;
     this.fullStaticOutput = "";
-    const rootTag = options.concurrent ? import_constants36.ConcurrentRoot : import_constants36.LegacyRoot;
+    const rootTag = options.concurrent ? import_constants38.ConcurrentRoot : import_constants38.LegacyRoot;
     this.container = reconciler_default.createContainer(this.rootNode, rootTag, null, false, null, "id", () => {}, () => {}, () => {}, () => {});
     this.unsubscribeExit = import_signal_exit2.default(this.unmount, { alwaysLast: false });
     this.setAlternateScreen(Boolean(options.alternateScreen));
@@ -56815,7 +58635,7 @@ var getInstance = (stdout, createInstance) => {
   return instance;
 };
 // node_modules/ink/build/render-to-string.js
-var import_constants37 = __toESM(require_constants(), 1);
+var import_constants39 = __toESM(require_constants(), 1);
 // node_modules/ink/build/components/Static.js
 var import_react17 = __toESM(require_react(), 1);
 // node_modules/ink/build/components/Transform.js
@@ -57917,8 +59737,8 @@ async function runCommand(cmd, text) {
     const exitCode = await process14.exited;
     if (exitCode === 0)
       return;
-    const errorText = (await new Response(process14.stderr).text()).trim();
-    throw new Error(errorText || `exited with code ${exitCode}`);
+    const errorText2 = (await new Response(process14.stderr).text()).trim();
+    throw new Error(errorText2 || `exited with code ${exitCode}`);
   } finally {
     process14.kill();
   }
@@ -58457,7 +60277,7 @@ function CommandInput(props) {
             }, undefined, false, undefined, this),
             /* @__PURE__ */ jsx_dev_runtime6.jsxDEV(Text, {
               color: props.selected === index ? "white" : "gray",
-              children: truncate2(command.description, descriptionWidth)
+              children: truncate3(command.description, descriptionWidth)
             }, undefined, false, undefined, this)
           ]
         }, command.name, true, undefined, this))
@@ -58482,7 +60302,7 @@ function CommandInput(props) {
     ]
   }, undefined, true, undefined, this);
 }
-function truncate2(value, width) {
+function truncate3(value, width) {
   return value.length > width ? `${value.slice(0, Math.max(0, width - 1))}\u2026` : value;
 }
 
@@ -59939,12 +61759,12 @@ var SHORT_SHORTCUTS = "\u2191/\u2193 select \xB7 Enter \xB7 f/d/l/x \xB7 Esc";
 function RequestLogsPanel(props) {
   const { stdout } = use_stdout_default();
   const table = tableLayout(stdout.columns);
-  const selected = Math.max(0, Math.min(props.selected, Math.max(0, props.logs.length - 1)));
-  const start = Math.min(Math.max(0, selected - LOG_HEIGHT + 1), Math.max(0, props.logs.length - LOG_HEIGHT));
+  const selected2 = Math.max(0, Math.min(props.selected, Math.max(0, props.logs.length - 1)));
+  const start = Math.min(Math.max(0, selected2 - LOG_HEIGHT + 1), Math.max(0, props.logs.length - LOG_HEIGHT));
   const rows = props.logs.slice(start, start + LOG_HEIGHT);
   const hasMoreAbove = start > 0;
   const hasMoreBelow = start + LOG_HEIGHT < props.logs.length;
-  const detail = props.logs[selected];
+  const detail = props.logs[selected2];
   const pendingCount = props.logs.filter((l) => l.state === "pending").length;
   const errorCount = props.logs.filter((l) => l.error !== "-" || l.proxy?.error !== undefined && l.proxy.error !== "-").length;
   const loadingFrame = useSpinner2(pendingCount > 0);
@@ -60033,7 +61853,7 @@ function RequestLogsPanel(props) {
         const globalIndex = start + index;
         return /* @__PURE__ */ jsx_dev_runtime18.jsxDEV(LogRow, {
           log,
-          selected: globalIndex === selected,
+          selected: globalIndex === selected2,
           table,
           loadingFrame,
           now: now2
@@ -60121,14 +61941,14 @@ function LogRow(props) {
   const idStr = props.log.id;
   const timeStr = new Date(props.log.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
   const methodStr = props.log.method;
-  const pathStr = truncate3(props.log.path, props.table.pathWidth);
+  const pathStr = truncate4(props.log.path, props.table.pathWidth);
   const modelStr = requestLogModel(props.log) ?? "-";
   const clientStr = pending ? "..." : String(props.log.status);
   const proxyStr = props.log.proxy ? String(props.log.proxy.status) : pending ? "..." : "-";
   const durationMs = pending ? elapsedDurationMs(props.log.at, props.now) : props.log.durationMs;
   const durationStr = formatDuration2(durationMs);
   const summaryStr = summaryText(props.log, props.loadingFrame);
-  const summaryTruncated = truncate3(summaryStr, props.table.summaryWidth);
+  const summaryTruncated = truncate4(summaryStr, props.table.summaryWidth);
   return /* @__PURE__ */ jsx_dev_runtime18.jsxDEV(Box_default, {
     width: props.table.width,
     children: [
@@ -60264,12 +62084,12 @@ function LogDetailDialog(props) {
 }
 function col(value, width) {
   if (width <= 1)
-    return truncate3(value, width);
+    return truncate4(value, width);
   const contentWidth = width - 1;
-  const content = truncate3(value, contentWidth);
+  const content = truncate4(value, contentWidth);
   return content + " ".repeat(width - content.length);
 }
-function truncate3(value, width) {
+function truncate4(value, width) {
   if (value.length <= width)
     return value;
   if (width <= 1)
@@ -60986,7 +62806,7 @@ var copilotProviderDefinition = {
   validate: async () => {
     await ensureCopilotAuthFile();
   },
-  validationError: (error) => `Copilot auth file not found or invalid at ${bunPath.join(appDataDir(), COPILOT_AUTH_FILE_NAME)}. (${errorMessage4(error)})`,
+  validationError: (error) => `Copilot auth file not found or invalid at ${bunPath.join(appDataDir(), COPILOT_AUTH_FILE_NAME)}. (${errorMessage5(error)})`,
   accounts: {
     selectorTitle: "Select Copilot account",
     selectorDescription: "Switch between managed Copilot accounts. Applies to this session and future requests.",
@@ -61076,7 +62896,7 @@ function copilotAuthToAccount(auth3, index) {
 function firstString4(...values2) {
   return values2.find((value) => typeof value === "string" && value.trim().length > 0);
 }
-function errorMessage4(error) {
+function errorMessage5(error) {
   return error instanceof Error ? error.message : String(error);
 }
 
@@ -61353,7 +63173,7 @@ var codexProviderDefinition = {
     const authFile = process.env.CODEX_AUTH_FILE ? resolveAuthFile(process.env.CODEX_AUTH_FILE) : providerStatePath();
     await ensureCodexAuthFile(authFile);
   },
-  validationError: (error) => `Codex auth file not found at ${process.env.CODEX_AUTH_FILE ? resolveAuthFile(process.env.CODEX_AUTH_FILE) : providerStatePath()}. (${errorMessage5(error)})`,
+  validationError: (error) => `Codex auth file not found at ${process.env.CODEX_AUTH_FILE ? resolveAuthFile(process.env.CODEX_AUTH_FILE) : providerStatePath()}. (${errorMessage6(error)})`,
   accounts: {
     selectorTitle: "Select account",
     selectorDescription: "Switch between Codex accounts. Applies to this session and future requests.",
@@ -61427,7 +63247,7 @@ async function loadCodexAccountState(authFile) {
 function persistCodexActiveAccount(authFile, data, accountKey) {
   return writeActiveAccountInfo(authFile, data, accountKey);
 }
-function errorMessage5(error) {
+function errorMessage6(error) {
   return error instanceof Error ? error.message : String(error);
 }
 function openInBrowser(url) {
@@ -61456,7 +63276,7 @@ var kiroProviderDefinition = {
   validate: async () => {
     await ensureKiroAuthFile();
   },
-  validationError: (error) => `Kiro auth token file not found or invalid. Please log in to Kiro IDE first. (${errorMessage6(error)})`,
+  validationError: (error) => `Kiro auth token file not found or invalid. Please log in to Kiro IDE first. (${errorMessage7(error)})`,
   accounts: {
     selectorTitle: "Select Kiro account",
     selectorDescription: "Switch between managed Kiro accounts. Applies to this session and future requests.",
@@ -61558,7 +63378,7 @@ function firstString5(...values2) {
 function shortenArn(value) {
   return value.length > 36 ? `${value.slice(0, 18)}...${value.slice(-12)}` : value;
 }
-function errorMessage6(error) {
+function errorMessage7(error) {
   return error instanceof Error ? error.message : String(error);
 }
 
@@ -61677,7 +63497,7 @@ var import_react37 = __toESM(require_react(), 1);
 function useCodexFastMode(options) {
   const { authFile, providerMode, providerReady, onMessage } = options;
   const [enabled, setEnabled] = import_react37.useState(false);
-  const [selected, setSelected] = import_react37.useState(1);
+  const [selected2, setSelected] = import_react37.useState(1);
   import_react37.useEffect(() => {
     if (!providerReady)
       return;
@@ -61706,14 +63526,14 @@ function useCodexFastMode(options) {
     setSelected(enabled ? 0 : 1);
   }, [enabled]);
   const saveSelection = import_react37.useCallback(() => {
-    const nextEnabled = selected === 0;
+    const nextEnabled = selected2 === 0;
     setEnabled(nextEnabled);
     onMessage(`Codex fast mode ${nextEnabled ? "ON" : "OFF"}`);
     writeCodexFastModeConfig(authFile, { enabled: nextEnabled }).catch((error) => onMessage(`Codex fast mode save failed: ${error instanceof Error ? error.message : String(error)}`));
-  }, [authFile, onMessage, selected]);
+  }, [authFile, onMessage, selected2]);
   return {
     enabled,
-    selected,
+    selected: selected2,
     setSelected,
     resetSelection,
     saveSelection
@@ -62068,7 +63888,7 @@ function CodexCodeApp(props) {
   const apiPassword = props.apiPassword;
   const [accountData, setAccountData] = import_react40.useState();
   const [loadError, setLoadError] = import_react40.useState();
-  const [selected, setSelected] = import_react40.useState(0);
+  const [selected2, setSelected] = import_react40.useState(0);
   const [inputMessage, setInputMessage] = import_react40.useState("\u2191\u2193 select \xB7 enter confirm");
   const [commandIndex, setCommandIndex] = import_react40.useState(0);
   const [mode, setMode] = import_react40.useState("home");
@@ -62178,7 +63998,7 @@ function CodexCodeApp(props) {
   const connectCapability = accountCapability?.connect;
   const connectFields = connectCapability?.fields ?? [];
   const accounts = import_react40.useMemo(() => accountData && accountCapability ? accountCapability.toAccounts(accountData) : [], [accountCapability, accountData]);
-  const account = accounts[selected];
+  const account = accounts[selected2];
   const codexFastMode = useCodexFastMode({ authFile, providerMode, providerReady, onMessage: setInputMessage });
   const updateKiroInfo = import_react40.useCallback((patch) => {
     setProviderInfo((prev) => prev.mode === "kiro" ? { ...prev, ...patch } : prev);
@@ -62379,7 +64199,7 @@ function CodexCodeApp(props) {
       active = false;
       clearInterval(timer);
     };
-  }, [authFile, mode, authRevision, selected]);
+  }, [authFile, mode, authRevision, selected2]);
   import_react40.useEffect(() => {
     if (mode !== "logs" || !logsDetailOpen)
       return;
@@ -62954,7 +64774,7 @@ function CodexCodeApp(props) {
             setInputMessage("Account switching is not available for this provider");
             return;
           }
-          setSelectorIndex(selected);
+          setSelectorIndex(selected2);
           setMode("account-selector");
           return;
         }

@@ -262,9 +262,28 @@ describe("Kiro feature notice delivery", () => {
     ])
   })
 
-  test("errors and passthrough results are returned unchanged", () => {
+  test("passthrough results are returned unchanged", () => {
+    const passthrough = { type: "canonical_passthrough", status: 200, statusText: "OK", headers: new Headers(), body: new ReadableStream<Uint8Array>() } as const
+    expect(withKiroFeatureNotices(passthrough, [notice])).toBe(passthrough)
+  })
+
+  test("errors carry the notices as structured data, leaving status, headers, and body untouched", () => {
+    const headers = new Headers()
+    const error = { type: "canonical_error", status: 400, headers, body: "no" } as const
+    const result = withKiroFeatureNotices(error, [notice])
+
+    expect(result).not.toBe(error)
+    expect(result.type).toBe("canonical_error")
+    if (result.type !== "canonical_error") return
+    expect(result.status).toBe(400)
+    expect(result.headers).toBe(headers)
+    expect(result.body).toBe("no")
+    expect(result.featureNotices).toEqual([notice])
+  })
+
+  test("an error with no decided notice is the same object it was before", () => {
     const error = { type: "canonical_error", status: 400, headers: new Headers(), body: "no" } as const
-    expect(withKiroFeatureNotices(error, [notice])).toBe(error)
+    expect(withKiroFeatureNotices(error, [])).toBe(error)
   })
 })
 

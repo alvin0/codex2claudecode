@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test"
 import type { Canonical_Event, Canonical_FeatureNotice, Canonical_Response, Canonical_StreamResponse } from "../../src/core/canonical"
+import type { RequestProxyLog } from "../../src/core/types"
 import { StreamTelemetryCollector } from "../../src/core/stream-telemetry"
+import { OpenAI_Inbound_Provider } from "../../src/inbound/openai"
 import {
   canonicalResponseToChatCompletion,
   canonicalResponseToResponsesBody,
@@ -394,5 +396,97 @@ describe("late notices", () => {
       { type: "message_stop", stopReason: "end_turn" },
     ])
     expect(chatDeltaText(sse)).toBe(`Here is the answer.\n\n${WARNING}`)
+  })
+})
+
+// ---------------------------------------------------------------------------------------------
+// Placement — the error response (task 14b).
+//
+// The path a rejected request takes, which none of the suites above reach: no Responses body, no
+// chat completion, no stream. Driven through `OpenAI_Inbound_Provider.handle()` so the assertions
+// are about the bytes the real branch emits, including the passthrough branch that must not
+// render at all.
+// ---------------------------------------------------------------------------------------------
+const ERROR_BODY = "This upstream does not support sampling: temperature=0.2 was not sent upstream. Use an upstream that honors generation controls instead."
+function erroringUpstream(featureNotices?: Canonical_FeatureNotice[]) {
+  return {
+    proxy: () =>
+      Promise.resolve({
+        type: "canonical_error" as const,
+        status: 400,
+        headers: new Headers(),
+        body: ERROR_BODY,
+        ...(featureNotices ? { featureNotices } : {}),
+      }),
+    checkHealth: () => Promise.resolve({ ok: true }),
+  }
+}
+async function openAIErrorFor(featureNotices?: Canonical_FeatureNotice[], options: { passthrough?: boolean; onProxy?: (log: RequestProxyLog) => void } = {}) {
+  const response = await new OpenAI_Inbound_Provider({ passthrough: options.passthrough ?? false }).handle(
+    new Request("http://localhost/v1/responses", { method: "POST", body: JSON.stringify({ model: "m", input: "hi" }) }),
+    { path: "/v1/responses", method: "POST" },
+    erroringUpstream(featureNotices),
+    { requestId: "req_notice_error", logBody: false, quiet: true, ...(options.onProxy ? { onProxy: options.onProxy } : {}) },
+  )
+  return { response, text: await response.text() }
+}
+describe("placement — OpenAI error response", () => {
+  test("one warning segment leads the error message", async () => {
+    const { response, text } = await openAIErrorFor([SAMPLING, TOOL_CHOICE])
+    expect(response.status).toBe(400)
+    expect(markerCount(text)).toBe(1)
+    const body = JSON.parse(text)
+    // The warning leads the one prose field the OpenAI error shape has, and the message the
+    // client would have received without it is still there behind the blank line.
+    expect(body.error.message).toBe(`${WARNING}\n\n${ERROR_BODY}`)
+    expect(body.error.message.endsWith(ERROR_BODY)).toBe(true)
+  })
+  test("the harness parser reads the notices back off the error body", async () => {
+    const { text } = await openAIErrorFor([SAMPLING, TOOL_CHOICE])
+    expect(textNotices(JSON.parse(text).error.message)).toEqual([
+      { feature: "sampling", detail: "temperature=0.2 was not sent upstream", source: "text" },
+      { feature: "toolChoiceForced", detail: 'tool_choice "required" was applied by narrowing the tool list', source: "text" },
+    ])
+  })
+  test("a notice-free error is byte-identical to the same error carrying an empty list", async () => {
+    const withoutField = await openAIErrorFor()
+    const withEmptyList = await openAIErrorFor([])
+    expect(withEmptyList.text).toBe(withoutField.text)
+    expect(JSON.parse(withoutField.text).error.message).toBe(ERROR_BODY)
+  })
+  test("an emulate-only error is byte-identical to the notice-free one", async () => {
+    const withoutField = await openAIErrorFor()
+    const emulateOnly = await openAIErrorFor([emulate("structuredOutput", "schema enforced by prompt"), emulate("webSearch", "served through MCP")])
+    // Requirement 9.2 on this path too: an emulate notice stays telemetry-only.
+    expect(emulateOnly.text).toBe(withoutField.text)
+  })
+  test("adds no field and no header the notice-free error lacks", async () => {
+    const warned = await openAIErrorFor([SAMPLING])
+    const plain = await openAIErrorFor()
+    const warnedBody = JSON.parse(warned.text)
+    const plainBody = JSON.parse(plain.text)
+    expect(Object.keys(warnedBody)).toEqual(Object.keys(plainBody))
+    expect(Object.keys(warnedBody.error)).toEqual(Object.keys(plainBody.error))
+    expect(warnedBody.error.type).toBe(plainBody.error.type)
+    expect(warned.response.status).toBe(plain.response.status)
+    expect([...warned.response.headers.keys()].sort()).toEqual([...plain.response.headers.keys()].sort())
+  })
+  test("passthrough mode forwards the error bytes unrendered", async () => {
+    // Requirement 15.5: a byte forward stays a byte forward, so the notices reach this client
+    // through telemetry only.
+    const logs: RequestProxyLog[] = []
+    const { response, text } = await openAIErrorFor([SAMPLING], { passthrough: true, onProxy: (log) => logs.push(log) })
+    expect(response.status).toBe(400)
+    expect(text).toBe(ERROR_BODY)
+    expect(markerCount(text)).toBe(0)
+    expect(logs[0]?.telemetry?.featureNotices).toEqual([SAMPLING])
+  })
+  test("the notices reach telemetry on the proxy log, rendered nowhere else", async () => {
+    const logs: RequestProxyLog[] = []
+    const emulated = emulate("structuredOutput", "schema enforced by prompt")
+    const { response } = await openAIErrorFor([SAMPLING, emulated], { onProxy: (log) => logs.push(log) })
+    expect(response.status).toBe(400)
+    // Unrendered and undeduped, both policies, exactly as on the 200 paths (Requirement 8.8).
+    expect(logs[0]?.telemetry?.featureNotices).toEqual([SAMPLING, emulated])
   })
 })

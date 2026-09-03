@@ -52,27 +52,18 @@ import { COPILOT_CAPABILITIES } from "./capabilities"
  */
 
 /**
- * The `Canonical_Request` members the contract task has not landed yet (design §"Canonical
- * additions": `sampling`, `thinking`, `cacheHint`, `parallelToolCalls`).
+ * `sampling` and `cacheHint` are read straight off {@link Canonical_Request} now.
  *
- * Declared optional and read defensively so this file needs **no edit** on the day canonical
- * starts carrying them: today no inbound provider builds a request with `sampling` or
- * `cacheHint`, so `sampling`, `stopSequences`, and `promptCache` resolve for nobody and emit
- * nothing. Kept local rather than pushed into `src/core/canonical.ts`: a provider directory may
- * describe what it reads, but it may not widen the canonical contract on core's behalf.
+ * They used to be declared here as a local forward-compatible view, because canonical carried
+ * neither member and the inbound providers dropped both at their own boundary. The contract
+ * task landed them (design §"Canonical additions") and task 14 wired the inbound mappers, so
+ * the speculative view is gone: one shape, owned by core, is what the resolutions below key
+ * off. Keeping the local declaration would let core's shape and this file's idea of it drift
+ * apart silently — it had already drifted on `cacheHint`, whose scope is a fixed union in core
+ * and was an open `string` here. Same removal as `../kiro/features.ts` and
+ * `../codex/features.ts`; this file being declaration-only is exactly why the drift would have
+ * gone unnoticed longest here.
  */
-interface FutureCanonicalRequestMembers {
-  sampling?: {
-    maxOutputTokens?: number
-    temperature?: number
-    topP?: number
-    stopSequences?: string[]
-  }
-  cacheHint?: ReadonlyArray<{ scope?: string; ttl?: string }>
-}
-
-type CopilotFeatureRequestView = Canonical_Request & FutureCanonicalRequestMembers
-
 export interface CopilotFeatureResolutionOptions {
   /**
    * Whether a reporting outcome escalates to a failed request. Passed straight through to
@@ -96,9 +87,8 @@ export interface CopilotFeatureResolutionOptions {
  */
 export function resolveCopilotFeatures(request: Canonical_Request, options: CopilotFeatureResolutionOptions = {}): FeatureDecisions {
   const decisions = new FeatureDecisions(COPILOT_CAPABILITIES.features, options.strict ?? false)
-  const view = request as CopilotFeatureRequestView
 
-  const sampling = requestedSamplingControls(view)
+  const sampling = requestedSamplingControls(request)
   if (sampling.length) {
     decisions.resolve(
       "sampling",
@@ -111,7 +101,7 @@ export function resolveCopilotFeatures(request: Canonical_Request, options: Copi
   // notice, but resolving it records the feature in `resolvedFeatures()`, which is what the
   // no-silent-drop set comparison reads (Requirement 10.8). A field skipped because its outcome
   // is quiet would be invisible to that walk; a field recorded as covered is accounted for.
-  if (requestedOutputLengthLimit(view)) {
+  if (requestedOutputLengthLimit(request)) {
     decisions.resolve(
       "outputLength",
       "this wire format has a field for an upper bound on reply length, so the requested limit is forwarded as stated rather than dropped at this boundary",
@@ -119,7 +109,7 @@ export function resolveCopilotFeatures(request: Canonical_Request, options: Copi
     )
   }
 
-  if (requestedStopSequences(view).length) {
+  if (requestedStopSequences(request).length) {
     decisions.resolve(
       "stopSequences",
       "this endpoint has no stop-sequence field, so generation cannot be halted on the requested strings",
@@ -135,7 +125,7 @@ export function resolveCopilotFeatures(request: Canonical_Request, options: Copi
     )
   }
 
-  if (requestsPromptCache(view)) {
+  if (requestsPromptCache(request)) {
     decisions.resolve(
       "promptCache",
       "this endpoint caches prompt prefixes on its own schedule and takes no client cache instructions, so the requested cache points cannot be placed where they were asked for",
@@ -184,7 +174,7 @@ export function resolveCopilotFeatures(request: Canonical_Request, options: Copi
  * `maxOutputTokens` is not one of these names: it is `outputLength`, its own feature with its
  * own cell, detected by {@link requestedOutputLengthLimit}.
  */
-function requestedSamplingControls(request: CopilotFeatureRequestView): string[] {
+function requestedSamplingControls(request: Canonical_Request): string[] {
   const sampling = request.sampling
   if (!sampling) return []
   return [
@@ -197,7 +187,7 @@ function requestedSamplingControls(request: CopilotFeatureRequestView): string[]
  * Whether the client asked for an upper bound on the reply length. A boolean, not a name:
  * there is one field, so there is nothing to disambiguate the way the sampling controls need.
  */
-function requestedOutputLengthLimit(request: CopilotFeatureRequestView): boolean {
+function requestedOutputLengthLimit(request: Canonical_Request): boolean {
   return typeof request.sampling?.maxOutputTokens === "number"
 }
 
@@ -206,12 +196,12 @@ function joinControls(names: readonly string[]): string {
   return `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`
 }
 
-function requestedStopSequences(request: CopilotFeatureRequestView): readonly string[] {
+function requestedStopSequences(request: Canonical_Request): readonly string[] {
   const stopSequences = request.sampling?.stopSequences
   return Array.isArray(stopSequences) ? stopSequences.filter((entry) => typeof entry === "string" && entry.length > 0) : []
 }
 
-function requestsPromptCache(request: CopilotFeatureRequestView): boolean {
+function requestsPromptCache(request: Canonical_Request): boolean {
   return Array.isArray(request.cacheHint) && request.cacheHint.length > 0
 }
 

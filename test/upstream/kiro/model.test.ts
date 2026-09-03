@@ -91,11 +91,16 @@ describe("Kiro model handling", () => {
       schemaPath: "output_config",
       levels: ["low", "medium", "high", "xhigh", "max"],
       defaultLevel: "high",
+      // `live` because these levels were read off the response above. The bundled
+      // `kiro-models.json` fallback marks its own descriptors `static`, and never overwrites one of
+      // these.
+      provenance: "live",
     })
     expect(upstream.modelMetadata.get("gpt-5.6-luna")?.effort).toEqual({
       schemaPath: "reasoning",
       levels: ["none", "low", "medium", "high", "xhigh", "max"],
       defaultLevel: "high",
+      provenance: "live",
     })
     expect(upstream.modelMetadata.get("deepseek-3.2")?.effort).toBeUndefined()
   })

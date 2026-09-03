@@ -35,32 +35,16 @@ import { KIRO_CAPABILITIES } from "./capabilities"
  */
 
 /**
- * The `Canonical_Request` members the contract task (design §"Canonical additions": `sampling`,
- * `thinking`, `cacheHint`, `parallelToolCalls`) has not landed yet.
+ * `sampling` and `cacheHint` are read straight off {@link Canonical_Request} now.
  *
- * Declared here as optional and read defensively so this file needs **no edit** on the day
- * canonical starts carrying them: today `sampling` and `cacheHint` are absent from every
- * request the inbound providers build, so `sampling`, `stopSequences`, and `promptCache`
- * resolve for nobody and emit nothing. That is honest rather than convenient — those fields
- * are currently dropped at the *inbound* boundary, before any upstream sees them, so an
- * upstream notice claiming otherwise would be fiction. The moment `claudeToCanonicalRequest()`
- * spreads its sampling mapper in, the three resolutions below start firing with no change here.
- *
- * Kept local rather than pushed into `src/core/canonical.ts`: a provider directory may describe
- * what it reads, but it may not widen the canonical contract on core's behalf.
+ * They used to be declared here as a local forward-compatible view, because canonical carried
+ * neither member and the inbound providers dropped both at their own boundary — a notice about
+ * a field no upstream could see would have been fiction. The contract task landed them (design
+ * §"Canonical additions") and task 14 wired the inbound mappers, so the speculative view is
+ * gone: one shape, owned by core, is what the resolutions below key off. Keeping the local
+ * declaration would let core's shape and this file's idea of it drift apart silently, which is
+ * the one failure mode the view was never able to catch.
  */
-interface FutureCanonicalRequestMembers {
-  sampling?: {
-    maxOutputTokens?: number
-    temperature?: number
-    topP?: number
-    stopSequences?: string[]
-  }
-  cacheHint?: ReadonlyArray<{ scope?: string; ttl?: string }>
-}
-
-type KiroFeatureRequestView = Canonical_Request & FutureCanonicalRequestMembers
-
 export interface KiroFeatureResolutionOptions {
   /**
    * Whether `degrade` escalates to `reject`. Passed straight through to
@@ -85,9 +69,8 @@ export interface KiroFeatureResolutionOptions {
  */
 export function resolveKiroFeatures(request: Canonical_Request, options: KiroFeatureResolutionOptions = {}): FeatureDecisions {
   const decisions = new FeatureDecisions(KIRO_CAPABILITIES.features, options.strict ?? false)
-  const view = request as KiroFeatureRequestView
 
-  const sampling = requestedSamplingControls(view)
+  const sampling = requestedSamplingControls(request)
   if (sampling.length) {
     decisions.resolve(
       "sampling",
@@ -100,7 +83,7 @@ export function resolveKiroFeatures(request: Canonical_Request, options: KiroFea
   // treats it differently from `temperature` / `topP`: the limit is taken and then disregarded
   // instead of having nowhere to go at all. The two policies therefore differ, and a policy
   // difference belongs in `./capabilities.ts` (design decision D3), not in a detection helper.
-  if (requestedOutputLengthLimit(view)) {
+  if (requestedOutputLengthLimit(request)) {
     decisions.resolve(
       "outputLength",
       "this endpoint accepts an output length limit and then disregards it — a limit of a handful of tokens was measured answering 200 and still streaming a full-length essay — so the limit is left off the request rather than sent to be ignored, and the reply may run well past the length that was asked for",
@@ -108,7 +91,7 @@ export function resolveKiroFeatures(request: Canonical_Request, options: KiroFea
     )
   }
 
-  if (requestedStopSequences(view).length) {
+  if (requestedStopSequences(request).length) {
     decisions.resolve(
       "stopSequences",
       "this endpoint has no stop-sequence field, so generation cannot be halted on the requested strings",
@@ -116,7 +99,7 @@ export function resolveKiroFeatures(request: Canonical_Request, options: KiroFea
     )
   }
 
-  if (requestsPromptCache(view)) {
+  if (requestsPromptCache(request)) {
     decisions.resolve(
       "promptCache",
       "this endpoint exposes no prompt cache: reusing a conversation reduced no spend and reported no cached-input counter, so the requested cache hints cannot be applied",
@@ -159,7 +142,7 @@ export function resolveKiroFeatures(request: Canonical_Request, options: KiroFea
  * on its own below, so the outcome this list feeds covers only the two controls that have
  * nowhere at all to go on this endpoint.
  */
-function requestedSamplingControls(request: KiroFeatureRequestView): string[] {
+function requestedSamplingControls(request: Canonical_Request): string[] {
   const sampling = request.sampling
   if (!sampling) return []
   return [
@@ -176,7 +159,7 @@ function requestedSamplingControls(request: KiroFeatureRequestView): string[] {
  * it already knows what it sent, and quoting it back would make the prose vary per request for
  * no gain in what the client learns.
  */
-function requestedOutputLengthLimit(request: KiroFeatureRequestView): boolean {
+function requestedOutputLengthLimit(request: Canonical_Request): boolean {
   return typeof request.sampling?.maxOutputTokens === "number"
 }
 
@@ -185,12 +168,12 @@ function joinControls(names: readonly string[]): string {
   return `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`
 }
 
-function requestedStopSequences(request: KiroFeatureRequestView): readonly string[] {
+function requestedStopSequences(request: Canonical_Request): readonly string[] {
   const stopSequences = request.sampling?.stopSequences
   return Array.isArray(stopSequences) ? stopSequences.filter((entry) => typeof entry === "string" && entry.length > 0) : []
 }
 
-function requestsPromptCache(request: KiroFeatureRequestView): boolean {
+function requestsPromptCache(request: Canonical_Request): boolean {
   return Array.isArray(request.cacheHint) && request.cacheHint.length > 0
 }
 

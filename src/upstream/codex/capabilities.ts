@@ -1,4 +1,4 @@
-import type { ProviderCapabilities } from "../../core/provider-capabilities"
+import type { FeaturePolicy, ProviderCapabilities } from "../../core/provider-capabilities"
 import { DEFAULT_RETRY_POLICY, DEFAULT_TIMEOUT_POLICY } from "../../core/provider-capabilities"
 
 /**
@@ -30,47 +30,52 @@ export const CODEX_CAPABILITIES: ProviderCapabilities = {
   timeoutPolicy: DEFAULT_TIMEOUT_POLICY,
   logBodyDefault: true,
   features: {
-    // `native`, and the one cell in this file whose declaration is NOT what today's
-    // measurement shows. Recording the tension here rather than resolving it silently.
+    // **Measured**, spike §11.2 / §11.5, and a correction: this cell read `native` until the
+    // §11 probe sent the two controls one per run and both came back refused.
     //
-    // Measured (Run_Record 3, reaffirmed by Run_Record 5, carried into Checkpoint 4 as
-    // item 1): the Codex upstream body carries neither `temperature` nor `top_p`. The live
-    // case `sampling-native` is green, but it asserts "status 200, `response.completed`,
-    // zero notice for sampling" — that proves *zero notice*, not *value reached the wire*.
-    // Grep agrees: no file under `src/upstream/codex/` mentions `temperature` or `top_p`,
-    // and `src/core/canonical.ts` has no sampling member at all. Sampling is dropped at
-    // the **inbound** boundary, for every upstream — it is not a Codex decision, and the
-    // Codex upstream never sees the field to decide anything about it.
+    // | field | status | body |
+    // | --- | --- | --- |
+    // | `temperature: 0.2` | 400 | `{"detail":"Unsupported parameter: temperature"}` |
+    // | `top_p: 0.9` | 400 | `{"detail":"Unsupported parameter: top_p"}` |
+    // | none (control) | 200 | `response.completed` |
     //
-    // Why `native` anyway: Requirement 10.6 states that a `temperature` sent to this
-    // upstream produces **zero** Feature_Notice events for `sampling`. Requirement 10.2
-    // makes `degrade` and `emulate` each emit exactly one notice, and Requirement 10.3
-    // makes `reject` a 400. Three of the four values are therefore excluded by a normative
-    // criterion, and `native` is what remains. Requirement 14.1 then makes the declaration
-    // true rather than aspirational: Codex must emit the corresponding Responses fields
-    // once canonical carries them (tasks 14 and 15, via `./sampling.ts`).
+    // The values are the ones the live case sends, so the table explains that case rather
+    // than a relative of it. Rejection is endpoint-level, not model-level: the same
+    // `Unsupported parameter: temperature` came back on `gpt-5.4-mini` and on `gpt-5.5`
+    // (§11.4). And it is a rejection rather than accepted-but-ignored — §11.3 records the
+    // endpoint *echoing* `temperature: 1` and `top_p: 0.98` in `response.created` while
+    // refusing both names as request parameters, which is the trap: a field in the response
+    // schema is no evidence it is accepted in the request.
     //
-    // This is not the §10.6 doctrine being waived — it is the doctrine applied to a cell
-    // whose gap lives upstream of the canonical contract. `thinkingBudget` below is the
-    // contrasting case: there the Codex upstream *does* receive the client's intent and
-    // *does* substitute it, which is a Codex-owned outcome and stays `degrade`.
+    // Why not `native`: `native` means the client's field reaches the wire as sent with zero
+    // notice. Here reaching the wire **kills the request**. No reading of `native` survives a
+    // 400. Why not `reject`: a `reject` is the gateway returning 400 itself, so the client
+    // loses the whole request — and the control run proves that same request answers 200 once
+    // the field is dropped. `degrade` is the value that keeps the answer and still tells the
+    // client: the field is dropped by `./sampling.ts` (its name is on
+    // `RESPONSES_REJECTED_FIELDS`, sourced to §11.2) and `./features.ts` emits exactly one
+    // Feature_Notice saying so. Dropping it without the notice is the silent drop
+    // Requirement 10 exists to forbid, which is why the denylist and this cell move together.
     //
-    // Until tasks 14/15 land, this cell is unmeasured. Requirement 14.6 (mapped field
-    // present in the Codex body) and a new Run_Record are what make it measured; do not
-    // read the green `sampling-native` case as that evidence.
-    sampling: "native",
-    // `native`, and carrying exactly the same caveat as the `sampling` cell above rather than
-    // a stronger one. The Responses API takes `max_output_tokens` as a first-class parameter,
-    // so a requested output-length limit has a wire target here — unlike Kiro, where spike §4
-    // measured the limit accepted and then discarded, hence `degrade` there. `./sampling.ts`
-    // (task 15.1) is what emits it; `canonicalToCodexBody()` emits nothing for it today,
-    // because `Canonical_Request` has no `sampling` member yet.
+    // This is the same structural position `stopSequences` below has always held — no wire
+    // target — reached by measurement instead of by absence of a field name.
+    sampling: "degrade",
+    // **Measured**, spike §11.2 / §11.5, and the same correction as the `sampling` cell above,
+    // from the same probe run: `max_output_tokens: 16` returned
+    // `400 {"detail":"Unsupported parameter: max_output_tokens"}`.
     //
-    // Unmeasured, and the same warning applies: **no probe has sent an output limit to this
-    // endpoint**, and the green `sampling-native` live case is not that evidence — it asserts
-    // zero notice, which says nothing about a value reaching the wire. Requirement 14.6 plus
-    // a new Run_Record is what would make this cell measured.
-    outputLength: "native",
+    // The prior `native` rested on wire-format reasoning — the Responses API documents
+    // `max_output_tokens`, so a limit "has a wire target here". This endpoint is not that API:
+    // it refuses the parameter, and §11.3 records it echoing `max_output_tokens: null` in
+    // `response.created` all the same. Run_Record 16 measured the practical cost first, on
+    // `messages-no-passthrough`, whose body carries nothing but the mandatory Claude
+    // `max_tokens: 256` — one mapped field, one 400, an ordinary request lost.
+    //
+    // `degrade` for the reason the `sampling` cell gives: the limit is dropped so the request
+    // still runs, and the client is told the reply is not capped where it asked. Not `reject`
+    // — refusing every Claude request that carries a mandatory `max_tokens` is the failure
+    // mode task 12b split this cell out of `sampling` to avoid.
+    outputLength: "degrade",
     // A `sampling` sub-member (Requirement 12.1) with no counterpart this repository can
     // point at: nothing under `src/upstream/codex/` emits a stop list, and the Responses
     // body `canonicalToCodexBody()` builds has no field for one. Combined with the §10.2
@@ -78,7 +83,9 @@ export const CODEX_CAPABILITIES: ProviderCapabilities = {
     // guessing a field name is a request-killing risk, so the value is dropped and the
     // client is told. That is the `RESPONSES_REJECTED_FIELDS` denylist the design gives
     // `./sampling.ts`, and it satisfies Requirement 14.2 (omit what the API rejects)
-    // without the silent part. Unmeasured: no probe has sent a stop list to this endpoint.
+    // without the silent part. Unmeasured: no probe has sent a stop list to this endpoint —
+    // this is now the *only* sampling sub-member on this upstream whose `degrade` rests on an
+    // absent field name rather than on a measured 400 (§11.2 supplied the other three).
     stopSequences: "degrade",
     // spike §10.6, settled by the task 3.2 probe. This is the cell Requirement 4.4 calls
     // the "Codex effort cell": the matrix has no `effort` member, and `thinkingBudget` is
@@ -154,16 +161,22 @@ export const CODEX_CAPABILITIES: ProviderCapabilities = {
     // `user_location`. The upstream runs the search; the gateway assembles no results of its
     // own, which is what separates this from Kiro's `emulate`.
     webSearch: "native",
-    // Silent substitution, code-verified: `claudeWebToolToResponsesTool()`
-    // (`src/inbound/claude/web.ts`) maps a client `web_fetch` tool to Responses
-    // `{ type: "web_search" }`, because `web_fetch` is **not** among the ten hosted type
-    // names in Requirement 19.1 — Responses has no such tool. A fetch does still tend to
-    // happen, as the `open_page` action of a `web_search_call`, which
+    // Substitution, code-verified, and now performed **here** rather than upstream of this
+    // matrix: `forwardOneCodexTool()` (`./hosted-tools.ts`) sends a canonical `web_fetch`
+    // tool as `{ type: "web_search" }`, because `web_fetch` is **not** among the ten hosted
+    // type names in Requirement 19.1 — Responses has no such tool. A fetch does still tend
+    // to happen, as the `open_page` action of a `web_search_call`, which
     // `codexWebCallToClaudeBlocks()` renders back as `web_fetch_tool_result`. So the intent
-    // survives while the tool the client asked for does not: changed semantics that today go
-    // unreported, which is `degrade`. Not `reject` — the substitution works often enough
-    // that a 400 would remove behavior clients have. Not `native` — the wire tool is a
-    // different tool.
+    // survives while the tool the client asked for does not: changed semantics, which is
+    // `degrade`. Not `reject` — the substitution works often enough that a 400 would remove
+    // behavior clients have. Not `native` — the wire tool is a different tool.
+    //
+    // It used to be a *silent* substitution, done by `claudeWebToolToResponsesTool()`
+    // (`src/inbound/claude/web.ts`) before any upstream saw the request, which also made a
+    // Claude fetch unreachable on upstreams that can emulate one. The canonical vocabulary
+    // now carries the fetch (`src/core/canonical-tools.ts`), so the swap happens at the
+    // boundary that owns this wire protocol and `resolveCodexHostedTools()` reports it —
+    // same bytes, no longer silent (Requirements 10.1, 10.2).
     webFetch: "degrade",
     // Requirement 2.4, preserving current behavior. `canonicalToCodexBody()` forwards a
     // client `mcp` toolset inside `request.tools` untouched and the upstream connects to
@@ -199,3 +212,23 @@ export const CODEX_CAPABILITIES: ProviderCapabilities = {
     tool_search: "native",
   },
 }
+
+/**
+ * The policy for a hosted tool type this upstream has **not** declared above.
+ *
+ * `resolveHostedToolPolicy()` returns `undefined` for a type absent from the map, and that is a
+ * lookup miss rather than a fifth outcome (`src/core/feature-policy.ts`). Requirement 19.4 fixes
+ * what the miss means: emit a notice and complete the request, never throw. So the fallback is
+ * the policy that reports a changed meaning while still running the request.
+ *
+ * It lives here rather than in `./hosted-tools.ts` for the reason every other policy value does:
+ * `capabilities.ts` is the one file in this directory allowed to spell a policy literal (design
+ * decision D3, enforced by Property 4 in `test/core/feature-policy.property.test.ts`). A
+ * consumer reads the constant and hands it to `resolveFeature()` without ever comparing against
+ * the word.
+ *
+ * Per-upstream rather than shared, and deliberately so: an upstream that could refuse an
+ * unknown tool type outright would declare a different value here without touching any other
+ * upstream's behavior.
+ */
+export const CODEX_UNDECLARED_HOSTED_TOOL_POLICY: FeaturePolicy = "degrade"

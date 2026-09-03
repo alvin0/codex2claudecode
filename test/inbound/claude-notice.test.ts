@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test"
 import type { Canonical_Event, Canonical_FeatureNotice, Canonical_Response, Canonical_StreamResponse } from "../../src/core/canonical"
+import type { RequestProxyLog } from "../../src/core/types"
 import { StreamTelemetryCollector } from "../../src/core/stream-telemetry"
+import { Claude_Inbound_Provider } from "../../src/inbound/claude"
+import { claudeUpstreamErrorMessage } from "../../src/inbound/claude/context-limit"
 import { CLAUDE_NOTICE_MARKER, prependClaudeWarning, renderClaudeFeatureWarning } from "../../src/inbound/claude/notice"
 import { canonicalResponseToClaudeMessage, claudeCanonicalStreamResponse } from "../../src/inbound/claude/response"
 import type { ClaudeMessagesRequest } from "../../src/inbound/types"
@@ -428,5 +431,103 @@ describe("late notices", () => {
       { type: "message_stop", stopReason: "end_turn" },
     ])
     expect(JSON.stringify(lateEmulate)).toBe(JSON.stringify(plain))
+  })
+})
+
+// ---------------------------------------------------------------------------------------------
+// Placement — the error response (task 14b).
+//
+// The third path a Claude client reads. A rejected request never produces a message body or an
+// SSE stream, so neither suite above covers it; before 14b it delivered nothing at all. Driven
+// through `Claude_Inbound_Provider.handle()` rather than through the error builders, so the
+// assertions are about the bytes a client receives from the real branch, including the choice of
+// which prose field the warning leads.
+// ---------------------------------------------------------------------------------------------
+
+const ERROR_BODY = "This upstream does not support sampling: temperature=0.2 was not sent upstream. Use an upstream that honors generation controls instead."
+const ERROR_MESSAGE = claudeUpstreamErrorMessage(400, ERROR_BODY)
+
+function erroringUpstream(featureNotices?: Canonical_FeatureNotice[]) {
+  return {
+    proxy: () =>
+      Promise.resolve({
+        type: "canonical_error" as const,
+        status: 400,
+        headers: new Headers(),
+        body: ERROR_BODY,
+        ...(featureNotices ? { featureNotices } : {}),
+      }),
+    inputTokens: () => Promise.resolve(Response.json({ object: "response.input_tokens", input_tokens: 1 })),
+    checkHealth: () => Promise.resolve({ ok: true }),
+  }
+}
+
+async function claudeErrorFor(featureNotices?: Canonical_FeatureNotice[]) {
+  const response = await new Claude_Inbound_Provider().handle(
+    new Request("http://localhost/v1/messages", { method: "POST", body: JSON.stringify({ model: "m", messages: [{ role: "user", content: "hi" }] }) }),
+    { path: "/v1/messages", method: "POST" },
+    erroringUpstream(featureNotices),
+    { requestId: "req_notice_error", logBody: false, quiet: true },
+  )
+  return { response, text: await response.text() }
+}
+
+describe("placement — Claude error response", () => {
+  test("one warning segment leads the error message", async () => {
+    const { response, text } = await claudeErrorFor([SAMPLING, TOOL_CHOICE])
+    expect(response.status).toBe(400)
+    expect(markerCount(text)).toBe(1)
+    const body = JSON.parse(text)
+    // The warning leads the one prose field the error shape has, and the message the client
+    // would have received without it is still there, unchanged, behind the blank line.
+    expect(body.error.message).toBe(`${WARNING}\n\n${ERROR_MESSAGE}`)
+    expect(body.error.message.endsWith(ERROR_MESSAGE)).toBe(true)
+  })
+
+  test("the harness parser reads the notices back off the error body", async () => {
+    const { text } = await claudeErrorFor([SAMPLING, TOOL_CHOICE])
+    expect(textNotices(JSON.parse(text).error.message)).toEqual([
+      { feature: "sampling", detail: "temperature=0.2 was not sent upstream", source: "text" },
+      { feature: "toolChoiceForced", detail: 'tool_choice "required" was applied by narrowing the tool list', source: "text" },
+    ])
+  })
+
+  test("a notice-free error is byte-identical to the same error carrying an empty list", async () => {
+    const withoutField = await claudeErrorFor()
+    const withEmptyList = await claudeErrorFor([])
+    expect(withEmptyList.text).toBe(withoutField.text)
+    expect(JSON.parse(withoutField.text).error.message).toBe(ERROR_MESSAGE)
+  })
+
+  test("an emulate-only error is byte-identical to the notice-free one", async () => {
+    const withoutField = await claudeErrorFor()
+    const emulateOnly = await claudeErrorFor([emulate("structuredOutput", "schema enforced by prompt"), emulate("webSearch", "served through MCP")])
+    // Requirement 9.2 on this path too: an emulate notice stays telemetry-only.
+    expect(emulateOnly.text).toBe(withoutField.text)
+  })
+
+  test("adds no field and no header the notice-free error lacks", async () => {
+    const warned = await claudeErrorFor([SAMPLING])
+    const plain = await claudeErrorFor()
+    const warnedBody = JSON.parse(warned.text)
+    const plainBody = JSON.parse(plain.text)
+    expect(Object.keys(warnedBody)).toEqual(Object.keys(plainBody))
+    expect(Object.keys(warnedBody.error)).toEqual(Object.keys(plainBody.error))
+    expect(warnedBody.error.type).toBe(plainBody.error.type)
+    expect(warned.response.status).toBe(plain.response.status)
+    expect([...warned.response.headers.keys()].sort()).toEqual([...plain.response.headers.keys()].sort())
+  })
+
+  test("the notices reach telemetry on the proxy log, rendered nowhere else", async () => {
+    const logs: RequestProxyLog[] = []
+    const response = await new Claude_Inbound_Provider().handle(
+      new Request("http://localhost/v1/messages", { method: "POST", body: JSON.stringify({ model: "m", messages: [{ role: "user", content: "hi" }] }) }),
+      { path: "/v1/messages", method: "POST" },
+      erroringUpstream([SAMPLING, emulate("structuredOutput", "schema enforced by prompt")]),
+      { requestId: "req_notice_error", logBody: false, quiet: true, onProxy: (log) => logs.push(log) },
+    )
+    expect(response.status).toBe(400)
+    // Unrendered and undeduped, both policies, exactly as on the 200 paths (Requirement 8.8).
+    expect(logs[0]?.telemetry?.featureNotices).toEqual([SAMPLING, emulate("structuredOutput", "schema enforced by prompt")])
   })
 })

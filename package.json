@@ -1,6 +1,6 @@
 {
   "name": "codex2claudecode",
-  "version": "0.3.2",
+  "version": "0.4.0",
   "description": "Bun-powered Claude-compatible local API for Codex, Kiro, and Copilot credentials.",
   "author": "alvin0 <chaulamdinhai@gmail.com>",
   "license": "MIT",
@@ -57,6 +57,8 @@
     "test:kiro:api": "bun scripts/kiro-api-smoke.ts",
     "probe:kiro:mcp": "bun scripts/kiro-mcp-probe.ts",
     "probe:codex:effort": "bun scripts/codex-effort-probe.ts",
+    "probe:codex:sampling": "bun scripts/codex-sampling-probe.ts",
+    "probe:native:combined": "bun scripts/native-combined-session.ts",
     "test:native:live": "NATIVE_LIVE=1 bun test test/native/live.test.ts",
     "test:native:verify": "bun scripts/native-verify.ts"
   },

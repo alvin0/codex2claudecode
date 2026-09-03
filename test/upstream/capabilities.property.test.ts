@@ -52,11 +52,15 @@
 // *which* keys they declare. The second half pins the deliberate-duplication decision behind
 // Requirement 2.2/19.1 — three files repeating one list stay in sync — without naming the list.
 //
-// Sampling caveat, recorded so no later reader mistakes its absence for an oversight: Codex declares
-// `sampling: "native"` by elimination from Requirement 10.6 (zero notices excludes `degrade`,
-// `emulate`, and `reject`), and that value does not currently reach the Codex wire — canonical has no
-// sampling member until tasks 14/15. Nothing in this file asserts a value reaches any wire; these are
-// declaration tests, and `test/native/verify-matrix.ts` plus Requirement 14.6 own the wire claim.
+// Sampling caveat, rewritten because the caveat it recorded has been discharged by measurement.
+// Codex used to declare `sampling: "native"` and `outputLength: "native"` by elimination from
+// Requirement 10.6, with no evidence that either value reached the wire. Both are now `degrade` on a
+// measurement: `.omc/research/kiro-wire-spike.md` §11.2 sent `temperature`, `top_p`, and
+// `max_output_tokens` one per run and got `400 {"detail":"Unsupported parameter: <name>"}` for each,
+// against a 200 control carrying none of them. Copilot's two cells stay `native` and stay declared by
+// elimination — a different endpoint, no connected account, nothing probed. Nothing in this file
+// asserts a value reaches any wire; these are declaration tests, and `test/native/verify-matrix.ts`
+// plus Requirement 14.6 own the wire claim.
 import { describe, expect, test } from "bun:test"
 import fc from "fast-check"
 
@@ -103,11 +107,16 @@ type UpstreamName = (typeof UPSTREAM_CAPABILITY_MODULES)[number]["upstream"]
  *     other way: the limit is accepted with a 200 and then disregarded, so the semantics changed
  *     rather than the field having nowhere to go. Task 12b split it out of `sampling` for exactly
  *     that reason, so the two cells diverging here is the point rather than an inconsistency.
- *   - `codex.outputLength` / `copilot.outputLength` — `native` on wire-format grounds (the
- *     Responses API takes `max_output_tokens`), unmeasured like the neighbouring `sampling` cell.
+ *   - `codex.sampling` / `codex.outputLength` — **`degrade`, measured** (spike §11.2, §11.5). Both
+ *     read `native` until that probe: `sampling` by elimination from Requirement 10.6, and
+ *     `outputLength` on wire-format grounds because the Responses API documents
+ *     `max_output_tokens`. The endpoint refuses all three spellings, so both readings fell.
+ *   - `copilot.outputLength` — still `native` on the same wire-format grounds, and still
+ *     unmeasured. It diverging from `codex.outputLength` is now the point: the §11.2 measurement is
+ *     about one endpoint, and Copilot's is a different one with no account to probe.
  *   - `codex.mcpToolset` — Requirement 2.4, the "preserve current behavior" guarantee.
- *   - `codex.sampling` / `copilot.sampling` — declared by requirement elimination (10.6), not yet
- *     observable on the wire. Asserted as declared; see the file header.
+ *   - `copilot.sampling` — declared by requirement elimination (10.6), not yet observable on the
+ *     wire. Asserted as declared; see the file header.
  *   - `codex.thinkingBudget` — may rise to `native` only after task 19b plus a new Run_Record.
  *   - every `copilot` cell — unmeasured, per `COPILOT_CAPABILITY_EVIDENCE` and Property 3 below.
  */
@@ -127,8 +136,9 @@ const DECLARED_POLICY_MATRIX: Record<UpstreamName, Record<ProviderFeature, Featu
     mcpToolset: "emulate",
   },
   codex: {
-    sampling: "native",
-    outputLength: "native",
+    // Both restated from `native` — measured, spike §11.2 / §11.5. See the cell notes above.
+    sampling: "degrade",
+    outputLength: "degrade",
     stopSequences: "degrade",
     thinkingBudget: "degrade",
     systemPrompt: "native",

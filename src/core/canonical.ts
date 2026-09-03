@@ -13,6 +13,65 @@ export interface Canonical_Request {
   stream: boolean
   passthrough: boolean
   metadata: Record<string, unknown>
+  /**
+   * Generation controls the client asked for, in provider-neutral names.
+   *
+   * Every sub-member is optional and the member itself is **omitted entirely** when the client
+   * sent none of them — an object of `undefined` sub-members would read as "the client asked for
+   * defaults" where the truth is "the client asked for nothing" (Requirement 13.5). Upstream
+   * feature resolvers key their `sampling` / `outputLength` / `stopSequences` decisions off
+   * presence, so an empty carrier would make them fire for requests that carry no intent.
+   *
+   * `maxOutputTokens` is kept beside `temperature`/`topP` rather than promoted to a top-level
+   * member because it is a generation control like the others; that upstreams declare a separate
+   * `outputLength` policy for it is a matrix fact owned by `src/upstream/<provider>/`, not a
+   * reason for the canonical shape to split.
+   */
+  sampling?: {
+    maxOutputTokens?: number
+    temperature?: number
+    topP?: number
+    stopSequences?: string[]
+  }
+  /**
+   * The client's thinking request, as intent rather than as any provider's spelling of it.
+   *
+   * `mode` is required because a present `thinking` member with no mode says nothing: the member
+   * exists precisely to record that the client made a choice. `budgetTokens` is optional because
+   * a client may enable thinking without naming a budget.
+   *
+   * Deliberately **not** folded into {@link Canonical_Request.reasoningEffort} (Requirement 12.7).
+   * A token budget and an effort level are different quantities, and `reasoningEffort` is
+   * provider-enum-shaped: mapping one to the other requires knowing a specific model's level
+   * vocabulary, which only the upstream layer knows. Inbound records what the client asked for;
+   * the upstream that owns the enum performs the translation, which is also the only way a
+   * degrade notice can name both the requested budget and the substituted level.
+   */
+  thinking?: {
+    mode: "enabled" | "disabled" | "adaptive"
+    budgetTokens?: number
+  }
+  /**
+   * Which parts of the request the client marked as worth caching upstream, in request order.
+   *
+   * A list rather than a set of booleans because a client may mark several scopes with different
+   * lifetimes, and order is the order the client wrote them — the only order an upstream can
+   * report back without inventing one. `scope` is required: an entry naming no scope carries no
+   * hint. `ttl` stays a string because it is a client-supplied duration token, not a number this
+   * layer is entitled to reinterpret.
+   *
+   * Omitted rather than empty when the client marked nothing, for the same reason `sampling` is.
+   */
+  cacheHint?: Array<{ scope: "system" | "tools" | "history"; ttl?: string }>
+  /**
+   * Whether the client permits more than one tool call per assistant turn.
+   *
+   * Tri-state on purpose: `undefined` means the client expressed no preference and the upstream
+   * default stands, which is a different answer from an explicit `true`. Inbound providers whose
+   * wire field is negative (`disable_parallel_tool_use`) invert it at their own boundary rather
+   * than pushing the negation into core.
+   */
+  parallelToolCalls?: boolean
 }
 
 export interface Canonical_InputMessage {
@@ -172,6 +231,20 @@ export interface Canonical_ErrorResponse {
   status: number
   headers: Headers
   body: string
+  /**
+   * Non-native handling decisions for this request, in decision order.
+   *
+   * The same member, element type, order and presence rule as
+   * {@link Canonical_Response.featureNotices} — a rejection is a fourth channel for the
+   * same data, not a different vocabulary. Resolution deliberately continues past a
+   * rejection, so a request that fails on one feature can still have decided others; a
+   * 400 that reported only the failing field would discard the rest of the account the
+   * collector kept.
+   *
+   * Omitted rather than empty when the request recorded no notice, so `undefined` and
+   * `[]` are not two spellings of the same answer.
+   */
+  featureNotices?: Canonical_FeatureNotice[]
 }
 
 export interface Canonical_PassthroughResponse {

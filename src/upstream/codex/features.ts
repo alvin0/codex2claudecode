@@ -19,11 +19,11 @@ import { CODEX_CAPABILITIES } from "./capabilities"
  * whose outcome is decided purely from the incoming request. The other four members of
  * `ProviderFeature` stay out on purpose:
  *
- * - `thinkingBudget` is decided where the effort level is decided, not here. On this upstream
- *   the level the client states is rewritten on the way out by the shared reasoning
- *   normalization and is subject to the reasoning-shape fix and the effort-default resolver
- *   still to land; resolving it here would pre-empt that decision with a second, independent
- *   one. `../kiro/features.ts` leaves it out for the same reason.
+ * - `thinkingBudget` is decided where the effort level is decided, not here: `./effort.ts` runs
+ *   the precedence ladder and `./index.ts` applies it to the request before the body is built.
+ *   Resolving it here would pre-empt that decision with a second, independent one, and the notice
+ *   a substitution owes the client has to name the level that was actually chosen — which only the
+ *   decision knows. `../kiro/features.ts` leaves it out for the same reason.
  * - `webSearch`, `webFetch`, and `mcpToolset` are decided while the tool list is expanded,
  *   which is where the hosted-tool type names and their per-type policies live
  *   (`CODEX_CAPABILITIES.hostedTools`).
@@ -43,47 +43,37 @@ import { CODEX_CAPABILITIES } from "./capabilities"
  *
  * ## Why this file is the whole of Requirement 10.6
  *
- * Requirement 10.6 is negative: a `temperature` sent to this upstream produces **zero**
- * feature notices for `sampling`. That holds structurally rather than by omission. The
- * `sampling` cell of `CODEX_CAPABILITIES` is `native`, and a native outcome carries no notice
- * — `resolveFeature()` in `src/core/feature-policy.ts` builds one for exactly the two
- * reporting outcomes. So the resolution below is made unconditionally-when-present and still
- * reports nothing, which is stronger than skipping the cell: the feature is recorded in
- * `resolvedFeatures()` as covered, so the no-silent-drop set comparison sees it, while the
- * notice list stays empty. Flip that cell and the notice appears and the live case that
- * asserts its absence goes red — the declaration and the requirement are wired together.
+ * Requirement 10.6 used to be negative — a `temperature` sent to this upstream produces **zero**
+ * notices — and the revised criterion says the opposite, because the measurement does.
+ * `.omc/research/kiro-wire-spike.md` §11.2 sent `temperature`, `top_p`, and
+ * `max_output_tokens` one per run and got `400 Unsupported parameter` for each, so the
+ * `sampling` and `outputLength` cells of `CODEX_CAPABILITIES` are `degrade` (§11.5): the field
+ * is dropped on the way out and the client is told.
+ *
+ * The mechanism that satisfies it is the same one that used to satisfy the negative reading,
+ * unchanged. Both features are resolved unconditionally-when-present, and
+ * `resolveFeature()` in `src/core/feature-policy.ts` builds exactly one notice for a
+ * reporting outcome and none for a native one. So flipping the cell was the whole behavioral
+ * change: resolution records the feature in `resolvedFeatures()` either way, which is what the
+ * no-silent-drop set comparison reads, and the notice list follows the declaration. What this
+ * file must own instead is the **wording** — the `detail` of a `degrade` is the only place a
+ * client learns that the value it sent was not sent on, so the prose below says which control
+ * was affected and what happened to it, not merely that something did.
  */
 
 /**
- * The `Canonical_Request` members the contract task has not landed yet (design §"Canonical
- * additions": `sampling`, `thinking`, `cacheHint`, `parallelToolCalls`).
+ * `sampling` and `cacheHint` are read straight off {@link Canonical_Request} now.
  *
- * Declared optional and read defensively so this file needs **no edit** on the day canonical
- * starts carrying them: today no inbound provider builds a request with `sampling` or
- * `cacheHint`, so `sampling`, `stopSequences`, and `promptCache` resolve for nobody and emit
- * nothing. That is honest rather than convenient — those fields are currently dropped at the
- * *inbound* boundary, before any upstream sees them, so an upstream notice claiming otherwise
- * would be fiction, and a native forward claiming the value reached the wire would be too.
- * The moment the inbound mappers spread their sampling result in, the three resolutions below
- * start firing with no change here.
- *
- * Kept local rather than pushed into `src/core/canonical.ts`: a provider directory may
- * describe what it reads, but it may not widen the canonical contract on core's behalf. The
- * duplicate in `../kiro/features.ts` is intentional for the same reason — neither provider
- * owns the other's view.
+ * They used to be declared here as a local forward-compatible view, because canonical carried
+ * neither member and the inbound providers dropped both at their own boundary — an upstream
+ * notice about a field no upstream could see would have been fiction. The contract task landed
+ * them (design §"Canonical additions") and task 14 wired the inbound mappers, so the
+ * speculative view is gone: one shape, owned by core, is what the resolutions below key off.
+ * Keeping the local declaration would let core's shape and this file's idea of it drift apart
+ * silently — it had already drifted on `cacheHint`, whose scope is a fixed union in core and
+ * was an open `string` here — which is the one failure mode the view was never able to catch.
+ * `../kiro/features.ts` and `../copilot/features.ts` dropped theirs for the same reason.
  */
-interface FutureCanonicalRequestMembers {
-  sampling?: {
-    maxOutputTokens?: number
-    temperature?: number
-    topP?: number
-    stopSequences?: string[]
-  }
-  cacheHint?: ReadonlyArray<{ scope?: string; ttl?: string }>
-}
-
-type CodexFeatureRequestView = Canonical_Request & FutureCanonicalRequestMembers
-
 export interface CodexFeatureResolutionOptions {
   /**
    * Whether a reporting outcome escalates to a failed request. Passed straight through to
@@ -108,30 +98,32 @@ export interface CodexFeatureResolutionOptions {
  */
 export function resolveCodexFeatures(request: Canonical_Request, options: CodexFeatureResolutionOptions = {}): FeatureDecisions {
   const decisions = new FeatureDecisions(CODEX_CAPABILITIES.features, options.strict ?? false)
-  const view = request as CodexFeatureRequestView
 
-  const sampling = requestedSamplingControls(view)
+  const sampling = requestedSamplingControls(request)
   if (sampling.length) {
     decisions.resolve(
       "sampling",
-      `this endpoint takes generation controls of its own, so the requested ${joinControls(sampling)} is passed on as sent`,
+      `this endpoint refuses generation controls outright, so the requested ${joinControls(sampling)} was left off the request and the model sampled with its own defaults instead`,
       "an upstream that honors generation controls, or omit them",
     )
   }
 
-  // Resolved whenever the client sent a limit, exactly like `sampling` above and for the reason
-  // the header gives: this cell carries no notice, but resolving it records the feature in
-  // `resolvedFeatures()`, which is what the no-silent-drop set comparison reads (Requirement
-  // 10.8). Skipping it because the outcome is quiet would make the field invisible to that walk.
-  if (requestedOutputLengthLimit(view)) {
+  // Resolved whenever the client sent a limit, exactly like `sampling` above: resolving records
+  // the feature in `resolvedFeatures()`, which is what the no-silent-drop set comparison reads
+  // (Requirement 10.8), and the notice follows from the declared cell rather than from anything
+  // decided here. The limit named in the detail is the client's own number, because on the Claude
+  // route `max_tokens` is mandatory — so this notice reaches every Claude→Codex request, and a
+  // client reading it needs to see which value went missing.
+  const limit = requestedOutputLengthLimit(request)
+  if (limit !== undefined) {
     decisions.resolve(
       "outputLength",
-      "this endpoint takes an upper bound on reply length of its own, so the requested limit is passed on as sent instead of being dropped on the way",
+      `this endpoint refuses an output-length parameter outright, so the requested limit of ${limit} was left off the request and the reply is not capped at it`,
       "an upstream that honors an output length limit, or omit it",
     )
   }
 
-  if (requestedStopSequences(view).length) {
+  if (requestedStopSequences(request).length) {
     decisions.resolve(
       "stopSequences",
       "this endpoint has no stop-sequence field, so generation cannot be halted on the requested strings",
@@ -139,7 +131,7 @@ export function resolveCodexFeatures(request: Canonical_Request, options: CodexF
     )
   }
 
-  if (requestsPromptCache(view)) {
+  if (requestsPromptCache(request)) {
     decisions.resolve(
       "promptCache",
       "this endpoint caches prompt prefixes on its own schedule and takes no client cache instructions, so the requested cache points cannot be placed where they were asked for",
@@ -184,15 +176,15 @@ export function resolveCodexFeatures(request: Canonical_Request, options: CodexF
  *
  * Names rather than a boolean, so a reporting outcome can say *which* value was affected:
  * "temperature" and "temperature and top-p" are different facts, and a client tuning one knob
- * should not have to guess whether the report is about the other. Unused while this cell stays
- * native, and correct the moment it is not.
+ * should not have to guess whether the report is about the other. Written while the cell was
+ * `native` and unused; load-bearing now that spike §11.2 made the cell `degrade`.
  *
  * `maxOutputTokens` is not one of these names: it is `outputLength`, its own feature with its
  * own cell, detected by {@link requestedOutputLengthLimit}. The split is a vocabulary decision
  * made in core and followed here, not a Codex-specific one — the two features happen to share a
  * policy on this upstream and do not on every upstream.
  */
-function requestedSamplingControls(request: CodexFeatureRequestView): string[] {
+function requestedSamplingControls(request: Canonical_Request): string[] {
   const sampling = request.sampling
   if (!sampling) return []
   return [
@@ -202,11 +194,16 @@ function requestedSamplingControls(request: CodexFeatureRequestView): string[] {
 }
 
 /**
- * Whether the client asked for an upper bound on the reply length. A boolean, not a name:
- * there is one field, so there is nothing to disambiguate the way the sampling controls need.
+ * The upper bound on reply length the client asked for, or `undefined` if it asked for none.
+ *
+ * The value rather than a boolean, because the cell is `degrade` (spike §11.2) and the notice has
+ * to name the number that went missing. `undefined` rather than a falsy check is what keeps
+ * `maxOutputTokens: 0` — a nonsense limit, and still a limit the client sent — a resolution
+ * instead of an absence.
  */
-function requestedOutputLengthLimit(request: CodexFeatureRequestView): boolean {
-  return typeof request.sampling?.maxOutputTokens === "number"
+function requestedOutputLengthLimit(request: Canonical_Request): number | undefined {
+  const limit = request.sampling?.maxOutputTokens
+  return typeof limit === "number" ? limit : undefined
 }
 
 function joinControls(names: readonly string[]): string {
@@ -214,12 +211,12 @@ function joinControls(names: readonly string[]): string {
   return `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`
 }
 
-function requestedStopSequences(request: CodexFeatureRequestView): readonly string[] {
+function requestedStopSequences(request: Canonical_Request): readonly string[] {
   const stopSequences = request.sampling?.stopSequences
   return Array.isArray(stopSequences) ? stopSequences.filter((entry) => typeof entry === "string" && entry.length > 0) : []
 }
 
-function requestsPromptCache(request: CodexFeatureRequestView): boolean {
+function requestsPromptCache(request: Canonical_Request): boolean {
   return Array.isArray(request.cacheHint) && request.cacheHint.length > 0
 }
 

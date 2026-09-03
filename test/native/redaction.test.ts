@@ -9,9 +9,9 @@
 // on-disk files the planted values are unknown, so those are scanned for the same five keys still
 // holding a value other than the placeholder — the same leak, expressed without knowing the value.
 //
-// Two representations deserve a note, because a green scan here does not mean redaction is total.
-// `describe("recorded redaction gaps")` states both as `.failing` tests rather than leaving them
-// unsaid; each flips loudly the moment the underlying behavior changes.
+// One representation deserves a note, because a green scan here does not mean redaction is total.
+// `describe("recorded redaction gaps")` states it as a `.failing` test rather than leaving it
+// unsaid; it flips loudly the moment the underlying behavior changes.
 //
 //  1. The Kiro frame hexdump in `## upstream response (raw)`. `transcript.ts` redacts the
 //     *rendered* text, and `kiro-frames.ts` builds the dump from the captured bytes before that
@@ -19,10 +19,14 @@
 //     A value of 17 characters or more can never sit whole on one gutter line, which is the only
 //     reason the raw-value scan passes over a Kiro Transcript. Property 12's strong clause — no
 //     surviving run of eight characters — does not hold on those lines.
-//  2. A short `signature` value. `redactSensitiveText` does not list `signature`, so such a value
-//     reaches only `redactDebugText`'s 32-plus-character token rule, which does not match it. The
-//     measured Kiro signature is ~360 characters and is redacted, which is why the corpus scan is
-//     green today. Task 34.1 adds `signature` to `SECRET_KEYS` and flips that test.
+//
+// A second gap used to be recorded here: a short `signature` value survived because
+// `redactSensitiveText` did not list the key. That gap is closed — `signature` is now a member of
+// the key list in `src/core/debug-capture.ts`, which is the list this scan's redaction runs
+// through, so a `signature` value is redacted at any length. Note that the list in
+// `src/core/debug-capture.ts` is separate from `SECRET_KEYS` in `src/upstream/kiro/errors.ts`,
+// which task 34.1 changed: that one governs Kiro error messages, not Transcript rendering, so
+// closing the transcript half took its own edit.
 import { describe, expect, test } from "bun:test"
 import fc from "fast-check"
 
@@ -62,8 +66,8 @@ const MIN_LEAK_LENGTH = 8
 
 /**
  * The length at or above which redaction covers a value under *any* key, known or not, through
- * `redactDebugText`'s token rule. Below it only the keys `redactSensitiveText` lists are covered,
- * which is gap 2 in the header note.
+ * `redactDebugText`'s token rule. Below it, coverage comes from the key list in
+ * `src/core/debug-capture.ts` instead — which names all five scanned keys, `signature` included.
  */
 const REDACTED_TOKEN_FLOOR = 32
 
@@ -343,7 +347,9 @@ describe("native transcript redaction scan", () => {
     expect(unredactedSecretKeyValues(`"accessToken": "${PLACEHOLDER}"`)).toEqual([])
   })
 
-  test("records where the `signature` threshold sits today, which is why the scan is green", () => {
+  // Both rules cover a `signature` value now — the length rule above the floor, the key list
+  // below it — so this records that the long measured shape is redacted by either path.
+  test("records where the `signature` threshold sits today", () => {
     expect(SECRETS.signature.length).toBeGreaterThanOrEqual(360)
     expect(redactTranscriptText(`{"signature":"${SECRETS.signature}"}`)).toBe(`{"signature":"${PLACEHOLDER}"}`)
     expect(redactTranscriptText(`{"signature":"${tokenValue(REDACTED_TOKEN_FLOOR, 11)}"}`)).toBe(
@@ -405,9 +411,10 @@ function generatedInput(liveCase: NativeLiveCase, key: string, secret: string): 
 }
 
 /**
- * Values of at least `REDACTED_TOKEN_FLOOR` characters. Below that floor a `signature` value is
- * not covered — gap 2 in the header note, owned by task 34.1 — so the floor is stated here rather
- * than the property quietly generating only values that happen to pass.
+ * Values of at least `REDACTED_TOKEN_FLOOR` characters. The floor is stated rather than assumed:
+ * above it every value is covered by `redactDebugText`'s token rule whatever key it sits under, so
+ * the property does not depend on the key list. The short-value case — where the key list is the
+ * only thing doing the work — is asserted separately by the `signature` unit below.
  */
 const secretArb = fc
   .array(fc.constantFrom(...TOKEN_CHAR_LIST), { minLength: REDACTED_TOKEN_FLOOR, maxLength: 96 })
@@ -468,13 +475,15 @@ describe("native transcript redaction properties", () => {
 
 describe("recorded redaction gaps", () => {
   /**
-   * Gap 2. `redactSensitiveText` does not list `signature`, so a value shorter than
-   * `REDACTED_TOKEN_FLOOR` reaches the Transcript verbatim. Task 34.1 adds `signature` to
-   * `SECRET_KEYS`; when it lands this test passes and the `.failing` marker comes off.
+   * The closed gap. A `signature` value shorter than `REDACTED_TOKEN_FLOOR` is below
+   * `redactDebugText`'s token rule, so its redaction rests entirely on `signature` being a member
+   * of the key list in `src/core/debug-capture.ts`. Was `.failing` while that list omitted the key.
    */
-  test.failing("a short `signature` value is redacted like the other four keys", () => {
+  test("a short `signature` value is redacted like the other four keys", () => {
     const short = "sig-Ab12cdEF"
     expect(short.length).toBeLessThan(REDACTED_TOKEN_FLOOR)
+    // The key list, not the length rule, is what covers this.
+    expect(redactTranscriptText(`{"signature":"${short}"}`)).toBe(`{"signature":"${PLACEHOLDER}"}`)
 
     const liveCase = NATIVE_LIVE_CASES[0]
     const input = transcriptInputFor(liveCase)

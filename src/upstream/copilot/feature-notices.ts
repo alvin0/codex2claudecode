@@ -1,4 +1,4 @@
-import type { Canonical_Event, Canonical_FeatureNotice, Canonical_Response, Canonical_StreamResponse } from "../../core/canonical"
+import type { Canonical_ErrorResponse, Canonical_Event, Canonical_FeatureNotice, Canonical_Response, Canonical_StreamResponse } from "../../core/canonical"
 import type { UpstreamResult } from "../../core/interfaces"
 
 /**
@@ -14,8 +14,8 @@ import type { UpstreamResult } from "../../core/interfaces"
  * One wrinkle specific to this upstream: its stream is synthesized. `buildCopilotResponsesBody()`
  * hardcodes a non-streaming upstream call and `streamCopilotResponse()` (`./parse.ts`) replays the
  * collected response as events. So a streaming client here reads events, a non-streaming one reads
- * the response field, and both channels below are reachable even though only one upstream call
- * shape exists.
+ * the response field, and both content channels below are reachable even though only one upstream
+ * call shape exists. A rejected request reads neither and gets its notices on the error result.
  */
 
 /**
@@ -25,14 +25,17 @@ import type { UpstreamResult } from "../../core/interfaces"
  * result identical to the pre-change one — including the *absence* of `featureNotices` rather
  * than an empty array (Requirement 8.3).
  *
- * `canonical_error` is returned untouched: it already carries its own message. This provider
- * returns no passthrough result at all (`passthrough: false` in `./capabilities.ts`), so that
- * branch is the closed-union default rather than a case with behavior of its own.
+ * `canonical_error` carries them on its own optional member: the field that failed does not erase
+ * what the request decided about the others, and `status`, `headers` and `body` are left exactly
+ * as produced. This provider returns no passthrough result at all (`passthrough: false` in
+ * `./capabilities.ts`), so that branch stays the closed-union default rather than a case with
+ * behavior of its own.
  */
 export function withCopilotFeatureNotices(result: UpstreamResult, notices: readonly Canonical_FeatureNotice[]): UpstreamResult {
   if (!notices.length) return result
   if (result.type === "canonical_response") return responseWithNotices(result, notices)
   if (result.type === "canonical_stream") return streamWithNotices(result, notices)
+  if (result.type === "canonical_error") return errorWithNotices(result, notices)
   return result
 }
 
@@ -44,6 +47,18 @@ function responseWithNotices(response: Canonical_Response, notices: readonly Can
   return {
     ...response,
     featureNotices: [...notices.map(copyNotice), ...(response.featureNotices ?? [])],
+  }
+}
+
+/**
+ * Same placement rule as {@link responseWithNotices}: decided notices ahead of anything already
+ * on the result, existing entries kept. A copy rather than a mutation, so the error object a
+ * caller built stays what it was.
+ */
+function errorWithNotices(error: Canonical_ErrorResponse, notices: readonly Canonical_FeatureNotice[]): Canonical_ErrorResponse {
+  return {
+    ...error,
+    featureNotices: [...notices.map(copyNotice), ...(error.featureNotices ?? [])],
   }
 }
 

@@ -315,11 +315,16 @@ describe("Sampling policy divergence", () => {
       expect(FEATURE_POLICIES).toContain(upstream.declared)
     }
 
-    // The divergence itself, at the declaration level.
+    // The divergence itself, at the declaration level. Unchanged: Kiro rejects, Codex reports.
     expect(KIRO.declared).not.toBe(CODEX.declared)
-    // …and at the level of what a client observes: one reports, the other does not.
+    // …and at the level of what a client observes. Restated: this used to read "one reports, the
+    // other does not", which encoded `codex.sampling: "native"`. Spike §11.2 measured that cell
+    // `degrade`, so neither upstream is silent and the divergence is rejection-versus-notice. The
+    // claim is written as inequality plus non-silence rather than by naming the two channels, so it
+    // survives the next measurement without being weakened by it.
+    expect(expectedChannel(KIRO.declared, false)).not.toBe(expectedChannel(CODEX.declared, false))
     expect(expectedChannel(KIRO.declared, false)).not.toBe("silent")
-    expect(expectedChannel(CODEX.declared, false)).toBe("silent")
+    expect(expectedChannel(CODEX.declared, false)).not.toBe("silent")
   })
 
   /**
@@ -341,22 +346,37 @@ describe("Sampling policy divergence", () => {
   })
 
   /**
-   * Codex: any temperature produces zero sampling notices, strict or not, while still being recorded
-   * as covered (Requirement 10.6).
+   * Codex: any temperature or top-p is dropped and reported — exactly one `sampling` notice at the
+   * default strict setting, and the rejection strict mode escalates it to — while still being
+   * recorded as covered (Requirement 10.6 as revised).
+   *
+   * Restated from "produces zero sampling notices on Codex". The generated space and the request are
+   * unchanged; the expected channel moved, because `.omc/research/kiro-wire-spike.md` §11.2 measured
+   * `400 {"detail":"Unsupported parameter: temperature"}` and the same for `top_p` on this endpoint,
+   * so the cell is `degrade` and silence would now be the silent drop Requirement 10.1 forbids. The
+   * coverage half — `resolvedFeatures()` contains the feature — is what did **not** change, and it is
+   * what kept the old assertion from being vacuous, so it stays.
    *
    * **Validates: Requirement 10.6**
    */
-  test("Feature: native-api-mode, Property 22: any temperature produces zero sampling notices on Codex", () => {
+  test("Feature: native-api-mode, Property 22: any temperature is dropped with exactly one sampling notice on Codex", () => {
     fc.assert(
       fc.property(samplingArb, fc.boolean(), (sampling, strict) => {
         const decisions = CODEX.resolve(requestWithSampling(sampling), { strict })
 
-        expect(samplingNotices(decisions)).toEqual([])
-        expect(decisions.notices()).toEqual([])
-        expect(decisions.firstRejection()).toBeUndefined()
         expect(decisions.resolvedFeatures().has(SAMPLING)).toBe(true)
 
-        expect(assertDeclaredSamplingOutcome(CODEX, sampling, strict)).toBe("silent")
+        // Never silent: the client always learns the value did not reach the upstream, whether by
+        // notice (default) or by the 400 strict mode escalates a `degrade` into.
+        const observed = assertDeclaredSamplingOutcome(CODEX, sampling, strict)
+        expect(observed).not.toBe("silent")
+        expect(observed).toBe(strict ? "rejection" : "notice")
+
+        if (!strict) {
+          expect(samplingNotices(decisions)).toHaveLength(1)
+          expect(samplingNotices(decisions)[0]!.detail).toMatch(/temperature|top-p/)
+          expect(decisions.firstRejection()).toBeUndefined()
+        }
       }),
       { numRuns: 400 },
     )
@@ -377,8 +397,21 @@ describe("Sampling policy divergence", () => {
         const kiro = assertDeclaredSamplingOutcome(KIRO, sampling, strict)
         const codex = assertDeclaredSamplingOutcome(CODEX, sampling, strict)
 
-        expect(kiro).not.toBe(codex)
-        expect(codex).toBe("silent")
+        // Restated. This clause used to read `kiro !== codex` plus `codex === "silent"`, which
+        // encoded `codex.sampling: "native"`. Spike §11.2 measured the cell `degrade`, and a
+        // `degrade` escalates to a rejection under strict — so at strict the two upstreams reach the
+        // same channel by two different routes and the channels legitimately coincide. Splitting the
+        // clause records that rather than deleting the divergence claim: the divergence is a fact
+        // about the declarations, observable at the default setting, and strict mode collapsing it is
+        // the documented behavior of the flag (Property 5 in `test/core/strict.property.test.ts`).
+        if (strict) {
+          expect(kiro).toBe("rejection")
+          expect(codex).toBe("rejection")
+        } else {
+          expect(kiro).not.toBe(codex)
+          expect(kiro).toBe("rejection")
+          expect(codex).toBe("notice")
+        }
       }),
       { numRuns: 400 },
     )
@@ -519,7 +552,12 @@ describe("Sampling policy divergence", () => {
         expect(kiroSecond.notices()).toEqual(kiroFirst.notices())
         expect(kiroSecond.firstRejection()).toEqual(kiroFirst.firstRejection())
         expect([...kiroSecond.resolvedFeatures()]).toEqual([...kiroFirst.resolvedFeatures()])
-        expect(samplingNotices(codexOnly)).toEqual([])
+        // Restated from `expect(samplingNotices(codexOnly)).toEqual([])`, which asserted purity by
+        // way of the old `native` cell. The subject of this clause is *independence*, not silence,
+        // so it is asserted as such now: resolving on Codex again gives the same answer, and it is
+        // unaffected by the two Kiro resolutions interleaved around it.
+        expect(samplingNotices(CODEX.resolve(request, { strict: false }))).toEqual(samplingNotices(codexOnly))
+        expect(samplingNotices(codexOnly)).toHaveLength(1)
       }),
       { numRuns: 200 },
     )

@@ -54,8 +54,16 @@ import type { NativeCredentialCopy } from "../test/native/credentials"
 import { copyNativeCredentials } from "../test/native/credentials"
 import { nativeMatrixOutputDir } from "../test/native/matrix-source"
 
-/** Overridable because provider catalogs move. Must be a model whose enum contains `xhigh`. */
-const MODEL = process.env.CODEX_EFFORT_PROBE_MODEL ?? "gpt-5.4-mini"
+/**
+ * Overridable because provider catalogs move. Must be a model whose enum contains `xhigh`.
+ *
+ * Moved off `gpt-5.4-mini` for the same reason as `NATIVE_CODEX_MODEL` in `test/native/cases.ts`:
+ * the account is now restricted to `GPT-5.3-Codex-Spark`, whose measured id is
+ * `gpt-5.3-codex-spark` (`bun scripts/codex-models-probe.ts`). Its
+ * `supported_reasoning_levels` are `low, medium, high, xhigh`, so the `xhigh` requirement above
+ * still holds; `max` is **not** offered on this model, unlike `gpt-reserve`.
+ */
+const MODEL = process.env.CODEX_EFFORT_PROBE_MODEL ?? "gpt-5.3-codex-spark"
 
 /** `xhigh` can think for a long time, so the ceiling is generous. */
 const TIMEOUT_MS = Number(process.env.CODEX_EFFORT_PROBE_TIMEOUT_MS ?? 300_000)

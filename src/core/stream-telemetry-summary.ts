@@ -4,7 +4,7 @@
 // in `src/inbound/claude/` and `src/inbound/openai/`. It gets its own module rather
 // than joining either type's file because it is a third role: neither declares the
 // other, and only this function knows which fields cross the boundary.
-import type { Canonical_Response } from "./canonical"
+import type { Canonical_ErrorResponse, Canonical_Response } from "./canonical"
 import type { StreamTelemetry } from "./stream-telemetry"
 import type { StreamTelemetrySummary } from "./types"
 
@@ -75,5 +75,41 @@ export function canonicalResponseTelemetrySummary(response: Canonical_Response):
   return {
     ...(response.featureNotices ? { featureNotices: [...response.featureNotices] } : {}),
     providerCredits: response.usage.providerCredits,
+  }
+}
+
+/**
+ * Project a {@link Canonical_ErrorResponse} onto the same {@link StreamTelemetrySummary}
+ * the request log persists.
+ *
+ * The rejection-path counterpart of the two projections above. A rejected request has no
+ * collector and no response — it never reached the upstream — but it did decide things:
+ * `FeatureDecisions` keeps recording past a rejection, so a 400 can carry the `degrade`
+ * and `emulate` notices the same request produced (Requirement 8.7). This function is the
+ * only thing that carries them across to the log (Requirement 8.8).
+ *
+ * It lives here rather than being written out at the two inbound error branches for the
+ * reason the response projection gives: both sides are core types, the presence asymmetry
+ * is subtle, and "produce a `StreamTelemetrySummary`" is a role this module already owns.
+ * A third source shape is the same role, so all three can be read against each other.
+ *
+ * Presence semantics are identical to the other two, field for field, because a log
+ * consumer cannot tell which path wrote an entry:
+ *
+ * - `featureNotices` is **omitted** when the error omitted it, never rewritten as `[]` or
+ *   as present-with-`undefined` (Requirement 8.3).
+ * - `providerCredits` is **always present**, carrying `undefined`. A rejected request made
+ *   no upstream call and therefore spent nothing measurable — that is "not measured", not
+ *   `0` meaning "measured as free" (Requirement 5.3). There is no usage member on the
+ *   error result to read, and inventing `0` here would report a measurement that was never
+ *   taken.
+ *
+ * The notice array is copied rather than aliased, matching the other two: the error result
+ * outlives this call and the log entry is written later.
+ */
+export function canonicalErrorTelemetrySummary(error: Canonical_ErrorResponse): StreamTelemetrySummary {
+  return {
+    ...(error.featureNotices ? { featureNotices: [...error.featureNotices] } : {}),
+    providerCredits: undefined,
   }
 }
