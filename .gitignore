@@ -12,3 +12,4 @@ auth-codex.json
 coverage
 dist/standalone
 .native-transcripts/
+.env
