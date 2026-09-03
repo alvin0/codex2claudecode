@@ -4,10 +4,13 @@ import { accumulateCanonicalStream } from "../../core/canonical-accumulator"
 import { LOG_BODY_PREVIEW_LIMIT } from "../../core/constants"
 import { createKiroDebugBundle, kiroDebugOnErrorEnabled, redactSensitiveText } from "../../core/debug-capture"
 import { createLogPreview } from "../../core/log-preview"
+import { StreamTelemetryCollector } from "../../core/stream-telemetry"
+import { canonicalErrorTelemetrySummary, canonicalResponseTelemetrySummary, streamTelemetrySummary } from "../../core/stream-telemetry-summary"
 import type { RequestOptions, RequestProxyLog } from "../../core/types"
 import { claudeToCanonicalRequest, countClaudeInputTokens } from "./convert"
 import { claudeUpstreamErrorMessage } from "./context-limit"
 import { claudeErrorResponse } from "./errors"
+import { prependClaudeWarning, renderClaudeFeatureWarning } from "./notice"
 import { canonicalResponseToClaudeMessage, claudeCanonicalStreamResponse } from "./response"
 import { Model_Catalog, claudeSettingsModelResolver } from "./models"
 import type { ModelResolverFn } from "./models"
@@ -158,6 +161,13 @@ export class Claude_Inbound_Provider implements Inbound_Provider {
           error: previewText(result.body) || "-",
           requestBody,
           responseBody: shouldCaptureProxyBody ? previewText(result.body) || undefined : undefined,
+          // A rejected request made no upstream call, so there is no collector and no
+          // response to read — but it did decide things before it bailed, and those
+          // decisions ride the error result (Requirement 8.8). Same presence semantics as
+          // the 200 paths, produced by the same module rather than by an object literal
+          // here, so the three projections cannot drift. Unconditional on body capture:
+          // telemetry is not a body preview.
+          telemetry: canonicalErrorTelemetrySummary(result),
         }
         if (this.expectedUpstreamKind === "kiro" && kiroDebugOnErrorEnabled()) {
           proxyLog.debug = createKiroDebugBundle({
@@ -173,7 +183,20 @@ export class Claude_Inbound_Provider implements Inbound_Provider {
         }
         context.onProxy(proxyLog)
       }
-      return claudeErrorResponse(claudeUpstreamErrorMessage(result.status, result.body), result.status)
+      // The notices the rejected request decided are rendered through the same channel the
+      // 200 path uses — one combined warning segment, leading the one prose field the error
+      // shape has (Requirement 9.7). No member is added to the error body, and no block
+      // type, SSE event name, or header appears that a notice-free error lacks. An empty
+      // render is a pass-through, so an error carrying no `degrade` notice — including one
+      // carrying only `emulate` notices, which stay telemetry-only (Requirement 9.2) — is
+      // byte-identical to what this branch produced before (Requirement 9.8).
+      return claudeErrorResponse(
+        prependClaudeWarning(
+          claudeUpstreamErrorMessage(result.status, result.body),
+          renderClaudeFeatureWarning(result.featureNotices ?? []),
+        ),
+        result.status,
+      )
     }
 
     const proxyLog: RequestProxyLog | undefined = context.onProxy ? {
@@ -191,11 +214,33 @@ export class Claude_Inbound_Provider implements Inbound_Provider {
       if (body.stream === false || body.stream === undefined) {
         const accumulated = await accumulateCanonicalStream(result)
         backfillInputTokens(accumulated, body)
+        // No collector on this path — there is no stream to instrument — so the credits
+        // and notices come off the accumulated response, which `mergeCanonicalUsage()`
+        // and the `feature_notice` fold have already populated. Assigned by reference
+        // onto the log `context.onProxy` was handed several lines above: that call has
+        // already happened, and the response did not exist when it did. Mutating the
+        // object runtime holds is what lets this land without editing runtime
+        // (Requirement 27.5) — the same mechanism `responseBody` below relies on.
+        if (proxyLog) proxyLog.telemetry = canonicalResponseTelemetrySummary(accumulated)
         if (proxyLog && shouldCaptureProxyBody) proxyLog.responseBody = upstreamResponseBody?.()
         return Response.json(await canonicalResponseToClaudeMessage(accumulated, body))
       }
-      if (!proxyLog) return claudeCanonicalStreamResponse(result, body)
-      return claudeCanonicalStreamResponse(withLoggedCanonicalStream(result, proxyLog, started, upstreamResponseBody), body, {
+      // One collector per streaming request. The renderer records provider spend and
+      // non-native handling decisions into it as canonical events flow past; without a
+      // collector here every `telemetry?.` call site in `response.ts` is a no-op.
+      const telemetry = new StreamTelemetryCollector({
+        requestId: context.requestId,
+        // `providerKind` is optional on `Upstream_Provider`, so an upstream that
+        // declares none falls back to the kind this inbound provider was configured to
+        // expect; with neither the collector keeps its own empty default rather than
+        // reporting the inbound name, which is not a provider kind.
+        provider: upstream.providerKind ?? this.expectedUpstreamKind ?? "",
+        model: body.model,
+        streaming: true,
+      })
+      if (!proxyLog) return claudeCanonicalStreamResponse(result, body, { telemetry })
+      return claudeCanonicalStreamResponse(withLoggedCanonicalStream(result, proxyLog, started, upstreamResponseBody, telemetry), body, {
+        telemetry,
         onCancel: (reason) => {
           proxyLog.durationMs = Date.now() - started
           proxyLog.error = `stream cancelled: ${reasonText(reason)}`
@@ -205,6 +250,11 @@ export class Claude_Inbound_Provider implements Inbound_Provider {
     }
     if (isCanonicalResponse(result)) {
       backfillInputTokens(result, body)
+      // The branch a Kiro upstream actually reaches for a non-streaming request:
+      // `src/upstream/kiro/index.ts` returns `collectKiroResponse()` rather than a
+      // canonical stream when `request.stream` is falsy, so this — not the accumulate
+      // branch above — is where the 10 non-streaming live cases land.
+      if (proxyLog) proxyLog.telemetry = canonicalResponseTelemetrySummary(result)
       if (proxyLog && shouldCaptureProxyBody) proxyLog.responseBody = upstreamResponseBody?.()
       return Response.json(await canonicalResponseToClaudeMessage(result, body))
     }
@@ -311,7 +361,7 @@ function localCountTokensResponse(body: ClaudeMessagesRequest, countTokens: (bod
   return Response.json({ input_tokens: countTokens(body) })
 }
 
-function withLoggedCanonicalStream(response: Canonical_StreamResponse, proxyLog: RequestProxyLog, started: number, responseBody?: () => string | undefined): Canonical_StreamResponse {
+function withLoggedCanonicalStream(response: Canonical_StreamResponse, proxyLog: RequestProxyLog, started: number, responseBody?: () => string | undefined, telemetry?: StreamTelemetryCollector): Canonical_StreamResponse {
   async function* events() {
     let completed = false
     try {
@@ -326,6 +376,15 @@ function withLoggedCanonicalStream(response: Canonical_StreamResponse, proxyLog:
       proxyLog.durationMs = Date.now() - started
       if (!completed && proxyLog.error === "-") proxyLog.error = "stream cancelled"
       if (responseBody) proxyLog.responseBody = responseBody()
+      // Assigned onto the same proxy log object already handed to `context.onProxy`,
+      // which runtime holds by reference — so the log the request writes carries the
+      // telemetry without runtime being edited (Requirement 27.5).
+      //
+      // Unconditional on body capture: the record of provider spend and non-native
+      // decisions is not a body preview. This `finally` runs on normal end, on error,
+      // and on cancellation (the renderer calls `iterator.return()`), and `finalize()`
+      // is idempotent, so a later call from any other path returns the same snapshot.
+      if (telemetry) proxyLog.telemetry = streamTelemetrySummary(telemetry.finalize())
     }
   }
 

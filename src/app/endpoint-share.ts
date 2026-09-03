@@ -5,6 +5,7 @@ import { countKiroClaudeInputTokens } from "../inbound/claude/kiro-count"
 import { CLAUDE_PROXY_ROUTES, type ClaudeProxyRoute } from "../inbound/claude/routes"
 import { OpenAI_Inbound_Provider } from "../inbound/openai"
 import { codexBasePathRoutes, CODEX_MODELS_ROUTE, OPENAI_MODELS_ROUTE, OPENAI_PROXY_ROUTES, type OpenAIProxyRoute } from "../inbound/openai/routes"
+import { passthroughDecider } from "./passthrough-resolver"
 import { providerHasConnectedAccounts } from "./provider-runtime"
 
 export type EndpointProxyRoute = ClaudeProxyRoute | OpenAIProxyRoute
@@ -81,7 +82,13 @@ export function resolveEndpointProxyDisplayValue(mode: ProviderMode, endpoint: P
   return sourceMode === mode ? "self" : endpointProxyProviderLabel(sourceMode)
 }
 
-export function endpointProxyRouteProvider(sourceMode: ProviderMode, endpoint: ProxyableEndpoint, upstream: Upstream_Provider) {
+/**
+ * `passthroughEnabled` is the resolved `NATIVE_PASSTHROUGH` value, and it is **required**: this
+ * module no longer reads the flag for itself. `src/app/bootstrap.ts` calls `readNativeFlags()`
+ * once and threads the value here (design decision D3), so the flag has exactly one reader and a
+ * test covers both states without mutating `process.env`. The flag's own default is off.
+ */
+export function endpointProxyRouteProvider(sourceMode: ProviderMode, endpoint: ProxyableEndpoint, upstream: Upstream_Provider, passthroughEnabled: boolean) {
   const route = endpointProxyRoute(endpoint)
   const upstreamLabels = {
     codex: {
@@ -119,7 +126,23 @@ export function endpointProxyRouteProvider(sourceMode: ProviderMode, endpoint: P
 
   return new OpenAI_Inbound_Provider({
     name: endpointProxyProviderName(sourceMode),
-    passthrough: sourceMode === "codex",
+    // A decider rather than the former bare `sourceMode === "codex"`: the four-way truth table
+    // (design decision D4) needs the route path and `stream`, which only exist per request. The
+    // two inputs known at composition time are pre-bound here. This closes the gap task 18.1
+    // opened by making `normalize.ts` read the option: with the bare boolean now being read, a
+    // codex-mode `stream: false` request would be told to forward raw Codex SSE where the client
+    // asked for JSON.
+    //
+    // The decider is bound for codex only, and the non-codex modes keep the literal `false` they
+    // effectively had. Not a shortcut around the truth table — `providerKind` is still passed and
+    // still checked — but a decider is also read as an instance *capability* by the inbound
+    // provider, and that capability is what its lenient branches key off: a malformed JSON body,
+    // request-shape validation, and forwarding an upstream error unrendered. Kiro and Copilot must
+    // keep rendering the OpenAI error shape with its feature-warning segment, so handing them a
+    // decider — capability `true` — would silently turn their errors into raw upstream bytes.
+    passthrough: sourceMode === "codex"
+      ? passthroughDecider({ providerKind: sourceMode, flagEnabled: passthroughEnabled })
+      : false,
     upstreamLogLabel: upstreamLabels.openai,
     upstreamTarget: "upstream",
     expectedUpstreamKind: sourceMode,
@@ -139,8 +162,8 @@ export function bindInboundProvider(provider: Inbound_Provider, upstream: Upstre
   return new BoundInboundProvider(provider, upstream)
 }
 
-export function buildEndpointProxyProvider(sourceMode: ProviderMode, endpoint: ProxyableEndpoint, upstream: Upstream_Provider): Inbound_Provider {
-  return bindInboundProvider(endpointProxyRouteProvider(sourceMode, endpoint, upstream), upstream)
+export function buildEndpointProxyProvider(sourceMode: ProviderMode, endpoint: ProxyableEndpoint, upstream: Upstream_Provider, passthroughEnabled: boolean): Inbound_Provider {
+  return bindInboundProvider(endpointProxyRouteProvider(sourceMode, endpoint, upstream, passthroughEnabled), upstream)
 }
 
 export async function canUseEndpointProxySource(mode: ProviderMode, endpoint: ProxyableEndpoint, proxy?: EndpointProxyMap) {

@@ -20,6 +20,34 @@ export interface ProviderRuntimeOptions {
   authFile?: string
   authAccount?: string
   rotateAccounts?: boolean
+  /**
+   * Whether a `degrade` outcome escalates to a 400, handed to every provider this module
+   * constructs.
+   *
+   * A plain boolean, never an environment read: `src/app/bootstrap.ts` calls
+   * `readNativeFlags()` once and passes the resolved value here, so `NATIVE_STRICT` has exactly
+   * one reader (design decision D3). Omitted means off, which is the behavior every caller had
+   * before the flag existed.
+   */
+  strict?: boolean
+  /**
+   * Whether the Kiro web-search heuristics run — `KIRO_WEB_SEARCH_HEURISTICS`, resolved once by
+   * `readNativeFlags()` in `src/app/bootstrap.ts` and threaded through here exactly as `strict`
+   * is (design decision D3). Consumed only by the `kiro` branch below, because only the Kiro
+   * provider ever had these heuristics; the other two providers are handed nothing. Omitted
+   * means off, which is the native-mode default (Requirements 17.3, 17.4).
+   */
+  kiroWebSearchHeuristics?: boolean
+  /**
+   * Whether an upstream declaring `mcpToolset: "emulate"` may emulate a client-declared MCP toolset
+   * — `NATIVE_MCP_EMULATION`, resolved once by `readNativeFlags()` in `src/app/bootstrap.ts` and
+   * threaded through here exactly as `strict` is (design decision D3). Consumed only by the `kiro`
+   * branch below: Codex forwards MCP toolsets natively and takes zero emulation paths
+   * (Requirement 22.9), and Copilot declares no emulation either, so neither is handed the flag.
+   * Omitted means off, and off keeps the existing 400 for an MCP-bearing Kiro request
+   * (Requirement 22.5).
+   */
+  mcpEmulation?: boolean
 }
 
 export interface ProviderRuntimeResult {
@@ -52,7 +80,7 @@ export async function createProviderRuntime(mode: ProviderMode, options?: Provid
   if (mode === "copilot") {
     const authFile = resolveProviderAuthFile(mode, options)
     const ensuredAuthFile = await ensureCopilotAuthFile(authFile)
-    const create = (account?: string) => Copilot_Upstream_Provider.fromAuthFile(ensuredAuthFile, { authAccount: account })
+    const create = (account?: string) => Copilot_Upstream_Provider.fromAuthFile(ensuredAuthFile, { authAccount: account, strict: options?.strict })
     const upstream = await withAccountRotation(mode, ensuredAuthFile, authAccount, options, create)
     return { authFile: ensuredAuthFile, authAccount, upstream }
   }
@@ -60,14 +88,14 @@ export async function createProviderRuntime(mode: ProviderMode, options?: Provid
   if (mode === "kiro") {
     const authFile = resolveProviderAuthFile(mode, options)
     const ensuredAuthFile = await ensureKiroAuthFile(authFile)
-    const create = (account?: string) => Kiro_Upstream_Provider.fromAuthFile(ensuredAuthFile, { authAccount: account })
+    const create = (account?: string) => Kiro_Upstream_Provider.fromAuthFile(ensuredAuthFile, { authAccount: account, strict: options?.strict, webSearchHeuristics: options?.kiroWebSearchHeuristics, mcpEmulation: options?.mcpEmulation })
     const upstream = await withAccountRotation(mode, ensuredAuthFile, authAccount, options, create)
     return { authFile: ensuredAuthFile, authAccount, upstream }
   }
 
   const authFile = resolveProviderAuthFile(mode, options)
   await ensureCodexAuthFile(authFile)
-  const create = (account?: string) => Codex_Upstream_Provider.fromAuthFile(authFile, { authAccount: account })
+  const create = (account?: string) => Codex_Upstream_Provider.fromAuthFile(authFile, { authAccount: account, strict: options?.strict })
   const upstream = await withAccountRotation(mode, authFile, authAccount, options, create)
   return { authFile, authAccount, upstream }
 }

@@ -1,6 +1,7 @@
 import type {
   Canonical_ContentBlock,
   Canonical_Event,
+  Canonical_FeatureNotice,
   Canonical_Response,
   Canonical_StreamResponse,
   Canonical_ThinkingBlock,
@@ -25,6 +26,8 @@ export class CanonicalStreamAccumulator {
   private thinkingSignature = ""
   private content: Canonical_ContentBlock[] = []
   private toolArguments = new Map<string, { name: string; fragments: string[] }>()
+  /** Notices in emission order, one entry per event. Stays empty when none arrive. */
+  private featureNotices: Canonical_FeatureNotice[] = []
   private usage: Canonical_Usage = { inputTokens: 0, outputTokens: 0 }
   private stopReason = "end_turn"
   private hasToolCall = false
@@ -100,6 +103,15 @@ export class CanonicalStreamAccumulator {
         this.content.push({ type: "server_tool", blocks: event.blocks })
         break
 
+      // Token- and content-neutral (Requirement 8.4). This case deliberately closes no open
+      // block, appends no content, and touches neither usage nor the stop reason — a notice
+      // arriving between two `text_delta`s must not split the text block it lands inside.
+      // Appended verbatim, one entry per event, in emission order (Requirement 8.2). No dedupe
+      // here: collapsing repeats by `(feature, detail)` is the inbound renderer's job.
+      case "feature_notice":
+        this.featureNotices.push({ feature: event.feature, policy: event.policy, detail: event.detail })
+        break
+
       case "usage":
         mergeCanonicalUsage(this.usage, event.usage)
         break
@@ -162,6 +174,9 @@ export class CanonicalStreamAccumulator {
       stopReason: this.stopReason,
       content: [...this.content],
       usage: { ...this.usage },
+      // Omitted rather than empty (Requirement 8.3), matching how the optional usage members
+      // above are emitted: `undefined` and `[]` are not two spellings of the same answer.
+      ...(this.featureNotices.length ? { featureNotices: [...this.featureNotices] } : {}),
     }
   }
 

@@ -1,3 +1,4 @@
+import { CANONICAL_WEB_FETCH_TOOL_TYPE } from "../../core/canonical-tools"
 import type { ClaudeMessagesRequest, ClaudeTool, JsonObject } from "../types"
 
 import { resolveMcpServers } from "./mcp"
@@ -121,6 +122,10 @@ function claudeFunctionToolToResponsesTool(tool: ClaudeTool) {
 
 function dedupeTools(tools: JsonObject[]) {
   return tools.filter((tool, index, mapped) => {
+    // One entry per web tool kind. `web_search` was deduped alone while a fetch also mapped to
+    // `web_search`; now that a fetch keeps its own canonical type, the fetch needs the same rule or
+    // two client fetch declarations would reach the upstream as two identical tools.
+    if (tool.type === CANONICAL_WEB_FETCH_TOOL_TYPE) return mapped.findIndex((item) => item.type === CANONICAL_WEB_FETCH_TOOL_TYPE) === index
     if (tool.type === "web_search") return mapped.findIndex((item) => item.type === "web_search") === index
     if (tool.type === "mcp" && typeof tool.server_label === "string") {
       return mapped.findIndex((item) => item.type === "mcp" && item.server_label === tool.server_label) === index

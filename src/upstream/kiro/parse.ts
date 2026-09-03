@@ -1,11 +1,30 @@
 import { countTokens } from "gpt-tokenizer"
 
-import type { Canonical_ContentBlock, Canonical_Event, Canonical_Response, Canonical_StreamResponse, Canonical_ToolCallBlock } from "../../core/canonical"
+import type { Canonical_ContentBlock, Canonical_Event, Canonical_FeatureNotice, Canonical_Response, Canonical_StreamResponse, Canonical_ToolCallBlock } from "../../core/canonical"
 import type { JsonObject } from "../../core/types"
 import { canonicalUsageFromWireUsage, mergeCanonicalUsage, mergeServerToolUse } from "../../core/usage"
 import { DEFAULT_MAX_INPUT_TOKENS } from "./constants"
-import { maybeHandleKiroServerTool, type KiroServerToolHandlers } from "./mcp"
+import { findEventStart } from "./event-frames"
+import { maybeHandleKiroServerTool, type KiroServerToolHandlers } from "./web-search"
+import { maybeHandleKiroWebFetch, webFetchRequestsFromBlocks, type KiroWebFetchHandlers } from "./web-fetch"
+import type { KiroMcpSession } from "./mcp-toolset"
+import { parseKiroMeteringUsage } from "./metering"
 import type { KiroParsedEvent, KiroToolCall } from "./types"
+
+/**
+ * The server-tool handlers one Kiro turn can carry.
+ *
+ * Two independent bags, intersected rather than merged into a new shape: `web-search.ts` owns
+ * `webSearch` / `webSearchFallbackQuery` and `web-fetch.ts` owns `webFetch`, and each module's
+ * interceptor reads only its own members. A turn may supply either, both, or neither — the tool-list
+ * computation in `./index.ts` decides which, per declared tool, so a `web_fetch` a client never
+ * declared is never intercepted.
+ *
+ * The MCP session is deliberately **not** a member. It is stateful (it holds the expanded name map
+ * and the completed-call counter) and it is created before the payload is built rather than
+ * assembled from closures at the call site, so it travels as its own parameter.
+ */
+export type KiroServerToolBundle = KiroServerToolHandlers & KiroWebFetchHandlers
 
 interface Accumulator {
   name: string
@@ -221,10 +240,11 @@ export function streamKiroResponse(
   fallbackModel: string,
   effectiveTools: JsonObject[],
   inputTokenEstimate: number,
-  serverTools?: KiroServerToolHandlers,
+  serverTools?: KiroServerToolBundle,
   initialServerToolBlocks: JsonObject[] = [],
   prefaceText = "",
   maxInputTokens = DEFAULT_MAX_INPUT_TOKENS,
+  mcp?: KiroMcpSession,
 ): Canonical_StreamResponse {
   const id = `resp_${crypto.randomUUID().replace(/-/g, "")}`
   return {
@@ -234,7 +254,7 @@ export function streamKiroResponse(
     model: fallbackModel,
     events: {
       async *[Symbol.asyncIterator]() {
-        yield* iterateKiroEvents(response.body, inputTokenEstimate, effectiveTools, serverTools, true, initialServerToolBlocks, prefaceText, maxInputTokens)
+        yield* iterateKiroEvents(response.body, inputTokenEstimate, effectiveTools, serverTools, true, initialServerToolBlocks, prefaceText, maxInputTokens, mcp)
       },
     },
   }
@@ -245,10 +265,11 @@ export async function collectKiroResponse(
   fallbackModel: string,
   effectiveTools: JsonObject[],
   inputTokenEstimate: number,
-  serverTools?: KiroServerToolHandlers,
+  serverTools?: KiroServerToolBundle,
   initialServerToolBlocks: JsonObject[] = [],
   prefaceText = "",
   maxInputTokens = DEFAULT_MAX_INPUT_TOKENS,
+  mcp?: KiroMcpSession,
 ): Promise<Canonical_Response> {
   const content: Canonical_ContentBlock[] = []
   let pendingText = ""
@@ -258,6 +279,9 @@ export async function collectKiroResponse(
   let cacheCreationInputTokens: number | undefined
   let cacheReadInputTokens: number | undefined
   let outputReasoningTokens: number | undefined
+  let providerCredits: number | undefined
+  /** Notices in emission order, one entry per event. Stays empty when none arrive. */
+  const featureNotices: Canonical_FeatureNotice[] = []
   let serverToolUse: Canonical_Response["usage"]["serverToolUse"] | undefined
   let stopReason: Canonical_Response["stopReason"] = "end_turn"
 
@@ -274,7 +298,7 @@ export async function collectKiroResponse(
     pendingThinking = undefined
   }
 
-  for await (const event of iterateKiroEvents(response.body, inputTokenEstimate, effectiveTools, serverTools, false, initialServerToolBlocks, prefaceText, maxInputTokens)) {
+  for await (const event of iterateKiroEvents(response.body, inputTokenEstimate, effectiveTools, serverTools, false, initialServerToolBlocks, prefaceText, maxInputTokens, mcp)) {
     if (event.type === "text_delta") {
       flushThinking()
       pendingText += event.delta
@@ -308,9 +332,20 @@ export async function collectKiroResponse(
       cacheCreationInputTokens = mergedUsage.cacheCreationInputTokens ?? cacheCreationInputTokens
       cacheReadInputTokens = mergedUsage.cacheReadInputTokens ?? cacheReadInputTokens
       outputReasoningTokens = mergedUsage.outputReasoningTokens ?? outputReasoningTokens
+      // Accumulated off `event.usage` rather than `mergedUsage`, because `mergedUsage` is rebuilt
+      // per event and so cannot carry a running total. Summed for the same reason
+      // `mergeCanonicalUsage()` sums it: several upstream calls can each report spend.
+      if (typeof event.usage.providerCredits === "number") providerCredits = (providerCredits ?? 0) + event.usage.providerCredits
       serverToolUse = mergeServerToolUse(serverToolUse, event.usage.serverToolUse)
     }
     if (event.type === "message_stop") stopReason = event.stopReason as Canonical_Response["stopReason"]
+    // Token- and content-neutral (Requirement 8.4), the same isolation the metering branch in
+    // `iterateKiroEvents` buys with its `continue`: here the discriminated union does it, since
+    // `feature_notice` matches none of the branches above. No flush, no content push, no usage
+    // or stop-reason write — a notice between two text deltas must not split the text block.
+    // Appended verbatim, one entry per event, in emission order (Requirement 8.2). No dedupe
+    // here: collapsing repeats by `(feature, detail)` is the inbound renderer's job.
+    if (event.type === "feature_notice") featureNotices.push({ feature: event.feature, policy: event.policy, detail: event.detail })
   }
 
   flushThinking()
@@ -330,8 +365,12 @@ export async function collectKiroResponse(
       ...(cacheCreationInputTokens !== undefined ? { cacheCreationInputTokens } : {}),
       ...(cacheReadInputTokens !== undefined ? { cacheReadInputTokens } : {}),
       ...(outputReasoningTokens !== undefined ? { outputReasoningTokens } : {}),
+      ...(providerCredits !== undefined ? { providerCredits } : {}),
       ...(serverToolUse && (serverToolUse.webSearchRequests || serverToolUse.webFetchRequests || serverToolUse.mcpCalls) ? { serverToolUse } : {}),
     },
+    // Omitted rather than empty (Requirement 8.3), the same conditional-spread idiom the
+    // optional usage members above use.
+    ...(featureNotices.length ? { featureNotices } : {}),
   }
 }
 
@@ -339,11 +378,12 @@ async function* iterateKiroEvents(
   stream: ReadableStream<Uint8Array> | null,
   inputTokenEstimate: number,
   effectiveTools: JsonObject[] = [],
-  serverTools?: KiroServerToolHandlers,
+  serverTools?: KiroServerToolBundle,
   emitBracketToolCalls = true,
   initialServerToolBlocks: JsonObject[] = [],
   prefaceText = "",
   maxInputTokens = DEFAULT_MAX_INPUT_TOKENS,
+  mcp?: KiroMcpSession,
 ): AsyncIterable<Canonical_Event> {
   const parser = new AwsEventStreamParser()
   const thinking = new ThinkingBlockExtractor()
@@ -351,6 +391,8 @@ async function* iterateKiroEvents(
   let usageOutputTokens: number | undefined
   let upstreamInputTokens: number | undefined
   const upstreamUsage: Canonical_Response["usage"] = { inputTokens: inputTokenEstimate, outputTokens: 0 }
+  /** Running total of the metering frames' credits. Stays `undefined` when no metering frame arrives. */
+  let providerCredits: number | undefined
   let contextUsage: number | undefined
   let stopReason = "end_turn"
   let sawToolCall = false
@@ -360,6 +402,15 @@ async function* iterateKiroEvents(
   let nextBlockIndex = 0
   const initialServerToolUse = serverToolUseFromBlocks(initialServerToolBlocks)
   let webSearchRequests = initialServerToolUse?.webSearchRequests ?? 0
+  /**
+   * Completed `web_fetch` calls this turn (Requirement 18.3).
+   *
+   * Seeded from the preface blocks for the same reason `webSearchRequests` is, and fed from
+   * `webFetchRequestsFromBlocks()` rather than from a counter incremented next to the fetch — the
+   * block is the evidence a fetch completed, so counting blocks cannot drift from what the client
+   * receives. A failed fetch yields an `error` event and no block, so it is not counted.
+   */
+  let webFetchRequests = initialServerToolUse?.webFetchRequests ?? 0
   const emittedToolCalls: Canonical_ToolCallBlock[] = []
   const reader = stream?.getReader()
   if (prefaceText) yield { type: "text_delta", delta: prefaceText }
@@ -377,9 +428,36 @@ async function* iterateKiroEvents(
     return
   }
 
+  /**
+   * Run one model-emitted call past the interceptors, in order, and yield whatever comes out.
+   *
+   * The three handlers are chained rather than nested, because each one's "not mine" answer is the
+   * same event: the call re-emitted verbatim as `tool_call_done`. So a passthrough from the
+   * web-search handler is the signal to offer the call to the web-fetch handler, and a passthrough
+   * from that one is the client tool call. The MCP session is asked **first** and by name rather
+   * than by passthrough detection, because it is the one handler that can claim an arbitrary tool
+   * name — an expanded `mcp__server__tool` — so there is nothing to compare against.
+   *
+   * Chaining on the identity of the re-emitted call, not merely on the event type, so a handler that
+   * legitimately emits a *different* tool call is not mistaken for a passthrough.
+   */
+  async function* handleKiroToolCall(call: KiroToolCall): AsyncIterable<Canonical_Event> {
+    if (mcp?.handles(call.name)) {
+      yield* mcp.handleToolCall(call)
+      return
+    }
+    for await (const event of maybeHandleKiroServerTool(call, serverTools)) {
+      if (isPassthroughOf(event, call)) {
+        yield* maybeHandleKiroWebFetch(call, serverTools)
+        continue
+      }
+      yield event
+    }
+  }
+
   async function* emitToolCall(call: KiroToolCall): AsyncIterable<Canonical_Event> {
     let emittedClientTool = false
-    for await (const event of maybeHandleKiroServerTool(call, serverTools)) {
+    for await (const event of handleKiroToolCall(call)) {
       if (event.type === "tool_call_done") {
         emittedClientTool = true
         emittedToolCalls.push({
@@ -392,6 +470,9 @@ async function* iterateKiroEvents(
       }
       if (event.type === "server_tool_block" && event.blocks.some((block) => block.type === "web_search_tool_result")) {
         webSearchRequests += 1
+      }
+      if (event.type === "server_tool_block") {
+        webFetchRequests += webFetchRequestsFromBlocks(event.blocks)
       }
       if (event.type === "text_delta") {
         text += event.delta
@@ -431,6 +512,18 @@ async function* iterateKiroEvents(
             text += extracted.regular
             yield { type: "text_delta", delta: extracted.regular }
           }
+        }
+        // Metering branch (design D1). Must stay **before** the token-usage branch:
+        // `{"unit":"credit","unitPlural":"credits","usage":0.0148}` carries a numeric `usage`, so
+        // reaching the branch below would read 0.0148 as an output-token count — measured as
+        // `outputTokens: 0.0148` / `inputTokens: 1296.9852`, which Requirement 5.4 forbids.
+        // The `continue` is what buys Requirement 5.4: a metering frame contributes to
+        // `providerCredits` and to nothing else — not output tokens, not input-token estimation,
+        // not context usage, not the stop reason, not tool-call draining.
+        const credits = parseKiroMeteringUsage(event)
+        if (credits !== undefined) {
+          providerCredits = (providerCredits ?? 0) + credits
+          continue
         }
         if ("usage" in event) {
           if (typeof event.usage === "number") {
@@ -485,9 +578,20 @@ async function* iterateKiroEvents(
     }
   }
   const outputTokens = usageOutputTokens ?? (text ? estimateKiroFallbackTokens(text) : 0)
+  // Three sources, folded left to right: whatever upstream reported, what this turn's server-tool
+  // interception observed, and what the MCP session executed. Each member is still omitted when it
+  // is zero, so a turn that used none of them keeps reporting no `serverToolUse` at all.
   const serverToolUse = mergeServerToolUse(
-    upstreamUsage.serverToolUse,
-    webSearchRequests ? { webSearchRequests } : undefined,
+    mergeServerToolUse(
+      upstreamUsage.serverToolUse,
+      webSearchRequests || webFetchRequests
+        ? {
+            ...(webSearchRequests ? { webSearchRequests } : {}),
+            ...(webFetchRequests ? { webFetchRequests } : {}),
+          }
+        : undefined,
+    ),
+    mcp?.serverToolUseDelta(),
   )
   yield {
     type: "usage",
@@ -497,10 +601,22 @@ async function* iterateKiroEvents(
       ...(upstreamUsage.cacheCreationInputTokens !== undefined ? { cacheCreationInputTokens: upstreamUsage.cacheCreationInputTokens } : {}),
       ...(upstreamUsage.cacheReadInputTokens !== undefined ? { cacheReadInputTokens: upstreamUsage.cacheReadInputTokens } : {}),
       ...(upstreamUsage.outputReasoningTokens !== undefined ? { outputReasoningTokens: upstreamUsage.outputReasoningTokens } : {}),
+      ...(providerCredits !== undefined ? { providerCredits } : {}),
       ...(serverToolUse ? { serverToolUse } : {}),
     },
   }
   yield { type: "message_stop", stopReason }
+}
+
+/**
+ * Whether `event` is an interceptor re-emitting `call` untouched — the documented "not mine" answer
+ * of both {@link maybeHandleKiroServerTool} and {@link maybeHandleKiroWebFetch}.
+ *
+ * All three fields are compared, so a handler that emits some *other* tool call is not read as a
+ * declined one and does not get offered to the next handler in the chain.
+ */
+function isPassthroughOf(event: Canonical_Event, call: KiroToolCall) {
+  return event.type === "tool_call_done" && event.callId === call.callId && event.name === call.name && event.arguments === call.arguments
 }
 
 function closingTagPrefixSuffixLength(value: string, closeTag: string) {
@@ -509,47 +625,6 @@ function closingTagPrefixSuffixLength(value: string, closeTag: string) {
     if (closeTag.startsWith(value.slice(-length))) return length
   }
   return 0
-}
-
-function findEventStart(buffer: string) {
-  // Only match patterns at the start of a top-level JSON object.
-  // Skip matches that appear inside a JSON string (preceded by an odd number of unescaped quotes).
-  const patterns = ["{\"contextUsagePercentage\":", "{\"content\":", "{\"name\":", "{\"input\":", "{\"stop\":", "{\"usage\":"]
-  let best = -1
-  for (const pattern of patterns) {
-    let searchFrom = 0
-    while (searchFrom < buffer.length) {
-      const index = buffer.indexOf(pattern, searchFrom)
-      if (index < 0) break
-      // Verify this is not inside a JSON string by checking if the preceding
-      // context suggests we're at a top-level position (not inside quotes).
-      if (index === 0 || isLikelyTopLevel(buffer, index)) {
-        if (best < 0 || index < best) best = index
-        break
-      }
-      searchFrom = index + 1
-    }
-  }
-  return best
-}
-
-/**
- * Heuristic: check if position is likely a top-level JSON start rather than
- * inside a string value. We look backwards for the nearest unescaped quote
- * and count whether we're inside a string context.
- */
-function isLikelyTopLevel(buffer: string, position: number) {
-  // Quick check: if preceded by whitespace, newline, or start of buffer, likely top-level
-  const preceding = buffer[position - 1]
-  if (!preceding || preceding === "\n" || preceding === "\r" || preceding === " " || preceding === "\t") return true
-  // If preceded by a closing brace/bracket, likely between events
-  if (preceding === "}" || preceding === "]") return true
-  // If preceded by a comma or colon, could be inside an object — but our patterns
-  // start with `{"` which is unusual inside a value. Accept it.
-  if (preceding === "," || preceding === ":") return false
-  // If preceded by a quote, we're likely inside a string
-  if (preceding === "\"") return false
-  return true
 }
 
 function findJsonEnd(value: string) {

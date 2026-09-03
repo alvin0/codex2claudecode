@@ -1,6 +1,7 @@
 import type { Canonical_Request } from "../../core/canonical"
 import { normalizeReasoningBody } from "../../core/reasoning"
 import type { JsonObject } from "../../core/types"
+import { openAISamplingMembers } from "./sampling"
 
 interface NormalizeOptions {
   passthrough?: boolean
@@ -9,10 +10,16 @@ interface NormalizeOptions {
 export function normalizeCanonicalRequest(pathname: string, body: JsonObject, options: NormalizeOptions = {}): Canonical_Request {
   const normalizedBody = normalizeReasoningBody(body)
   // OpenAI API default: stream is false unless explicitly set to true.
-  // Never use passthrough — always go through the canonical path so that:
-  // - stream:false returns proper JSON (not raw Codex SSE)
-  // - stream:true returns properly framed SSE with termination
-  const passthrough = false
+  //
+  // Passthrough is the caller's decision, not this function's: `src/inbound/openai/index.ts` asks
+  // its decider with the route and `Boolean(body.stream)`. Absent option means canonical.
+  //
+  // The surviving rule, so the next reader does not widen it back: passthrough is only ever
+  // allowed when `stream === true` on `/v1/responses`. `stream: false` cannot be forwarded because
+  // the upstream answers with raw Codex SSE where the client asked for one JSON object, and a
+  // non-streaming reply has no SSE termination to frame. Every other route and `stream: false`
+  // must go through the canonical path.
+  const passthrough = options.passthrough ?? false
   const defaultStream = false
 
   if (isChatPath(pathname)) {
@@ -31,6 +38,7 @@ export function normalizeCanonicalRequest(pathname: string, body: JsonObject, op
       include: Array.isArray(normalizedBody.include) ? normalizedBody.include.filter((item): item is string => typeof item === "string") : undefined,
       textFormat: extractTextFormat(normalizedBody.text) ?? extractChatResponseFormat(normalizedBody.response_format),
       reasoningEffort: extractReasoningEffort(normalizedBody),
+      ...openAISamplingMembers(normalizedBody),
       stream: normalizedBody.stream !== undefined ? Boolean(normalizedBody.stream) : defaultStream,
       passthrough,
       metadata: { source: "openai", path: pathname },
@@ -48,12 +56,24 @@ export function normalizeCanonicalRequest(pathname: string, body: JsonObject, op
       include: Array.isArray(normalizedBody.include) ? normalizedBody.include.filter((item): item is string => typeof item === "string") : undefined,
       textFormat: extractTextFormat(normalizedBody.text),
       reasoningEffort: extractReasoningEffort(normalizedBody),
+      ...openAISamplingMembers(normalizedBody),
       stream: normalizedBody.stream !== undefined ? Boolean(normalizedBody.stream) : defaultStream,
       passthrough,
       metadata: { source: "openai", path: pathname },
     }
   }
 
+  // The fallback branch: `/v1/embeddings` and any path no descriptor claims. Deliberately **not**
+  // carrying the sampling members. This branch already declines to interpret every route-shaped
+  // generation field — `tools`, `tool_choice`, `text`, `reasoning` are all read only by the two
+  // branches above — because it has no route contract telling it the body is a generation request.
+  // Sampling controls are the same kind of field, and presence here is worse than useless: upstream
+  // feature resolvers key their `sampling` / `outputLength` / `stopSequences` cells off presence, so
+  // reading `max_tokens` off an embeddings body would fire a policy decision about a reply length
+  // that request has no reply for. The two generation routes cover every reachable generation
+  // request — `src/inbound/openai/index.ts` short-circuits `/v1/embeddings` into
+  // `upstream.embeddingsRaw()` before this function is called — so Requirement 13.4 is satisfied
+  // without it.
   return {
     model: typeof normalizedBody.model === "string" ? normalizedBody.model : "",
     instructions: typeof normalizedBody.instructions === "string" ? normalizedBody.instructions : undefined,

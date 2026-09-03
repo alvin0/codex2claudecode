@@ -8,11 +8,14 @@ const originalEnv = { ...process.env }
 const originalFetch = globalThis.fetch
 
 beforeEach(() => {
-  process.env = { ...originalEnv, UPSTREAM_PROVIDER: "codex" }
+  Object.assign(process.env, originalEnv, { UPSTREAM_PROVIDER: "codex" })
 })
 
 afterEach(async () => {
-  process.env = { ...originalEnv }
+  for (const key of Object.keys(process.env)) {
+    if (!(key in originalEnv)) delete process.env[key]
+  }
+  Object.assign(process.env, originalEnv)
   globalThis.fetch = originalFetch
   await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })))
 })

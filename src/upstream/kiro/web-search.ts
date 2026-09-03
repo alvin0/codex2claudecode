@@ -1,3 +1,14 @@
+// Kiro web search, executed over the provider's `POST /mcp` endpoint.
+//
+// Renamed from `src/upstream/kiro/mcp.ts` (task 26.1, Requirement 17.1). The old name described the
+// transport, not the behavior: nothing here implements MCP toolset support — no `tools/list`
+// discovery, no client-declared servers, no tool-name mangling. It builds the Kiro-side
+// `web_search` tool declaration, calls it, and renders the results as Claude server-tool blocks.
+// The real MCP toolset work lands in `src/core/mcp/` with a Kiro bridge at
+// `src/upstream/kiro/mcp-toolset.ts` (tasks 31–35), which would have collided on the old name.
+//
+// Content is otherwise unchanged by the rename. `parseMcpWebSearchResults` and `KiroMcpError` keep
+// their names because they parse the `/mcp` JSON-RPC envelope, which is genuinely what they read.
 import type { Canonical_Event } from "../../core/canonical"
 import type { JsonObject } from "../../core/types"
 import { KiroMcpError } from "./types"
@@ -110,6 +121,18 @@ export function parseMcpWebSearchResults(payload: unknown): JsonObject {
   return parsed as JsonObject
 }
 
+/**
+ * Execute a `web_search` the **model emitted**, and render it as server-tool blocks.
+ *
+ * This path is deliberately outside `KIRO_WEB_SEARCH_HEURISTICS` and stays active in both flag
+ * states (task 27.1, Requirements 17.6, 17.7). The flag gates *guessing* — the intent preflight
+ * and the synthesized client tool calls in `src/upstream/kiro/index.ts`, which produce a tool call
+ * the model never asked for. A call that arrives here already exists in the model's output, so
+ * suppressing it would drop a real request, which is the opposite of what native mode is for.
+ *
+ * Anything that is not a `web_search`, or arrives with no handler and no usable query, is passed
+ * through untouched as `tool_call_done` — never swallowed.
+ */
 export async function* maybeHandleKiroServerTool(
   call: { callId: string; name: string; arguments: string },
   handlers?: KiroServerToolHandlers,

@@ -37,7 +37,12 @@ describe("canonicalToCodexBody edge cases", () => {
     expect(body).not.toHaveProperty("tool_choice")
     expect(body).not.toHaveProperty("include")
     expect(body).not.toHaveProperty("text")
+    // Deliberate expectation update for a changed contract (task 19b.2). The claim is unchanged —
+    // no effort in, no reasoning configuration out — but the key it is made about moved after spike
+    // §10.2 measured flat `reasoning_effort` refused with a 400. Both keys are asserted absent: the
+    // old spelling must never come back, and the new one must not appear as an empty husk.
     expect(body).not.toHaveProperty("reasoning_effort")
+    expect(body).not.toHaveProperty("reasoning")
     expect(body).not.toHaveProperty("instructions")
     expect(body.store).toBe(false)
   })

@@ -1,6 +1,7 @@
 import type {
   Canonical_ContentBlock,
   Canonical_Event,
+  Canonical_FeatureNotice,
   Canonical_Response,
   Canonical_StreamResponse,
   Canonical_ToolCallBlock,
@@ -8,19 +9,21 @@ import type {
 } from "../../core/canonical"
 import type { JsonObject } from "../../core/types"
 import { canonicalInputTokenTotal, mergeCanonicalUsage } from "../../core/usage"
+import type { StreamTelemetryCollector } from "../../core/stream-telemetry"
+import { OPENAI_WARNING_SEPARATOR, prependOpenAIWarning, renderOpenAIFeatureWarning } from "./notice"
 
 export function openAICanonicalResponse(response: Canonical_Response, pathname: string, request: JsonObject): Response {
   if (isChatPath(pathname)) return Response.json(canonicalResponseToChatCompletion(response))
   return Response.json(canonicalResponseToResponsesBody(response, request))
 }
 
-export function openAICanonicalStreamResponse(response: Canonical_StreamResponse, pathname: string, request: JsonObject): Response {
-  if (isChatPath(pathname)) return chatCompletionStreamResponse(response)
-  return responsesStreamResponse(response, request)
+export function openAICanonicalStreamResponse(response: Canonical_StreamResponse, pathname: string, request: JsonObject, options?: { telemetry?: StreamTelemetryCollector }): Response {
+  if (isChatPath(pathname)) return chatCompletionStreamResponse(response, options?.telemetry)
+  return responsesStreamResponse(response, request, options?.telemetry)
 }
 
 export function canonicalResponseToResponsesBody(response: Canonical_Response, request: JsonObject): JsonObject {
-  const output = canonicalContentToResponsesOutput(response.content)
+  const output = withResponsesWarning(canonicalContentToResponsesOutput(response.content), renderOpenAIFeatureWarning(response.featureNotices ?? []))
   const incompleteReason = response.stopReason === "max_tokens" ? "max_output_tokens" : undefined
   return responseObject({
     id: response.id,
@@ -35,7 +38,15 @@ export function canonicalResponseToResponsesBody(response: Canonical_Response, r
 
 export function canonicalResponseToChatCompletion(response: Canonical_Response): JsonObject {
   const toolCalls = response.content.filter((block): block is Canonical_ToolCallBlock => block.type === "tool_call")
-  const text = response.content.flatMap((block) => block.type === "text" ? [block.text] : []).join("")
+  // The warning is leading text of the assistant message — the chat-completions equivalent of
+  // the Responses `output_text` prefix, and of Claude's `content[0].text` prefix. Requirement
+  // 9.6: no field the notice-free body lacks. A tool-call-only response therefore answers with
+  // the warning as its `content` instead of `null`, which is the only way the notice reaches a
+  // client at all on that shape; with no degrade notice the render is unchanged.
+  const text = prependOpenAIWarning(
+    response.content.flatMap((block) => block.type === "text" ? [block.text] : []).join(""),
+    renderOpenAIFeatureWarning(response.featureNotices ?? []),
+  )
   const thinking = response.content.flatMap((block) => block.type === "thinking" ? [block.thinking] : []).join("")
   return {
     id: response.id.replace(/^resp_/, "chatcmpl_"),
@@ -58,7 +69,7 @@ export function canonicalResponseToChatCompletion(response: Canonical_Response):
   }
 }
 
-function responsesStreamResponse(response: Canonical_StreamResponse, request: JsonObject): Response {
+function responsesStreamResponse(response: Canonical_StreamResponse, request: JsonObject, telemetry?: StreamTelemetryCollector): Response {
   const encoder = new TextEncoder()
   const id = response.id
   const model = response.model || stringOr(request.model, "unknown")
@@ -72,6 +83,13 @@ function responsesStreamResponse(response: Canonical_StreamResponse, request: Js
   let messageDone = false
   let messageDoneItem: JsonObject | undefined
   let text = ""
+  // Notices decided while the payload was built arrive before any content, so they wait here
+  // until the first text of the message block goes out (design D2's `pendingWarning`). Ones
+  // decided mid-stream stay here until the stream ends and then trail the text block.
+  const pendingNotices: Canonical_FeatureNotice[] = []
+  // Exactly what was prefixed onto `text`, so `doneSuffix()` keeps comparing model text with
+  // model text. Empty whenever no warning was placed, which makes every use below an identity.
+  let warningPrefix = ""
   let reasoningId = `rs_${crypto.randomUUID().replace(/-/g, "")}`
   let reasoningStarted = false
   let reasoningDone = false
@@ -109,10 +127,104 @@ function responsesStreamResponse(response: Canonical_StreamResponse, request: Js
           return messageStarted || reasoningStarted || toolStates.size > 0 || output.some(Boolean)
         }
 
+        /** Renders and clears the pending notices. `""` when they were all `emulate`. */
+        function takePendingWarning() {
+          if (!pendingNotices.length) return ""
+          const warning = renderOpenAIFeatureWarning(pendingNotices)
+          pendingNotices.length = 0
+          return warning
+        }
+
+        /** Model text emitted so far, warning removed. Identity while `warningPrefix` is empty. */
+        function modelText() {
+          return warningPrefix && text.startsWith(warningPrefix) ? text.slice(warningPrefix.length) : text
+        }
+
+        /**
+         * Flushes the pending warning immediately in front of the first text this message block
+         * emits, through the ordinary `response.output_text.delta` channel — no new event name.
+         * A block that has already spoken is left alone; those notices trail the stream instead.
+         */
+        async function flushWarningBeforeText() {
+          if (text) return
+          const warning = takePendingWarning()
+          if (!warning) return
+          warningPrefix = `${warning}${OPENAI_WARNING_SEPARATOR}`
+          text = warningPrefix
+          await sendTextDeltas(messageId, output.length, 0, warningPrefix)
+        }
+
+        /**
+         * Last chance for a notice decided after the text started (design D2's ordering rule for
+         * late notices): it trails the current text block rather than splitting it. Runs once,
+         * after the event loop and before the block is finished, so nothing reconciles against it.
+         */
+        async function flushTrailingWarning() {
+          const warning = takePendingWarning()
+          if (!warning) return
+          if (messageStarted && !messageDone) {
+            const segment = text ? `${OPENAI_WARNING_SEPARATOR}${warning}` : warning
+            text += segment
+            await sendTextDeltas(messageId, output.length, 0, segment)
+            return
+          }
+          // Nothing carried text this turn, so a message block is created for the warning —
+          // the streaming counterpart of the non-streaming "only if the response has none".
+          ensureMessageStarted()
+          text = warning
+          await sendTextDeltas(messageId, output.length, 0, warning)
+        }
+
+        /**
+         * Places the pending warning as leading text of a completed message item, for the paths
+         * that receive whole items instead of deltas. Items with no text part are left untouched
+         * so the notice can still land on a text-carrying item later, or trail the stream.
+         */
+        function warnedMessageItem(message: JsonObject): JsonObject {
+          if (!pendingNotices.length) return message
+          const content = Array.isArray(message.content) ? message.content : []
+          const partIndex = content.findIndex((part) => isJsonObject(part) && part.type === "output_text")
+          if (partIndex < 0) return message
+          const warning = takePendingWarning()
+          if (!warning) return message
+          const part = content[partIndex] as JsonObject
+          const partText = typeof part.text === "string" ? part.text : ""
+          // Recorded for `withStreamedWarning()`: this item can still be replaced at stream end
+          // by the upstream's own copy, which never saw the warning.
+          warningPrefix = partText ? `${warning}${OPENAI_WARNING_SEPARATOR}` : warning
+          const warnedContent = [...content]
+          warnedContent[partIndex] = { ...part, text: prependOpenAIWarning(partText, warning) }
+          return { ...message, content: warnedContent }
+        }
+
+        /**
+         * Keeps the warning the deltas carried in the `response.completed` body too.
+         * `mergeCompletionOutput()` can replace the streamed message item with the upstream's own
+         * final item, which never saw the prefix. Idempotent — an item that kept the prefix is
+         * returned untouched, so the warning appears exactly once either way.
+         */
+        function withStreamedWarning(items: JsonObject[]): JsonObject[] {
+          if (!warningPrefix) return items
+          for (const [index, item] of items.entries()) {
+            if (item.type !== "message" || !Array.isArray(item.content)) continue
+            const partIndex = item.content.findIndex((part) => isJsonObject(part) && part.type === "output_text")
+            if (partIndex < 0) continue
+            const part = item.content[partIndex] as JsonObject
+            const partText = typeof part.text === "string" ? part.text : ""
+            if (partText.startsWith(warningPrefix)) return items
+            const content = [...item.content]
+            content[partIndex] = { ...part, text: `${warningPrefix}${partText}` }
+            const warned = [...items]
+            warned[index] = { ...item, content }
+            return warned
+          }
+          return items
+        }
+
         async function emitCompletedOutputItem(item: JsonObject) {
           const outputIndex = output.length
           if (item.type === "message") {
-            const message = completedMessageOutputItem(item)
+            const message = warnedMessageItem(completedMessageOutputItem(item))
             send("response.output_item.added", {
               type: "response.output_item.added",
               output_index: outputIndex,
@@ -201,6 +313,8 @@ function responsesStreamResponse(response: Canonical_StreamResponse, request: Js
             messageDone = false
             messageDoneItem = undefined
             text = ""
+            // The prefix belongs to the block that carried it; a fresh block starts unwarned.
+            warningPrefix = ""
           }
           messageStarted = true
           send("response.output_item.added", {
@@ -316,12 +430,13 @@ function responsesStreamResponse(response: Canonical_StreamResponse, request: Js
           if (!messageStarted || messageDone || item.type !== "message") return
           const message = completedMessageOutputItem(item)
           const doneText = outputTextFromOutput([message])
-          const delta = doneSuffix(text, doneText)
+          if (doneText) await flushWarningBeforeText()
+          const delta = doneSuffix(modelText(), doneText)
           if (delta) {
             text += delta
             await sendTextDeltas(messageId, output.length, 0, delta)
-          } else if (doneText && doneText !== text) {
-            text = doneText
+          } else if (doneText && doneText !== modelText()) {
+            text = `${warningPrefix}${doneText}`
           }
           if (Array.isArray(message.content) && message.content.length) messageDoneItem = message
         }
@@ -426,18 +541,20 @@ function responsesStreamResponse(response: Canonical_StreamResponse, request: Js
 
             if (event.type === "text_delta") {
               ensureMessageStarted()
+              await flushWarningBeforeText()
               text += event.delta
               await sendTextDeltas(messageId, output.length, 0, event.delta)
               continue
             }
             if (event.type === "text_done") {
               ensureMessageStarted()
-              const delta = doneSuffix(text, event.text)
+              await flushWarningBeforeText()
+              const delta = doneSuffix(modelText(), event.text)
               if (delta) {
                 text += delta
                 await sendTextDeltas(messageId, output.length, 0, delta)
-              } else if (event.text && event.text !== text) {
-                text = event.text
+              } else if (event.text && event.text !== modelText()) {
+                text = `${warningPrefix}${event.text}`
               }
               continue
             }
@@ -476,9 +593,20 @@ function responsesStreamResponse(response: Canonical_StreamResponse, request: Js
             if (event.type === "thinking_signature") {
               continue
             }
+            if (event.type === "feature_notice") {
+              // Token- and content-neutral (Requirement 8.4): the notice is recorded and queued,
+              // and nothing is flushed, started or stopped here — a notice between two text
+              // deltas must not split the text block.
+              telemetry?.recordFeatureNotice(event)
+              pendingNotices.push({ feature: event.feature, policy: event.policy, detail: event.detail })
+              continue
+            }
             if (event.type === "usage") {
               accumulatedUsage = mergeStreamUsage(accumulatedUsage, event.usage)
               usage = responsesUsage(accumulatedUsage)
+              // Provider spend rides the usage channel but is not a token count, so it goes
+              // to telemetry only and never into the OpenAI wire usage block.
+              if (typeof event.usage.providerCredits === "number") telemetry?.recordProviderCredits(event.usage.providerCredits)
               continue
             }
             if (event.type === "message_stop") {
@@ -490,6 +618,7 @@ function responsesStreamResponse(response: Canonical_StreamResponse, request: Js
               if (event.usage) {
                 accumulatedUsage = mergeStreamUsage(accumulatedUsage, event.usage)
                 usage = responsesUsage(accumulatedUsage)
+                if (typeof event.usage.providerCredits === "number") telemetry?.recordProviderCredits(event.usage.providerCredits)
               }
               if (event.stopReason) stopReason = event.stopReason
               if (event.incompleteReason) incompleteReason = event.incompleteReason
@@ -525,11 +654,13 @@ function responsesStreamResponse(response: Canonical_StreamResponse, request: Js
             }
           }
 
+          await flushTrailingWarning()
           finishReasoning()
           finishMessage()
           for (const state of toolStates.values()) finishTool(state)
           const streamedOutput = compactOutput(output)
-          const completedOutput = completionOutputOverride ? mergeCompletionOutput(streamedOutput, completionOutputOverride) : streamedOutput
+          const mergedOutput = completionOutputOverride ? mergeCompletionOutput(streamedOutput, completionOutputOverride) : streamedOutput
+          const completedOutput = withStreamedWarning(mergedOutput)
           const finalIncompleteReason = incompleteReason ?? (stopReason === "max_tokens" ? "max_output_tokens" : undefined)
           send("response.completed", {
             type: "response.completed",
@@ -565,7 +696,7 @@ function responsesStreamResponse(response: Canonical_StreamResponse, request: Js
   )
 }
 
-function chatCompletionStreamResponse(response: Canonical_StreamResponse): Response {
+function chatCompletionStreamResponse(response: Canonical_StreamResponse, telemetry?: StreamTelemetryCollector): Response {
   const encoder = new TextEncoder()
   const id = response.id.replace(/^resp_/, "chatcmpl_")
   const created = nowSeconds()
@@ -576,6 +707,12 @@ function chatCompletionStreamResponse(response: Canonical_StreamResponse): Respo
   let sentRole = false
   let text = ""
   let currentChatMessageText = ""
+  // Same `pendingWarning` discipline as the Responses shape: notices queue here and go out in
+  // front of the first `content` delta, so the client sees one segment ahead of the model text.
+  const pendingNotices: Canonical_FeatureNotice[] = []
+  // Exactly what was prefixed onto `currentChatMessageText`, so `doneSuffix()` keeps comparing
+  // model text with model text. Empty whenever no warning was placed.
+  let warningPrefix = ""
   let usage: JsonObject | undefined
   let accumulatedUsage: Canonical_Usage | undefined
   let stopReason = "stop"
@@ -627,6 +764,43 @@ function chatCompletionStreamResponse(response: Canonical_StreamResponse): Respo
           }
         }
 
+        /** Renders and clears the pending notices. `""` when they were all `emulate`. */
+        function takePendingWarning() {
+          if (!pendingNotices.length) return ""
+          const warning = renderOpenAIFeatureWarning(pendingNotices)
+          pendingNotices.length = 0
+          return warning
+        }
+
+        /** Text of the current message, warning removed. Identity while `warningPrefix` is empty. */
+        function modelChatText() {
+          return warningPrefix && currentChatMessageText.startsWith(warningPrefix)
+            ? currentChatMessageText.slice(warningPrefix.length)
+            : currentChatMessageText
+        }
+
+        /**
+         * Flushes the pending warning in front of the first `content` delta of the response,
+         * through the ordinary `chat.completion.chunk` channel — no new field, no new event.
+         */
+        async function flushWarningBeforeText() {
+          if (text) return
+          const warning = takePendingWarning()
+          if (!warning) return
+          warningPrefix = `${warning}${OPENAI_WARNING_SEPARATOR}`
+          await textChunk(warningPrefix)
+        }
+
+        /**
+         * Last chance for a notice decided after the text started: it trails the content rather
+         * than splitting it. Runs once, after the event loop, before the final chunk.
+         */
+        async function flushTrailingWarning() {
+          const warning = takePendingWarning()
+          if (!warning) return
+          await textChunk(text ? `${OPENAI_WARNING_SEPARATOR}${warning}` : warning)
+        }
+
         function toolState(callId: string, name: string) {
           let state = toolStates.get(callId)
           if (state) {
@@ -656,10 +830,11 @@ function chatCompletionStreamResponse(response: Canonical_StreamResponse): Respo
           if (typeof message.id === "string") completedChatMessageIds.add(message.id)
           const doneText = outputTextFromOutput([message])
           if (doneText) {
-            const delta = doneSuffix(currentChatMessageText, doneText)
+            await flushWarningBeforeText()
+            const delta = doneSuffix(modelChatText(), doneText)
             if (delta) {
               await textChunk(delta)
-            } else if (!currentChatMessageText && !text.endsWith(doneText)) {
+            } else if (!modelChatText() && !text.endsWith(doneText)) {
               await textChunk(doneText)
             }
           }
@@ -711,14 +886,16 @@ function chatCompletionStreamResponse(response: Canonical_StreamResponse): Respo
               continue
             }
             if (event.type === "text_delta") {
+              if (event.delta) await flushWarningBeforeText()
               await textChunk(event.delta)
               continue
             }
             if (event.type === "text_done") {
-              const delta = doneSuffix(currentChatMessageText, event.text)
+              if (event.text) await flushWarningBeforeText()
+              const delta = doneSuffix(modelChatText(), event.text)
               if (delta) {
                 await textChunk(delta)
-              } else if (!currentChatMessageText && event.text && !text.endsWith(event.text)) {
+              } else if (!modelChatText() && event.text && !text.endsWith(event.text)) {
                 await textChunk(event.text)
               }
               continue
@@ -742,9 +919,19 @@ function chatCompletionStreamResponse(response: Canonical_StreamResponse): Respo
               emitChatFunctionCallItem({ type: "function_call", call_id: event.callId, name: event.name, arguments: event.arguments })
               continue
             }
+            if (event.type === "feature_notice") {
+              // Token- and content-neutral (Requirement 8.4): recorded and queued, nothing
+              // emitted here, so a notice between two deltas cannot split the content stream.
+              telemetry?.recordFeatureNotice(event)
+              pendingNotices.push({ feature: event.feature, policy: event.policy, detail: event.detail })
+              continue
+            }
             if (event.type === "usage") {
               accumulatedUsage = mergeStreamUsage(accumulatedUsage, event.usage)
               usage = chatUsage(accumulatedUsage)
+              // Provider spend rides the usage channel but is not a token count, so it goes
+              // to telemetry only and never into the OpenAI wire usage block.
+              if (typeof event.usage.providerCredits === "number") telemetry?.recordProviderCredits(event.usage.providerCredits)
               continue
             }
             if (event.type === "message_stop") {
@@ -761,6 +948,7 @@ function chatCompletionStreamResponse(response: Canonical_StreamResponse): Respo
               if (event.usage) {
                 accumulatedUsage = mergeStreamUsage(accumulatedUsage, event.usage)
                 usage = chatUsage(accumulatedUsage)
+                if (typeof event.usage.providerCredits === "number") telemetry?.recordProviderCredits(event.usage.providerCredits)
               }
               if (event.stopReason) stopReason = chatFinishReason(event.stopReason, toolStates.size > 0)
               else if (event.incompleteReason === "max_output_tokens") stopReason = "length"
@@ -787,6 +975,7 @@ function chatCompletionStreamResponse(response: Canonical_StreamResponse): Respo
             }
           }
 
+          await flushTrailingWarning()
           if (!sentRole) chunk({ role: "assistant" })
           chunk({}, stopReason, usage ?? chatUsage({ inputTokens: 0, outputTokens: 0 }))
           send("[DONE]")
@@ -810,6 +999,34 @@ function chatCompletionStreamResponse(response: Canonical_StreamResponse): Respo
     }),
     streamHeaders(),
   )
+}
+
+/**
+ * Places a rendered warning as leading text of the first `output_text` part in `output`
+ * (Requirement 9.4 — one segment, ahead of the model's first text content).
+ *
+ * Returns the same array reference when there is no warning, so a notice-free body is
+ * byte-identical to the pre-change rendering. When the response carries no text part at all —
+ * a tool-call-only turn — a message item is created ahead of the rest, which is the "a text
+ * block is created only if the response has none" rule design D2 states for the non-streaming
+ * side. No item type appears here that a text-carrying response would not already produce.
+ */
+function withResponsesWarning(output: JsonObject[], warning: string): JsonObject[] {
+  if (!warning) return output
+
+  for (const [index, item] of output.entries()) {
+    if (item.type !== "message" || !Array.isArray(item.content)) continue
+    const partIndex = item.content.findIndex((part) => isJsonObject(part) && part.type === "output_text")
+    if (partIndex < 0) continue
+    const part = item.content[partIndex] as JsonObject
+    const content = [...item.content]
+    content[partIndex] = { ...part, text: prependOpenAIWarning(typeof part.text === "string" ? part.text : "", warning) }
+    const warned = [...output]
+    warned[index] = { ...item, content }
+    return warned
+  }
+
+  return [messageOutputItem(`msg_${crypto.randomUUID().replace(/-/g, "")}`, warning), ...output]
 }
 
 function canonicalContentToResponsesOutput(content: Canonical_ContentBlock[]): JsonObject[] {

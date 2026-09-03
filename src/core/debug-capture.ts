@@ -45,10 +45,19 @@ export function redactDebugText(text: string) {
     .replace(/\b[A-Za-z0-9._~+/=-]{32,}\b/g, "[redacted]")
 }
 
+/**
+ * Named-key and `Bearer` redaction.
+ *
+ * `signature` is a member of the key list like the rest. It has to be: a
+ * reasoning signature is a provider-chosen opaque string, and nothing in any
+ * provider contract fixes its length, so `redactDebugText`'s 32-plus-character
+ * token rule cannot be relied on to cover it. The key form redacts whatever the
+ * value looks like (Requirements 25.5, 25.10).
+ */
 export function redactSensitiveText(text: string) {
   return text
     .replace(/Bearer\s+[A-Za-z0-9._~+/=-]+/g, "Bearer [redacted]")
-    .replace(/"?(authorization|authorization_token|x-api-key|anthropic-api-key|accessToken|refreshToken|idToken|profileArn|mcpAuthorization|clientSecret|access_token|refresh_token|id_token)"?\s*:\s*"[^"]+"/gi, '"$1":"[redacted]"')
+    .replace(/"?(authorization|authorization_token|x-api-key|anthropic-api-key|accessToken|refreshToken|idToken|profileArn|mcpAuthorization|clientSecret|access_token|refresh_token|id_token|signature)"?\s*:\s*"[^"]+"/gi, '"$1":"[redacted]"')
 }
 
 function preview(value: string | undefined) {
@@ -57,6 +66,7 @@ function preview(value: string | undefined) {
   return redacted.length > DEBUG_PREVIEW_LIMIT ? `${redacted.slice(0, DEBUG_PREVIEW_LIMIT)}...[truncated]` : redacted
 }
 
+/** The object-key counterpart of the alternation in {@link redactSensitiveText}. */
 function isSecretKey(key: string) {
-  return /authorization|access[_-]?token|refresh[_-]?token|id[_-]?token|profile[_-]?arn|mcp[_-]?authorization|client[_-]?secret/i.test(key)
+  return /authorization|access[_-]?token|refresh[_-]?token|id[_-]?token|profile[_-]?arn|mcp[_-]?authorization|client[_-]?secret|signature/i.test(key)
 }

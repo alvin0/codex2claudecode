@@ -1,15 +1,18 @@
 import type { Canonical_ErrorResponse, Canonical_PassthroughResponse, Canonical_Response, Canonical_StreamResponse } from "../../core/canonical"
-import type { Inbound_Provider, ProviderModelDescriptor, RequestHandlerContext, Route_Descriptor, UpstreamProviderKind, UpstreamResult, Upstream_Provider } from "../../core/interfaces"
+import type { Inbound_Provider, PassthroughDecider, ProviderModelDescriptor, RequestHandlerContext, Route_Descriptor, UpstreamProviderKind, UpstreamResult, Upstream_Provider } from "../../core/interfaces"
 import { accumulateCanonicalStream } from "../../core/canonical-accumulator"
 import { responseHeaders } from "../../core/http"
 import { LOG_BODY_PREVIEW_LIMIT } from "../../core/constants"
 import { createKiroDebugBundle, kiroDebugOnErrorEnabled, redactSensitiveText } from "../../core/debug-capture"
 import { createLogPreview } from "../../core/log-preview"
+import { StreamTelemetryCollector } from "../../core/stream-telemetry"
+import { canonicalErrorTelemetrySummary, canonicalResponseTelemetrySummary, streamTelemetrySummary } from "../../core/stream-telemetry-summary"
 import { interceptResponseStream } from "../../core/stream-utils"
 import type { JsonObject, RequestProxyLog } from "../../core/types"
 import { countTokens } from "gpt-tokenizer"
 import { codex2ClaudeCatalog, codex2ClaudeModelIds, resolveCodex2ClaudeModel } from "./model-alias"
 import { normalizeCanonicalRequest, normalizeRequestBody } from "./normalize"
+import { prependOpenAIWarning, renderOpenAIFeatureWarning } from "./notice"
 import { openAICanonicalResponse, openAICanonicalStreamResponse } from "./response"
 import { OPENAI_MODELS_ROUTE, OPENAI_NON_EMBEDDINGS_ROUTES, openAIProxyRouteDescriptor } from "./routes"
 
@@ -18,7 +21,13 @@ export type OpenAIModelResolverFn = () => Promise<Array<string | ProviderModelDe
 interface OpenAIInboundProviderOptions {
   name?: string
   routes?: Route_Descriptor[]
-  passthrough?: boolean
+  /**
+   * Two shapes, one option. A boolean is the instance-wide answer, default `true`. A
+   * `PassthroughDecider` (the contract type from core — inbound imports zero upstream modules,
+   * Requirement 15.10) defers the answer to each request, since the decision depends on the route
+   * and on `stream`, which are only known then.
+   */
+  passthrough?: boolean | PassthroughDecider
   upstreamLogLabel?: string
   upstreamTarget?: string
   expectedUpstreamKind?: UpstreamProviderKind
@@ -28,6 +37,22 @@ interface OpenAIInboundProviderOptions {
 export class OpenAI_Inbound_Provider implements Inbound_Provider {
   readonly name: string
   private readonly routeDescriptors: Route_Descriptor[]
+  private readonly passthroughOption: boolean | PassthroughDecider
+  /**
+   * Whether this instance can forward upstream bytes at all, as opposed to whether one request
+   * will. The lenient branches below — a malformed-JSON body, shape validation, forwarding an
+   * upstream error unrendered — are reached before `stream` is known or on paths where no
+   * per-request decision exists, so they key off capability. A decider means "capable".
+   *
+   * Deliberately *not* flag-aware, reviewed again in task 18.2 and kept. With `NATIVE_PASSTHROUGH`
+   * off no request can reach the passthrough path, so "capable" overstates what the instance will
+   * do — but narrowing capability to the flag would move those three branches for the codex
+   * OpenAI endpoints the moment the option started being read, turning a forwarded upstream error
+   * into a rendered one and a lenient 500 into a 400, with the flag still off. That is a live
+   * behavior change wearing the costume of a wiring task. The branches are lenient because the
+   * *instance* is a byte conduit, not because one request is, and the composition root keeps them
+   * honest by binding a decider only where passthrough is ever intended.
+   */
   private readonly passthrough: boolean
   private readonly upstreamLogLabel: string
   private readonly upstreamTarget: string
@@ -37,7 +62,8 @@ export class OpenAI_Inbound_Provider implements Inbound_Provider {
   constructor(options: OpenAIInboundProviderOptions = {}) {
     this.name = options.name ?? "openai"
     this.routeDescriptors = options.routes ?? OPENAI_NON_EMBEDDINGS_ROUTES.map(openAIProxyRouteDescriptor)
-    this.passthrough = options.passthrough ?? true
+    this.passthroughOption = options.passthrough ?? true
+    this.passthrough = typeof this.passthroughOption === "function" ? true : this.passthroughOption
     this.upstreamLogLabel = options.upstreamLogLabel ?? "Codex responses"
     this.upstreamTarget = options.upstreamTarget ?? "/v1/responses"
     this.expectedUpstreamKind = options.expectedUpstreamKind
@@ -46,6 +72,11 @@ export class OpenAI_Inbound_Provider implements Inbound_Provider {
 
   routes(): Route_Descriptor[] {
     return this.routeDescriptors
+  }
+
+  /** The per-request answer: the boolean form as-is, the decider form asked. */
+  private resolvePassthrough(routePath: string, stream: boolean): boolean {
+    return typeof this.passthroughOption === "function" ? this.passthroughOption(routePath, stream) : this.passthroughOption
   }
 
   async handle(request: Request, route: Route_Descriptor, upstream: Upstream_Provider, context: RequestHandlerContext): Promise<Response> {
@@ -131,7 +162,9 @@ export class OpenAI_Inbound_Provider implements Inbound_Provider {
       })
     }
 
-    const result = await upstream.proxy(normalizeCanonicalRequest(route.path, upstreamBody, { passthrough: this.passthrough }), {
+    const result = await upstream.proxy(normalizeCanonicalRequest(route.path, upstreamBody, {
+      passthrough: this.resolvePassthrough(route.path, Boolean(wireBody.stream)),
+    }), {
       headers: request.headers,
       signal: request.signal,
       ...(upstreamRequestPreview && upstreamResponsePreview ? {
@@ -174,6 +207,13 @@ export class OpenAI_Inbound_Provider implements Inbound_Provider {
         error: previewText(result.body) || "-",
         requestBody: proxyRequestBody,
         responseBody: shouldCaptureProxyBody ? previewText(result.body) || undefined : undefined,
+        // A rejected request made no upstream call, so there is no collector and no response
+        // to read — but it did decide things before it bailed, and those decisions ride the
+        // error result (Requirement 8.8). Same presence semantics as the 200 paths, produced
+        // by the same core module rather than by an object literal here. Populated even in
+        // passthrough mode, where the body is forwarded unrendered: telemetry is the only
+        // channel left for the account, and it is not part of the forwarded bytes.
+        telemetry: canonicalErrorTelemetrySummary(result),
       } : undefined
       if (proxyLog && this.expectedUpstreamKind === "kiro" && kiroDebugOnErrorEnabled()) {
         proxyLog.debug = createKiroDebugBundle({
@@ -189,8 +229,22 @@ export class OpenAI_Inbound_Provider implements Inbound_Provider {
       }
       if (proxyLog) context.onProxy?.(proxyLog)
       if (!this.passthrough) {
-        return openAIErrorResponse(result.body, result.status, "upstream_error", result.headers)
+        // Rendered through the same channel the 200 path uses — one combined warning segment
+        // leading the one prose field the OpenAI error shape has (Requirement 9.7). No member
+        // is added to the error body, and no field or header appears that a notice-free error
+        // lacks. An empty render is a pass-through, so an error with no `degrade` notice —
+        // including an `emulate`-only one, which stays telemetry-only (Requirement 9.2) — is
+        // byte-identical to what this branch produced before (Requirement 9.8).
+        return openAIErrorResponse(
+          prependOpenAIWarning(result.body, renderOpenAIFeatureWarning(result.featureNotices ?? [])),
+          result.status,
+          "upstream_error",
+          result.headers,
+        )
       }
+      // Passthrough mode forwards the upstream's own error bytes. Rendering here would edit
+      // bytes the client asked to receive verbatim (Requirement 15.5), so a byte forward stays
+      // a byte forward and the notices are reported through telemetry only (Requirement 9.8).
       return new Response(result.body, {
         status: result.status,
         headers: responseHeaders(result.headers),
@@ -201,7 +255,16 @@ export class OpenAI_Inbound_Provider implements Inbound_Provider {
       backfillInputTokens(result, wireBody)
       const response = openAICanonicalResponse(result, route.path, wireBody)
       if (context.onProxy) {
-        context.onProxy({
+        // Named rather than passed as a literal so the telemetry projection has an object
+        // to write to. Unlike the Claude provider, this site holds the finished response
+        // before `onProxy` fires, so the assignment happens up front instead of relying on
+        // reference mutation afterwards; the object handed over is the same one either way.
+        //
+        // No collector on this path — nothing to instrument without a stream — so credits
+        // and notices are read off the response, where `mergeCanonicalUsage()` and the
+        // `feature_notice` fold already put them. Unconditional on body capture: telemetry
+        // is not a body preview.
+        const proxyLog: RequestProxyLog = {
           label: this.upstreamLogLabel,
           method: "POST",
           target: this.upstreamTarget,
@@ -210,7 +273,9 @@ export class OpenAI_Inbound_Provider implements Inbound_Provider {
           error: "-",
           requestBody: proxyRequestBody,
           responseBody: shouldCaptureProxyBody ? upstreamResponsePreview?.text() || undefined : undefined,
-        })
+          telemetry: canonicalResponseTelemetrySummary(result),
+        }
+        context.onProxy(proxyLog)
       }
       return response
     }
@@ -222,7 +287,11 @@ export class OpenAI_Inbound_Provider implements Inbound_Provider {
         backfillInputTokens(accumulated, wireBody)
         const response = openAICanonicalResponse(accumulated, route.path, wireBody)
         if (context.onProxy) {
-          context.onProxy({
+          // The client asked for a non-streaming reply from an upstream that only streams,
+          // so the stream is accumulated here and the summary comes from the accumulated
+          // response rather than from a collector. Same construction as the
+          // `isCanonicalResponse` branch above.
+          const proxyLog: RequestProxyLog = {
             label: this.upstreamLogLabel,
             method: "POST",
             target: this.upstreamTarget,
@@ -231,7 +300,9 @@ export class OpenAI_Inbound_Provider implements Inbound_Provider {
             error: "-",
             requestBody: proxyRequestBody,
             responseBody: shouldCaptureProxyBody ? upstreamResponsePreview?.text() || undefined : undefined,
-          })
+            telemetry: canonicalResponseTelemetrySummary(accumulated),
+          }
+          context.onProxy(proxyLog)
         }
         return response
       }
@@ -246,10 +317,30 @@ export class OpenAI_Inbound_Provider implements Inbound_Provider {
         responseBody: shouldCaptureProxyBody ? upstreamResponsePreview?.text() || undefined : undefined,
       } : undefined
       if (proxyLog) context.onProxy?.(proxyLog)
-      const response = openAICanonicalStreamResponse(result, route.path, wireBody)
-      if (!response.body || !shouldCaptureProxyBody || !proxyLog) return response
+      // One collector per streaming request; the renderer records provider spend and
+      // non-native handling decisions into it as canonical events flow past.
+      const telemetry = new StreamTelemetryCollector({
+        requestId: context.requestId,
+        // Optional on `Upstream_Provider`; falls back to the kind this inbound provider
+        // expects, then to the collector's own empty default.
+        provider: upstream.providerKind ?? this.expectedUpstreamKind ?? "",
+        model: typeof wireBody.model === "string" ? wireBody.model : "",
+        streaming: true,
+      })
+      const response = openAICanonicalStreamResponse(result, route.path, wireBody, { telemetry })
+      // Body capture is no longer part of this guard: telemetry is not a body preview,
+      // so the stream-end hook has to run whenever a proxy log exists. The body preview
+      // stays behind its own check inside the hook, keeping `responseBody` untouched
+      // when capture is off.
+      if (!proxyLog) return response
       return interceptResponseStream(response, {
-        onComplete: (responseBody) => { proxyLog.responseBody = upstreamResponsePreview?.text() || responseBody },
+        onComplete: (responseBody) => {
+          // Same object already handed to `context.onProxy`, mutated by reference — no
+          // edit to `src/app/runtime.ts` (Requirement 27.5). `finalize()` is idempotent,
+          // and this hook also runs on cancellation.
+          proxyLog.telemetry = streamTelemetrySummary(telemetry.finalize())
+          if (shouldCaptureProxyBody) proxyLog.responseBody = upstreamResponsePreview?.text() || responseBody
+        },
       })
     }
 

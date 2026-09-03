@@ -120,6 +120,22 @@ function formatRequestLogs(logs: RequestLogEntry[]) {
   return `${logs.map((entry: RequestLogEntry) => JSON.stringify(entry)).join("\n")}\n`
 }
 
+/**
+ * The detail file keeps every member the caller supplied, so `proxy.telemetry`
+ * (Requirement 8.5) reaches disk through this spread with no field list to maintain
+ * here — a new telemetry member added in `core/types.ts` needs no edit to this file.
+ *
+ * One serialization caveat, deliberately not worked around: `JSON.stringify` has no
+ * encoding for a present-but-`undefined` member, so `providerCredits: undefined`
+ * ("not measured") is written as an absent key while the in-memory entry keeps it
+ * present. Both forms read back as `undefined` through property access, so every
+ * consumer of the value agrees; only `"providerCredits" in telemetry` and
+ * `Object.keys()` differ between disk and memory. Writing `null` instead would put a
+ * value in the file that `StreamTelemetrySummary` does not declare and would need
+ * translating back on read. `featureNotices` is unaffected: it is either genuinely
+ * absent (agreeing on both sides) or a non-empty array that survives the round trip,
+ * which is the member Requirement 8.5 asks the log to carry.
+ */
 function withDetailFile(entry: RequestLogEntry): RequestLogEntry {
   return {
     ...entry,
@@ -148,6 +164,22 @@ function toRequestLogSummary(entry: RequestLogEntry): RequestLogEntry {
           status: entry.proxy.status,
           durationMs: entry.proxy.durationMs,
           error: entry.proxy.error,
+          // Telemetry rides in the summary so the request-logs panel can show feature
+          // notices and provider credits without opening the detail file
+          // (Requirement 8.5). It sits under `proxy` because that is where
+          // `RequestProxyLog.telemetry` lives — the projection mirrors the type rather
+          // than flattening it onto the entry.
+          //
+          // Aliased rather than rebuilt, for two reasons. The presence asymmetry the
+          // producer establishes survives untouched: `featureNotices` stays omitted
+          // when there were none, and `providerCredits` stays present carrying
+          // `undefined` for "not measured", distinct from `0` for "measured as free".
+          // And rebuilding would mean a second copy of `streamTelemetrySummary()`'s
+          // field list here, free to drift from it. Aliasing is also what the
+          // projection already does for `requestHeaders`; the producer copied the
+          // notice array before handing it over, and this summary is serialized in the
+          // same append, so no mutable state is newly shared.
+          ...(entry.proxy.telemetry ? { telemetry: entry.proxy.telemetry } : {}),
         }
       : undefined,
   }

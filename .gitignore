@@ -11,3 +11,5 @@ auth-codex.json
 .vscode
 coverage
 dist/standalone
+.native-transcripts/
+.env

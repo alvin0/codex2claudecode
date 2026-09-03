@@ -11,7 +11,9 @@ export type KiroErrorCategory =
   | "unknown"
 
 const REDACTED = "[redacted]"
-const SECRET_KEYS = /authorization|access[_-]?token|refresh[_-]?token|id[_-]?token|profile[_-]?arn|mcp[_-]?authorization|client[_-]?secret/i
+// `signature` is one alternation member like the rest: the key form guarantees redaction whatever
+// the value's length or alphabet, which `TOKEN_LIKE` cannot promise below 24 characters.
+const SECRET_KEYS = /authorization|access[_-]?token|refresh[_-]?token|id[_-]?token|profile[_-]?arn|mcp[_-]?authorization|client[_-]?secret|signature/i
 const TOKEN_LIKE = /\b(?:Bearer\s+)?[A-Za-z0-9._~+/=-]{24,}\b/g
 
 export function classifyNetworkError(error: unknown): { category: KiroErrorCategory; message: string; detail: string } {

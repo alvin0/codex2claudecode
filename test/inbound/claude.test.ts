@@ -66,6 +66,67 @@ describe("Claude inbound translation", () => {
     expect(request.toolChoice).toEqual({ type: "web_search" })
   })
 
+  /**
+   * A Claude `web_fetch_*` tool reaches the canonical request as a **fetch**.
+   *
+   * The converter used to answer `{ type: "web_search" }` for every Claude web tool, which meant no
+   * upstream could tell a fetch from a search: an upstream that emulates fetching never saw one, and
+   * nothing on the request recorded the swap — the silent capability substitution Requirement 10.1
+   * forbids. Where a substitution is still correct (an upstream whose protocol has no fetch tool) it
+   * now happens at that upstream's boundary and is reported, which
+   * `test/upstream/web-fetch-substitution.test.ts` holds.
+   *
+   * Asserted positively *and* negatively. "Is fetch-typed" alone would pass a converter that emitted
+   * both tools, and "is not search-typed" alone would pass one that dropped the tool entirely.
+   *
+   * **Validates: Requirements 10.1, 18.1**
+   */
+  test("maps native Claude web_fetch server tools to a fetch-typed canonical tool", () => {
+    for (const type of ["web_fetch_20250910", "web_fetch_20260209", "web_fetch"]) {
+      const request = claudeToCanonicalRequest({
+        model: "claude-haiku-4.5",
+        messages: [{ role: "user", content: "read https://bun.sh/docs" }],
+        tools: [{ type, name: "web_fetch", max_uses: 1 } as any],
+      })
+
+      expect(request.tools, `${type} must convert to a fetch-typed canonical tool`).toEqual([{ type: "web_fetch" }])
+      expect(request.tools!.some((tool) => tool.type === "web_search"), `${type} must not become a search`).toBe(false)
+    }
+  })
+
+  /**
+   * Search and fetch are two tools, and stay two tools.
+   *
+   * The pair used to collapse into one `web_search` entry, so a client asking for both got neither
+   * distinguished. Each keeps its own scoping fields, which is how "converted" is told apart from
+   * "rebuilt": `allowed_domains` belongs to the fetch here, and would not survive a collapse onto the
+   * search.
+   *
+   * **Validates: Requirements 10.1, 18.1**
+   */
+  test("keeps a Claude web_search and web_fetch pair as two distinct canonical tools", () => {
+    const request = claudeToCanonicalRequest({
+      model: "claude-haiku-4.5",
+      messages: [{ role: "user", content: "search, then read the best hit" }],
+      tools: [
+        { type: "web_search_20250305", name: "web_search" },
+        { type: "web_fetch_20250910", name: "web_fetch", allowed_domains: ["bun.sh"] },
+      ] as any,
+    })
+
+    expect(request.tools).toEqual([{ type: "web_search" }, { type: "web_fetch", filters: { allowed_domains: ["bun.sh"] } }])
+    // Two client declarations of the same kind are still one tool, as they were before.
+    const duplicated = claudeToCanonicalRequest({
+      model: "claude-haiku-4.5",
+      messages: [{ role: "user", content: "read it" }],
+      tools: [
+        { type: "web_fetch_20250910", name: "web_fetch" },
+        { type: "web_fetch_20260209", name: "web_fetch_2" },
+      ] as any,
+    })
+    expect(duplicated.tools).toEqual([{ type: "web_fetch" }])
+  })
+
   test("property: randomized Claude bodies become valid canonical requests", () => {
     for (let iteration = 0; iteration < 100; iteration += 1) {
       const messageCount = (iteration % 4) + 1

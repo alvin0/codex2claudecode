@@ -266,3 +266,98 @@ describe("CanonicalStreamAccumulator", () => {
     }
   })
 })
+
+// Task 8.2 / Requirement 8.2, 8.3, 8.4 — the shared non-streaming fold of `feature_notice`.
+describe("CanonicalStreamAccumulator feature notices", () => {
+  const sampling: Canonical_Event = { type: "feature_notice", feature: "sampling", policy: "degrade", detail: "temperature=0.2 was not sent upstream" }
+  const structured: Canonical_Event = { type: "feature_notice", feature: "structuredOutput", policy: "emulate", detail: "response_format emulated via a tool" }
+
+  test("omits featureNotices entirely when the stream carries none", async () => {
+    const result = await accumulateCanonicalStream(makeStream([{ type: "text_delta", delta: "hello" }]))
+
+    expect(result.featureNotices).toBeUndefined()
+    expect("featureNotices" in result).toBe(false)
+  })
+
+  test("collects notices in emission order across interleaved events", async () => {
+    const result = await accumulateCanonicalStream(makeStream([
+      sampling,
+      { type: "text_delta", delta: "answer" },
+      structured,
+      { type: "tool_call_done", callId: "c1", name: "fn", arguments: "{}" },
+      { type: "feature_notice", feature: "webSearch", policy: "degrade", detail: "web_search dropped" },
+    ]))
+
+    expect(result.featureNotices).toEqual([
+      { feature: "sampling", policy: "degrade", detail: "temperature=0.2 was not sent upstream" },
+      { feature: "structuredOutput", policy: "emulate", detail: "response_format emulated via a tool" },
+      { feature: "webSearch", policy: "degrade", detail: "web_search dropped" },
+    ])
+  })
+
+  test("keeps one entry per event, including exact duplicates", async () => {
+    const result = await accumulateCanonicalStream(makeStream([sampling, sampling, structured, sampling]))
+
+    expect(result.featureNotices).toHaveLength(4)
+    expect(result.featureNotices?.map((notice) => notice.feature)).toEqual(["sampling", "sampling", "structuredOutput", "sampling"])
+  })
+
+  test("carries no `type` member through into the response entries", async () => {
+    const result = await accumulateCanonicalStream(makeStream([sampling]))
+
+    expect(Object.keys(result.featureNotices![0]!).sort()).toEqual(["detail", "feature", "policy"])
+  })
+
+  test("a notice between two text deltas does not split the text block or move tokens", async () => {
+    const withNotices: Canonical_Event[] = [
+      sampling,
+      { type: "text_delta", delta: "Hello" },
+      structured,
+      { type: "text_delta", delta: " world" },
+      { type: "usage", usage: { inputTokens: 100, outputTokens: 25 } },
+      { type: "message_stop", stopReason: "end_turn" },
+    ]
+    const withoutNotices = withNotices.filter((event) => event.type !== "feature_notice")
+
+    const noticed = await accumulateCanonicalStream(makeStream(withNotices))
+    const bare = await accumulateCanonicalStream(makeStream(withoutNotices))
+
+    expect(noticed.content).toEqual([{ type: "text", text: "Hello world" }])
+    expect(noticed.content).toEqual(bare.content)
+    expect(noticed.usage).toEqual(bare.usage)
+    expect(noticed.stopReason).toBe(bare.stopReason)
+    expect(bare.featureNotices).toBeUndefined()
+  })
+
+  test("a notice does not close an open thinking block", async () => {
+    const result = await accumulateCanonicalStream(makeStream([
+      { type: "thinking_signature", signature: "sig_abc" },
+      { type: "thinking_delta", text: "first" },
+      sampling,
+      { type: "thinking_delta", text: " second" },
+    ]))
+
+    expect(result.content).toEqual([{ type: "thinking", thinking: "first second", signature: "sig_abc" }])
+    expect(result.featureNotices).toHaveLength(1)
+  })
+
+  test("a notice-only stream still produces a valid zero-token response", async () => {
+    const result = await accumulateCanonicalStream(makeStream([sampling]))
+
+    expect(result.content).toHaveLength(0)
+    expect(result.usage).toEqual({ inputTokens: 0, outputTokens: 0 })
+    expect(result.stopReason).toBe("end_turn")
+    expect(result.featureNotices).toHaveLength(1)
+  })
+
+  test("finalize snapshots the notices rather than aliasing accumulator state", () => {
+    const accumulator = new CanonicalStreamAccumulator("resp_x", "model")
+    accumulator.apply(sampling)
+    const first = accumulator.finalize()
+    accumulator.apply(structured)
+    const second = accumulator.finalize()
+
+    expect(first.featureNotices).toHaveLength(1)
+    expect(second.featureNotices).toHaveLength(2)
+  })
+})

@@ -235,14 +235,20 @@ describe("Claude request conversion", () => {
     expect(body.instructions).toContain("You are an interactive agent that helps users with software engineering tasks.")
   })
 
-  test("maps Claude output_config effort into Responses reasoning_effort", () => {
+  test("maps Claude output_config effort into Responses reasoning.effort", () => {
     const body = claudeToResponsesBody({
       model: "gpt-5.4-mini",
       output_config: { effort: "medium" },
       messages: [{ role: "user", content: "hi" }],
     })
 
-    expect(body.reasoning_effort).toBe("medium")
+    // Deliberate expectation update for a changed contract (task 19b.2), not an assertion weakened
+    // to pass. The inbound mapping under test is untouched — a Claude `output_config.effort` still
+    // has to arrive in the Responses body as `"medium"` — but spike §10.2 measured the flat
+    // `reasoning_effort` key this used to read answered 400, so the value is asserted at the nested
+    // key the endpoint accepts. The old key is asserted absent so a partial revert cannot pass.
+    expect((body.reasoning as { effort?: unknown }).effort).toBe("medium")
+    expect(body).not.toHaveProperty("reasoning_effort")
   })
 
   test("maps Claude structured outputs into Responses text.format and preserves strict tools", () => {
@@ -309,10 +315,24 @@ describe("Claude request conversion", () => {
       messages: [{ role: "user", content: "hi" }],
     })
 
+    // Restated twice now, and worth reading as a pair. Task 15.1 changed this contract so the
+    // generation controls reached the wire under their Responses spellings (Requirement 14.1); the
+    // §11.2 probe in `.omc/research/kiro-wire-spike.md` then measured that endpoint answering
+    // `400 {"detail":"Unsupported parameter: <name>"}` to each of `temperature`, `top_p`, and
+    // `max_output_tokens`, so all three joined `RESPONSES_REJECTED_FIELDS` and none of them reaches
+    // the wire. The client is not left guessing: `resolveCodexFeatures()` reports the `degrade` for
+    // `sampling` and `outputLength`, asserted in `test/upstream/features.test.ts`.
+    //
+    // The clause set is unchanged in kind — every generation-control spelling is absent, under both
+    // the Responses and the chat-completions name — only the Responses three moved from the present
+    // side to the absent side. `stop` was always absent because Responses has no stop-sequence
+    // field; `metadata` is unrelated and unchanged.
     expect(body.max_output_tokens).toBeUndefined()
     expect(body.temperature).toBeUndefined()
     expect(body.top_p).toBeUndefined()
     expect(body.stop).toBeUndefined()
+    expect(body.stop_sequences).toBeUndefined()
+    expect(body.max_tokens).toBeUndefined()
     expect(body.metadata).toBeUndefined()
     expect(body.tools).toEqual([
       {
