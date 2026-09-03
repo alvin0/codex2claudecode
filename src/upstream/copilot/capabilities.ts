@@ -11,7 +11,7 @@ import { DEFAULT_RETRY_POLICY, DEFAULT_TIMEOUT_POLICY } from "../../core/provide
  * (`test/native/verify-matrix.ts`) gives it no row in the matrix walk. So unlike Kiro —
  * where every cell cites a run in `.omc/research/kiro-wire-spike.md` — **not one cell here
  * rests on a live measurement**, and `COPILOT_CAPABILITY_EVIDENCE` below records exactly
- * that, for all 11 features, in a form a test can read.
+ * that, for all 12 features, in a form a test can read.
  *
  * That is the whole point of Requirement 2.7 applying to this provider and no other: a
  * declaration nobody has been able to check must not be readable as one that has been.
@@ -91,6 +91,18 @@ export const COPILOT_CAPABILITIES: ProviderCapabilities = {
     // Unmeasured, and it stays unmeasured until an account exists: nothing here has been
     // sent to GitHub's endpoint.
     sampling: "native",
+    // `native`, on the wire-format reasoning the file header establishes: `Copilot_Client.proxy()`
+    // posts to `/responses` and `buildCopilotResponsesBody()` builds a Responses body, and the
+    // Responses API takes `max_output_tokens` as a first-class parameter — so a requested
+    // output-length limit has a target here. Task 15.3's `./sampling.ts` is what emits it, and
+    // the header's warning applies to this field before any other: the chat-completions
+    // spelling `max_tokens` would be an unknown parameter on a Responses endpoint.
+    //
+    // This is the cell Kiro declares `degrade`, because spike §4 measured Kiro accepting the
+    // limit with a 200 and then streaming past it — a Kiro measurement that says nothing about
+    // this upstream. Unmeasured here, like everything in this file, and it stays unmeasured
+    // until an account exists (Requirement 26.9).
+    outputLength: "native",
     // A `sampling` sub-member with no target in this wire format. The Responses API has no
     // `stop` field — this is the one cell where the chat-completions premise in the design
     // would have given the wrong answer, since `stop` *is* a chat-completions parameter.
@@ -246,6 +258,7 @@ export const COPILOT_CAPABILITIES: ProviderCapabilities = {
  */
 export const COPILOT_CAPABILITY_EVIDENCE: Record<ProviderFeature, FeatureEvidence> = {
   sampling: "unmeasured",
+  outputLength: "unmeasured",
   stopSequences: "unmeasured",
   thinkingBudget: "unmeasured",
   systemPrompt: "unmeasured",

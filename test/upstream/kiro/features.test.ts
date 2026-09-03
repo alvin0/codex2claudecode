@@ -20,8 +20,8 @@ import type { ClaudeMessagesRequest } from "../../../src/inbound/types"
 
 /**
  * The canonical members task 14 adds. Spelled here for the same reason `features.ts` reads them
- * defensively: the resolutions for sampling, stop sequences, and prompt cache must be exercised
- * before the contract carries them, or they would ship untested.
+ * defensively: the resolutions for sampling, output length, stop sequences, and prompt cache must
+ * be exercised before the contract carries them, or they would ship untested.
  */
 type FutureRequest = Canonical_Request & {
   sampling?: { maxOutputTokens?: number; temperature?: number; topP?: number; stopSequences?: string[] }
@@ -69,7 +69,7 @@ function provider(onBody?: (body: unknown) => void) {
 }
 
 describe("Kiro feature resolution", () => {
-  test("a request carrying none of the six covered features resolves nothing", () => {
+  test("a request carrying none of the seven covered features resolves nothing", () => {
     const decisions = features()
 
     expect(decisions.notices()).toEqual([])
@@ -146,7 +146,46 @@ describe("Kiro feature resolution", () => {
   test("a rejection names every generation control that was requested", () => {
     const rejection = features({ sampling: { temperature: 0.2, topP: 0.9, maxOutputTokens: 64 } }).firstRejection()
 
-    expect(rejection?.message).toContain("temperature, top-p and output length limit")
+    // `maxOutputTokens` is deliberately not in this list. It is its own feature since task 12b, so
+    // the `sampling` rejection accounts for the two controls that have nowhere to go on this
+    // endpoint and nothing else — a message naming the limit here would describe a field that no
+    // longer routes through this cell.
+    expect(rejection?.message).toContain("temperature and top-p")
+  })
+
+  /**
+   * The counterpart to the assertion above, and the reason task 12b split the feature: an output
+   * length limit on its own is **reported**, not refused.
+   *
+   * Load-bearing rather than decorative — `max_tokens` is mandatory in the Claude Messages API, so
+   * once task 14 maps it into canonical, this is the shape of every ordinary Claude→Kiro request.
+   * If it rejected, the product would refuse all of them.
+   */
+  test("an output length limit alone reports through outputLength and rejects nothing", () => {
+    const decisions = features({ sampling: { maxOutputTokens: 256 } })
+
+    expect(decisions.firstRejection()).toBeUndefined()
+    expect([...decisions.resolvedFeatures()]).toEqual(["outputLength"])
+    expect(noticeFeatures(decisions.notices())).toEqual(["outputLength"])
+    const [notice] = decisions.notices()
+    // Read from the declaration rather than restated, so a future Run_Record that moves the cell
+    // fails here too. Widened to `string` for the comparison only: a notice policy is narrower than
+    // a `FeaturePolicy` by construction, and the assertion is that the two agree at runtime.
+    const noticePolicy: string = notice.policy
+    expect(noticePolicy).toBe(KIRO_CAPABILITIES.features.outputLength)
+    expect(notice.detail.trim().length).toBeGreaterThan(0)
+  })
+
+  /**
+   * The two cells side by side on one request: the limit still reports while the controls still
+   * reject, and the 400 a client sees is the `sampling` one because it comes first in matrix order.
+   */
+  test("a limit sent alongside temperature reports and rejects independently", () => {
+    const decisions = features({ sampling: { temperature: 0.2, maxOutputTokens: 256 } })
+
+    expect([...decisions.resolvedFeatures()]).toEqual(["sampling", "outputLength"])
+    expect(decisions.firstRejection()?.feature).toBe("sampling")
+    expect(noticeFeatures(decisions.notices())).toEqual(["outputLength"])
   })
 
   test("resolution continues past a rejection, so the resolved set stays complete", () => {

@@ -166,7 +166,7 @@ const GRID_TEXTS: ReadonlyArray<{ detail: string; alternative: string }> = [
   { detail: "", alternative: " \t " },
 ]
 
-/** Every `(feature, policy, text)` triple: 11 × 4 × 4 = 176 points, each resolved twice. */
+/** Every `(feature, policy, text)` triple: 12 × 4 × 4 = 192 points, each resolved twice. */
 const CLOSED_GRID: readonly StrictAgnosticInput[] = PROVIDER_FEATURES.flatMap((feature) =>
   FEATURE_POLICIES.flatMap((policy) => GRID_TEXTS.map(({ detail, alternative }) => ({ feature, policy, detail, alternative }))),
 )
@@ -235,7 +235,7 @@ describe("Strict mode escalates degrade and nothing else", () => {
   test("Feature: native-api-mode, Property 5: every point of the closed grid escalates only when it degrades", () => {
     // Anti-vacuity: a grid that collapsed to nothing would pass every clause below.
     expect(CLOSED_GRID.length).toBe(PROVIDER_FEATURES.length * FEATURE_POLICIES.length * GRID_TEXTS.length)
-    expect(CLOSED_GRID.length).toBe(176)
+    expect(CLOSED_GRID.length).toBe(192)
 
     for (const input of CLOSED_GRID) assertEscalatesDegradeAndNothingElse(input)
 
@@ -250,7 +250,7 @@ describe("Strict mode escalates degrade and nothing else", () => {
   /**
    * The set of points where strict makes a difference is exactly the `degrade` column — counted, not
    * spot-checked. Without this, a resolver that ignored `strict` entirely would satisfy the equality
-   * clause above for all 176 points and fail nothing.
+   * clause above for all 192 points and fail nothing.
    *
    * **Validates: Requirements 11.1, 11.3**
    */
@@ -261,7 +261,7 @@ describe("Strict mode escalates degrade and nothing else", () => {
     })
 
     expect(new Set(differing.map((input) => input.policy))).toEqual(new Set(["degrade"]))
-    // One point per (feature, text) shape, and no more: 11 × 4.
+    // One point per (feature, text) shape, and no more: 12 × 4.
     expect(differing.length).toBe(PROVIDER_FEATURES.length * GRID_TEXTS.length)
     // Every feature reaches escalation, so the count is not concentrated in one cell.
     expect(new Set(differing.map((input) => input.feature))).toEqual(new Set(PROVIDER_FEATURES))
@@ -390,7 +390,7 @@ describe("Strict mode escalates degrade and nothing else", () => {
  * differ for a reason that has nothing to do with escalation — the first entry's notice would be
  * absent under strict, letting a later duplicate through the dedup gate that the unstrict run
  * closed. One resolve per feature is also how every upstream actually calls this
- * (`resolveKiroFeatures()` resolves each of its six at most once), so the restricted space is the
+ * (`resolveKiroFeatures()` resolves each of its seven at most once), so the restricted space is the
  * real one rather than a convenience.
  */
 interface PlannedResolution {

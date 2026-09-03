@@ -103,7 +103,7 @@ const NOTICE_POLICIES = ["degrade", "emulate"] as const satisfies readonly Canon
 /**
  * A small pool of realistic details, weighted above freely generated text.
  *
- * The pool is small on purpose: with 11 features and 5 details, a list of two to four notices
+ * The pool is small on purpose: with 12 features and 5 details, a list of two to four notices
  * repeats an entry often, so *exact* duplicates (dedupe collapses them) and *near*-duplicates
  * (same feature, different detail — dedupe keeps both) are both common in ordinary runs rather
  * than only in the dedicated arms. The last entry spans lines, so detail flattening is exercised

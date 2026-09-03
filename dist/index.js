@@ -39148,6 +39148,7 @@ var COPILOT_CAPABILITIES = {
   logBodyDefault: true,
   features: {
     sampling: "native",
+    outputLength: "native",
     stopSequences: "degrade",
     thinkingBudget: "native",
     systemPrompt: "native",
@@ -39181,6 +39182,9 @@ function resolveCopilotFeatures(request, options = {}) {
   if (sampling.length) {
     decisions.resolve("sampling", `this endpoint takes generation controls of its own, so the requested ${joinControls(sampling)} is passed on as sent`, "an upstream that honors generation controls, or omit them");
   }
+  if (requestedOutputLengthLimit(view)) {
+    decisions.resolve("outputLength", "this wire format has a field for an upper bound on reply length, so the requested limit is forwarded as stated rather than dropped at this boundary", "an upstream measured to enforce an output length limit, or omit it");
+  }
   if (requestedStopSequences(view).length) {
     decisions.resolve("stopSequences", "this endpoint has no stop-sequence field, so generation cannot be halted on the requested strings", "an upstream that honors stop sequences, or truncate the reply on the client");
   }
@@ -39211,9 +39215,11 @@ function requestedSamplingControls(request) {
     return [];
   return [
     typeof sampling.temperature === "number" ? "temperature" : undefined,
-    typeof sampling.topP === "number" ? "top-p" : undefined,
-    typeof sampling.maxOutputTokens === "number" ? "output length limit" : undefined
+    typeof sampling.topP === "number" ? "top-p" : undefined
   ].filter((name) => name !== undefined);
+}
+function requestedOutputLengthLimit(request) {
+  return typeof request.sampling?.maxOutputTokens === "number";
 }
 function joinControls(names) {
   if (names.length === 1)
@@ -40782,6 +40788,7 @@ var CODEX_CAPABILITIES = {
   logBodyDefault: true,
   features: {
     sampling: "native",
+    outputLength: "native",
     stopSequences: "degrade",
     thinkingBudget: "degrade",
     systemPrompt: "native",
@@ -40815,6 +40822,9 @@ function resolveCodexFeatures(request, options = {}) {
   if (sampling.length) {
     decisions.resolve("sampling", `this endpoint takes generation controls of its own, so the requested ${joinControls2(sampling)} is passed on as sent`, "an upstream that honors generation controls, or omit them");
   }
+  if (requestedOutputLengthLimit2(view)) {
+    decisions.resolve("outputLength", "this endpoint takes an upper bound on reply length of its own, so the requested limit is passed on as sent instead of being dropped on the way", "an upstream that honors an output length limit, or omit it");
+  }
   if (requestedStopSequences2(view).length) {
     decisions.resolve("stopSequences", "this endpoint has no stop-sequence field, so generation cannot be halted on the requested strings", "an upstream that honors stop sequences, or truncate the reply on the client");
   }
@@ -40842,9 +40852,11 @@ function requestedSamplingControls2(request) {
     return [];
   return [
     typeof sampling.temperature === "number" ? "temperature" : undefined,
-    typeof sampling.topP === "number" ? "top-p" : undefined,
-    typeof sampling.maxOutputTokens === "number" ? "output length limit" : undefined
+    typeof sampling.topP === "number" ? "top-p" : undefined
   ].filter((name) => name !== undefined);
+}
+function requestedOutputLengthLimit2(request) {
+  return typeof request.sampling?.maxOutputTokens === "number";
 }
 function joinControls2(names) {
   if (names.length === 1)
@@ -42320,6 +42332,7 @@ var KIRO_CAPABILITIES = {
   logBodyDefault: true,
   features: {
     sampling: "reject",
+    outputLength: "degrade",
     stopSequences: "reject",
     thinkingBudget: "degrade",
     systemPrompt: "emulate",
@@ -42351,7 +42364,10 @@ function resolveKiroFeatures(request, options = {}) {
   const view = request;
   const sampling = requestedSamplingControls3(view);
   if (sampling.length) {
-    decisions.resolve("sampling", `this endpoint exposes no generation controls, so the requested ${joinControls3(sampling)} cannot reach the model \u2014 a sent value is accepted and ignored, which reads as honored while changing nothing`, "an upstream that honors generation controls, or omit them");
+    decisions.resolve("sampling", `this endpoint exposes no generation controls, so the requested ${joinControls3(sampling)} cannot reach the model \u2014 there is nothing here to carry the value, and an invented carrier would be answered with a 200 and discarded, which reads as honored while changing nothing`, "an upstream that honors generation controls, or omit them");
+  }
+  if (requestedOutputLengthLimit3(view)) {
+    decisions.resolve("outputLength", "this endpoint accepts an output length limit and then disregards it \u2014 a limit of a handful of tokens was measured answering 200 and still streaming a full-length essay \u2014 so the limit is left off the request rather than sent to be ignored, and the reply may run well past the length that was asked for", "an upstream that enforces an output length limit, or stop reading the reply on the client once it is long enough");
   }
   if (requestedStopSequences3(view).length) {
     decisions.resolve("stopSequences", "this endpoint has no stop-sequence field, so generation cannot be halted on the requested strings", "an upstream that honors stop sequences, or truncate the reply on the client");
@@ -42377,9 +42393,11 @@ function requestedSamplingControls3(request) {
     return [];
   return [
     typeof sampling.temperature === "number" ? "temperature" : undefined,
-    typeof sampling.topP === "number" ? "top-p" : undefined,
-    typeof sampling.maxOutputTokens === "number" ? "output length limit" : undefined
+    typeof sampling.topP === "number" ? "top-p" : undefined
   ].filter((name) => name !== undefined);
+}
+function requestedOutputLengthLimit3(request) {
+  return typeof request.sampling?.maxOutputTokens === "number";
 }
 function joinControls3(names) {
   if (names.length === 1)

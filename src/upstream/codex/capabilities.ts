@@ -59,6 +59,18 @@ export const CODEX_CAPABILITIES: ProviderCapabilities = {
     // present in the Codex body) and a new Run_Record are what make it measured; do not
     // read the green `sampling-native` case as that evidence.
     sampling: "native",
+    // `native`, and carrying exactly the same caveat as the `sampling` cell above rather than
+    // a stronger one. The Responses API takes `max_output_tokens` as a first-class parameter,
+    // so a requested output-length limit has a wire target here — unlike Kiro, where spike §4
+    // measured the limit accepted and then discarded, hence `degrade` there. `./sampling.ts`
+    // (task 15.1) is what emits it; `canonicalToCodexBody()` emits nothing for it today,
+    // because `Canonical_Request` has no `sampling` member yet.
+    //
+    // Unmeasured, and the same warning applies: **no probe has sent an output limit to this
+    // endpoint**, and the green `sampling-native` live case is not that evidence — it asserts
+    // zero notice, which says nothing about a value reaching the wire. Requirement 14.6 plus
+    // a new Run_Record is what would make this cell measured.
+    outputLength: "native",
     // A `sampling` sub-member (Requirement 12.1) with no counterpart this repository can
     // point at: nothing under `src/upstream/codex/` emits a stop list, and the Responses
     // body `canonicalToCodexBody()` builds has no field for one. Combined with the §10.2

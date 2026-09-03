@@ -3,12 +3,12 @@
 // Requirement 10.8 asks for one unit test that walks every `ProviderFeature` of every upstream
 // and asserts each produces a Feature_Notice, a 400, or a native forward, with zero features
 // producing a fifth outcome. The walk below is that test, and its shape follows from one honest
-// fact about the current tree: a per-upstream `features.ts` resolver does not decide all eleven
+// fact about the current tree: a per-upstream `features.ts` resolver does not decide all twelve
 // features. Three are decided while the tool list is expanded, `thinkingBudget` is decided by
 // the effort pipeline on two upstreams, and `systemPrompt` is unconditional emulation inside
 // Kiro's `embedInstructions()`.
 //
-// So each upstream declares two disjoint categories for its eleven features:
+// So each upstream declares two disjoint categories for its twelve features:
 //
 //   * **resolved here** — the resolver sees the field and hands it to `FeatureDecisions`.
 //   * **decided elsewhere** — with the owner named, in {@link FEATURE_OWNERSHIP}.
@@ -52,11 +52,11 @@ import { Kiro_Auth_Manager, Kiro_Client, Kiro_Upstream_Provider } from "../../sr
  * The `Canonical_Request` members task 14 adds (`sampling`, `cacheHint`), written through the
  * same local-cast idiom the per-upstream feature tests use.
  *
- * Necessary rather than convenient: `sampling`, `stopSequences`, and `promptCache` are resolved
- * from members canonical does not carry yet, so a walk restricted to today's contract could not
- * make them *present* and would report three features as absent-and-unattributed — a false
- * finding. Casting keeps the walk over all eleven honest without widening core's contract from
- * a test.
+ * Necessary rather than convenient: `sampling`, `outputLength`, `stopSequences`, and
+ * `promptCache` are resolved from members canonical does not carry yet, so a walk restricted to
+ * today's contract could not make them *present* and would report four features as
+ * absent-and-unattributed — a false finding. Casting keeps the walk over all twelve honest
+ * without widening core's contract from a test.
  */
 type FutureRequest = Canonical_Request & {
   sampling?: { maxOutputTokens?: number; temperature?: number; topP?: number; stopSequences?: string[] }
@@ -67,7 +67,7 @@ type FutureRequest = Canonical_Request & {
 type FeaturePatch = Partial<Pick<FutureRequest, "instructions" | "reasoningEffort" | "toolChoice" | "textFormat" | "sampling" | "cacheHint" | "tools">>
 
 /**
- * A base request carrying **none** of the eleven features.
+ * A base request carrying **none** of the twelve features.
  *
  * No `instructions` and no `reasoningEffort` in particular: either one would make
  * `systemPrompt` or `thinkingBudget` present on an upstream that resolves it, and the walk's
@@ -94,6 +94,10 @@ function baseRequest(): FutureRequest {
  */
 const FEATURE_PRESENCE: Record<ProviderFeature, FeaturePatch> = {
   sampling: { sampling: { temperature: 0.2 } },
+  // Its own sub-member of `sampling`, and the only one this patch sets: `outputLength` is a
+  // feature of its own, so a request carrying only `maxOutputTokens` must resolve exactly it and
+  // not `sampling`. The per-feature isolation assertion in the walk is what holds that.
+  outputLength: { sampling: { maxOutputTokens: 256 } },
   stopSequences: { sampling: { stopSequences: ["STOP"] } },
   thinkingBudget: { reasoningEffort: "high" },
   systemPrompt: { instructions: "Be helpful" },
@@ -109,7 +113,7 @@ const FEATURE_PRESENCE: Record<ProviderFeature, FeaturePatch> = {
 /**
  * Apply patches on top of {@link baseRequest}.
  *
- * `sampling`, `cacheHint`, and `tools` merge rather than overwrite, because three different
+ * `sampling`, `cacheHint`, and `tools` merge rather than overwrite, because four different
  * features live inside `sampling` and four inside `tools`; a plain spread would silently drop
  * the earlier feature and shrink the "all features present" request the census depends on.
  */
@@ -127,7 +131,7 @@ function requestWith(...patches: readonly FeaturePatch[]): Canonical_Request {
   return merged as Canonical_Request
 }
 
-/** A request carrying every one of the eleven features at once. */
+/** A request carrying every one of the twelve features at once. */
 function requestWithEveryFeature(): Canonical_Request {
   return requestWith(...PROVIDER_FEATURES.map((feature) => FEATURE_PRESENCE[feature]))
 }
@@ -156,6 +160,7 @@ const EFFORT_PIPELINE = "the effort pipeline (task 22), which rewrites the reque
 const FEATURE_OWNERSHIP: Record<string, Record<ProviderFeature, FeatureOwnership>> = {
   kiro: {
     sampling: { site: "resolver" },
+    outputLength: { site: "resolver" },
     stopSequences: { site: "resolver" },
     promptCache: { site: "resolver" },
     toolChoiceForced: { site: "resolver" },
@@ -169,6 +174,7 @@ const FEATURE_OWNERSHIP: Record<string, Record<ProviderFeature, FeatureOwnership
   },
   codex: {
     sampling: { site: "resolver" },
+    outputLength: { site: "resolver" },
     stopSequences: { site: "resolver" },
     promptCache: { site: "resolver" },
     systemPrompt: { site: "resolver" },
@@ -182,6 +188,7 @@ const FEATURE_OWNERSHIP: Record<string, Record<ProviderFeature, FeatureOwnership
   },
   copilot: {
     sampling: { site: "resolver" },
+    outputLength: { site: "resolver" },
     stopSequences: { site: "resolver" },
     promptCache: { site: "resolver" },
     thinkingBudget: { site: "resolver" },
@@ -275,7 +282,7 @@ describe("no silent drop — every feature of every upstream is accounted for", 
   // from both sides is the finding Requirement 10.8 exists to surface.
   for (const upstream of UPSTREAMS) {
     describe(upstream.name, () => {
-      test("every one of the eleven features is either resolved here or attributed to a named owner", () => {
+      test("every one of the twelve features is either resolved here or attributed to a named owner", () => {
         const everything = requestWithEveryFeature()
         const resolvedHere = new Set(upstream.resolve(everything, { strict: false }).resolvedFeatures())
         const attributedElsewhere = new Set(PROVIDER_FEATURES.filter((feature) => upstream.ownership[feature].site === "elsewhere"))
@@ -339,7 +346,7 @@ describe("no silent drop — every feature of every upstream is accounted for", 
         })
       }
 
-      // The set comparison of Requirement 10.8, on one request rather than eleven: every
+      // The set comparison of Requirement 10.8, on one request rather than twelve: every
       // feature this resolver owns and the client sent is in `resolvedFeatures()`.
       test("a request carrying everything leaves no resolver-owned feature unresolved", () => {
         const decisions = upstream.resolve(requestWithEveryFeature(), { strict: false })

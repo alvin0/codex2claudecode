@@ -3,7 +3,7 @@
 //
 // The vocabulary half lives in `test/core/provider-capabilities.property.test.ts` (task 5.2) and
 // imports no `capabilities.ts` at all. That file proves things about `ProviderFeature`,
-// `FeaturePolicy`, and *arbitrary* total maps — that the unions are the 11 and the 4, and that a
+// `FeaturePolicy`, and *arbitrary* total maps — that the unions are the 12 and the 4, and that a
 // generic totality checker detects a missing, foreign, or mistyped key across generated maps. None
 // of that says anything about what the three real modules declare, which is what this file is for.
 // Nothing here re-proves a vocabulary claim, and no arbitrary map is manufactured to be checked:
@@ -11,10 +11,10 @@
 //
 // ## Closed domain vs. generation
 //
-// The domain of Property 1 here is closed and finite: 3 upstreams × 11 features = 33 cells, and 11
+// The domain of Property 1 here is closed and finite: 3 upstreams × 12 features = 36 cells, and 12
 // entries for Property 3. Enumeration over a closed set is strictly stronger than sampling it, so
-// every claim about *what is declared* is enumerated exhaustively — `fc.constantFrom` over 11
-// features would only ever rediscover cells a `for` loop already visited, at 100 runs instead of 11
+// every claim about *what is declared* is enumerated exhaustively — `fc.constantFrom` over 12
+// features would only ever rediscover cells a `for` loop already visited, at 100 runs instead of 12
 // visits, with the risk of missing one.
 //
 // Generation is used where the domain is genuinely open, and only there:
@@ -33,7 +33,7 @@
 // ## One test per cell (Requirement 29.1)
 //
 // Requirement 29.1 asks for the matrix to exist in code "with one test per cell asserting the
-// declared policy", so the 33 cells are 33 named `test()` cases generated from
+// declared policy", so the 36 cells are 36 named `test()` cases generated from
 // `DECLARED_POLICY_MATRIX` — a hand-written expectation that is deliberately NOT derived from
 // `src/`. Raising a cell is therefore a two-key change: the declaration and this table. That
 // duplication is the mechanism, not an accident. A silent edit to a policy — exactly the class of
@@ -77,7 +77,7 @@ import { KIRO_CAPABILITIES } from "../../src/upstream/kiro/capabilities"
  *
  * A fourth upstream is a single row here. `as const satisfies` keeps the names as literals, so the
  * row also widens `UpstreamName` — which makes `DECLARED_POLICY_MATRIX` below incomplete and stops
- * the file compiling until the new upstream's 11 cells are written out. Adding an upstream cannot
+ * the file compiling until the new upstream's 12 cells are written out. Adding an upstream cannot
  * silently skip the per-cell tests.
  */
 const UPSTREAM_CAPABILITY_MODULES = [
@@ -89,16 +89,22 @@ const UPSTREAM_CAPABILITY_MODULES = [
 type UpstreamName = (typeof UPSTREAM_CAPABILITY_MODULES)[number]["upstream"]
 
 /**
- * The 33 declared cells, written by hand (Requirement 29.1).
+ * The 36 declared cells, written by hand (Requirement 29.1).
  *
  * Not derived from `src/` — this is the fixed point that makes a changed policy fail a test instead
  * of quietly redefining what the test considers correct. The `Record<UpstreamName, Record<...>>`
- * annotation is the compile-time half: a 12th `ProviderFeature` makes all three blocks incomplete,
+ * annotation is the compile-time half: a 13th `ProviderFeature` makes all three blocks incomplete,
  * and a fourth table row above makes the outer record incomplete.
  *
  * Cells worth knowing about while reading, because they are the ones under active pressure:
  *   - `kiro.sampling` / `kiro.stopSequences` / `kiro.promptCache` — Requirements 2.3 and 3.3, each
  *     resting on a measurement in `.omc/research/kiro-wire-spike.md` (§4, §7).
+ *   - `kiro.outputLength` — `degrade` rather than `reject`, on the same §4 measurement read the
+ *     other way: the limit is accepted with a 200 and then disregarded, so the semantics changed
+ *     rather than the field having nowhere to go. Task 12b split it out of `sampling` for exactly
+ *     that reason, so the two cells diverging here is the point rather than an inconsistency.
+ *   - `codex.outputLength` / `copilot.outputLength` — `native` on wire-format grounds (the
+ *     Responses API takes `max_output_tokens`), unmeasured like the neighbouring `sampling` cell.
  *   - `codex.mcpToolset` — Requirement 2.4, the "preserve current behavior" guarantee.
  *   - `codex.sampling` / `copilot.sampling` — declared by requirement elimination (10.6), not yet
  *     observable on the wire. Asserted as declared; see the file header.
@@ -108,6 +114,7 @@ type UpstreamName = (typeof UPSTREAM_CAPABILITY_MODULES)[number]["upstream"]
 const DECLARED_POLICY_MATRIX: Record<UpstreamName, Record<ProviderFeature, FeaturePolicy>> = {
   kiro: {
     sampling: "reject",
+    outputLength: "degrade",
     stopSequences: "reject",
     thinkingBudget: "degrade",
     systemPrompt: "emulate",
@@ -121,6 +128,7 @@ const DECLARED_POLICY_MATRIX: Record<UpstreamName, Record<ProviderFeature, Featu
   },
   codex: {
     sampling: "native",
+    outputLength: "native",
     stopSequences: "degrade",
     thinkingBudget: "degrade",
     systemPrompt: "native",
@@ -134,6 +142,7 @@ const DECLARED_POLICY_MATRIX: Record<UpstreamName, Record<ProviderFeature, Featu
   },
   copilot: {
     sampling: "native",
+    outputLength: "native",
     stopSequences: "degrade",
     thinkingBudget: "native",
     systemPrompt: "native",
@@ -196,7 +205,7 @@ const upstreamArb = fc.constantFrom(...UPSTREAM_CAPABILITY_MODULES)
 const featureArb = fc.constantFrom(...PROVIDER_FEATURES)
 const policyArb = fc.constantFrom(...FEATURE_POLICIES)
 
-/** The open half of Property 1: any string that is not one of the 11 feature names. */
+/** The open half of Property 1: any string that is not one of the 12 feature names. */
 const foreignKeyArb = fc
   .string({ minLength: 1, maxLength: 32 })
   .filter((key) => !(PROVIDER_FEATURES as readonly string[]).includes(key))
@@ -215,8 +224,8 @@ describe("per-upstream capability matrix properties", () => {
    * `ProviderFeature` key is present, every value is one of the four `FeaturePolicy` members, and
    * no declared key falls outside `PROVIDER_FEATURES`.
    *
-   * The closed 3 × 11 domain is enumerated; the foreign-key clause is generated, because it
-   * quantifies over all strings rather than over the 11.
+   * The closed 3 × 12 domain is enumerated; the foreign-key clause is generated, because it
+   * quantifies over all strings rather than over the 12.
    *
    * **Validates: Requirements 2.1, 2.5, 29.1**
    */
@@ -300,7 +309,7 @@ describe("per-upstream capability matrix properties", () => {
    * `ProviderFeature`, the evidence map holds an entry equal to `measured` or `unmeasured`, so no
    * unmeasured cell can be read as measured through a missing entry.
    *
-   * Totality and value-validity only. All 11 entries are `unmeasured` today, and that is
+   * Totality and value-validity only. All 12 entries are `unmeasured` today, and that is
    * deliberately NOT asserted: Requirement 2.7 asks that an unmeasured cell be marked, and raising
    * one to `measured` alongside a Run_Record is the expected outcome, not a regression. A test
    * pinning uniformity would fail on the first honest measurement.
@@ -310,7 +319,7 @@ describe("per-upstream capability matrix properties", () => {
   test("Feature: native-api-mode, Property 3: Copilot evidence labelling is total", () => {
     const evidence: Readonly<Record<string, unknown>> = COPILOT_CAPABILITY_EVIDENCE
 
-    // Closed 11-member domain, enumerated in both directions.
+    // Closed 12-member domain, enumerated in both directions.
     expect(deviations(evidence, EXPECTED_EVIDENCE_LABELS)).toEqual([])
     expect(Object.keys(evidence).sort()).toEqual([...PROVIDER_FEATURES].sort())
     expect(Object.keys(evidence)).toHaveLength(PROVIDER_FEATURES.length)
@@ -358,7 +367,7 @@ describe("per-upstream capability matrix properties", () => {
   })
 
   /**
-   * One test per cell (Requirement 29.1): 3 upstreams × 11 features = 33 named cases, each
+   * One test per cell (Requirement 29.1): 3 upstreams × 12 features = 36 named cases, each
    * asserting the declared policy against the hand-written expectation in
    * `DECLARED_POLICY_MATRIX`.
    *
@@ -385,10 +394,13 @@ describe("per-upstream capability matrix properties", () => {
     /**
      * The cell the whole feature exists to fix. spike §4 measured
      * `inferenceConfig: {maxTokens: 4}` answered 200 and still streamed a 296-frame essay — the
-     * field is accepted and discarded, and there is no other wire field for temperature, topP, or
-     * maxOutputTokens. `reject` is the only value that does not misrepresent that: `native` would
+     * field is accepted and discarded, and there is no wire field at all for temperature or topP,
+     * which are what this cell covers since task 12b moved the output length limit to
+     * `outputLength`. `reject` is the only value that does not misrepresent that: `native` would
      * claim the value is forwarded, `emulate` would claim the gateway reproduces it, and `degrade`
-     * would claim changed-but-present semantics. Requirements 2.3 and 3.3 fix it.
+     * would claim changed-but-present semantics — which is true of the limit, and is why that one
+     * is declared separately, but is not true of a control with nowhere to go. Requirements 2.3
+     * and 3.3 fix it.
      */
     test("KIRO_CAPABILITIES.features.sampling is reject", () => {
       expect(KIRO_CAPABILITIES.features.sampling).toBe("reject")

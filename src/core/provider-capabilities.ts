@@ -24,6 +24,7 @@ export const FEATURE_POLICIES = ["native", "emulate", "degrade", "reject"] as co
  */
 export type ProviderFeature =
   | "sampling"
+  | "outputLength"
   | "stopSequences"
   | "thinkingBudget"
   | "systemPrompt"
@@ -37,6 +38,7 @@ export type ProviderFeature =
 
 export const PROVIDER_FEATURES = [
   "sampling",
+  "outputLength",
   "stopSequences",
   "thinkingBudget",
   "systemPrompt",

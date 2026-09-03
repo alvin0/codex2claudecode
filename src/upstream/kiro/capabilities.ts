@@ -30,10 +30,22 @@ export const KIRO_CAPABILITIES: ProviderCapabilities = {
   },
   logBodyDefault: true,
   features: {
-    // spike §4: `inferenceConfig: {maxTokens: 4}` returned 200 and still streamed a
-    // 296-frame essay. The field is accepted and ignored, so forwarding it would be a
-    // silent drop; there is no other wire field for temperature/topP/maxOutputTokens.
+    // Covers `temperature` and `topP` only — a requested output-length limit is its own
+    // feature, `outputLength` below, because the two behave differently on this endpoint.
+    //
+    // No wire field for either control exists here, and spike §4 shows unknown fields
+    // answering 200 while being silently discarded, so inventing one would look honoured and
+    // change nothing. A client asking for these is asking for behavior this endpoint cannot
+    // approximate at all, which is `reject` — not the accepted-then-ignored case `degrade`
+    // names, which is what the cell below records.
     sampling: "reject",
+    // spike §4: `inferenceConfig: {maxTokens: 4}` returned 200 and still streamed a
+    // 296-frame essay — the limit is accepted by the endpoint and then ignored. That is
+    // changed semantics the client can be told about, not a request that cannot be served,
+    // so `degrade` rather than the `sampling` cell's `reject`. Folding it into `sampling`
+    // would refuse every Claude request, since `max_tokens` is mandatory in the Claude
+    // Messages API (Requirements 3.7, 3.8).
+    outputLength: "degrade",
     // spike §4: no stop-sequence field exists on this endpoint, and the same paragraph
     // shows unknown fields answering 200 while being discarded — sending one would look
     // honoured and change nothing.

@@ -60,7 +60,7 @@ const NOTICE_POLICIES = ["degrade", "emulate"] as const satisfies readonly Canon
 /**
  * A small pool of realistic details, weighted above freely generated text.
  *
- * The pool exists to make *exact* duplicates common: with 11 features, 2 policies, and 4 details,
+ * The pool exists to make *exact* duplicates common: with 12 features, 2 policies, and 4 details,
  * a plan of four notices repeats an entry often. The no-dedupe guarantee is therefore proven by the
  * general property rather than only by the duplicate-specific run below.
  */

@@ -18,7 +18,7 @@
 //
 // That file is example-based: one input per policy, hand-written detail and alternative. It cannot
 // see the cases that make totality a claim rather than a coincidence — a blank detail, a policy that
-// crossed a JSON boundary, adversarial notice text, or the 176-point closed grid of every
+// crossed a JSON boundary, adversarial notice text, or the 192-point closed grid of every
 // `ProviderFeature` against every `FeaturePolicy` against both values of `strict`. Those are here,
 // enumerated exhaustively where the input set is closed and generated where it is not.
 //
@@ -217,7 +217,7 @@ const GRID_TEXTS: ReadonlyArray<{ detail: string; alternative: string }> = [
 ]
 
 /**
- * Every `(feature, policy, strict, text)` combination: 11 × 4 × 2 × 4 = 352 points.
+ * Every `(feature, policy, strict, text)` combination: 12 × 4 × 2 × 4 = 384 points.
  *
  * The typed input space is closed in four of its five dimensions, so enumerating it is strictly
  * stronger than sampling it. The generated clauses below cover the fifth — the free text.

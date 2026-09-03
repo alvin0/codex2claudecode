@@ -14,10 +14,10 @@ import { CODEX_CAPABILITIES } from "./capabilities"
  * declaration, so a policy divergence between two upstreams is a diff between two
  * `capabilities.ts` cells rather than a branch somewhere in shared code.
  *
- * The seven resolved here are `sampling`, `stopSequences`, `promptCache`, `systemPrompt`,
- * `toolChoiceForced`, `structuredOutput`, and `strictToolSchema` — the features whose outcome
- * is decided purely from the incoming request. The other four members of `ProviderFeature`
- * stay out on purpose:
+ * The eight resolved here are `sampling`, `outputLength`, `stopSequences`, `promptCache`,
+ * `systemPrompt`, `toolChoiceForced`, `structuredOutput`, and `strictToolSchema` — the features
+ * whose outcome is decided purely from the incoming request. The other four members of
+ * `ProviderFeature` stay out on purpose:
  *
  * - `thinkingBudget` is decided where the effort level is decided, not here. On this upstream
  *   the level the client states is rewritten on the way out by the shared reasoning
@@ -96,11 +96,11 @@ export interface CodexFeatureResolutionOptions {
 /**
  * Resolve every matrix-covered feature this request carries, in matrix order.
  *
- * Order is `sampling → stopSequences → promptCache → systemPrompt → toolChoiceForced →
- * structuredOutput → strictToolSchema`, which fixes both the notice sequence and which
- * rejection a client sees when two fields would each fail: `firstRejection()` is resolution
- * order, so the 400 is stable for a given request instead of depending on evaluation
- * accidents.
+ * Order is `sampling → outputLength → stopSequences → promptCache → systemPrompt →
+ * toolChoiceForced → structuredOutput → strictToolSchema`, matching the vocabulary order of
+ * `PROVIDER_FEATURES`, which fixes both the notice sequence and which rejection a client sees
+ * when two fields would each fail: `firstRejection()` is resolution order, so the 400 is stable
+ * for a given request instead of depending on evaluation accidents.
  *
  * Resolution never stops early. Even on a request that would end in a 400, every present
  * feature is still resolved, so `resolvedFeatures()` stays the complete account the
@@ -116,6 +116,18 @@ export function resolveCodexFeatures(request: Canonical_Request, options: CodexF
       "sampling",
       `this endpoint takes generation controls of its own, so the requested ${joinControls(sampling)} is passed on as sent`,
       "an upstream that honors generation controls, or omit them",
+    )
+  }
+
+  // Resolved whenever the client sent a limit, exactly like `sampling` above and for the reason
+  // the header gives: this cell carries no notice, but resolving it records the feature in
+  // `resolvedFeatures()`, which is what the no-silent-drop set comparison reads (Requirement
+  // 10.8). Skipping it because the outcome is quiet would make the field invisible to that walk.
+  if (requestedOutputLengthLimit(view)) {
+    decisions.resolve(
+      "outputLength",
+      "this endpoint takes an upper bound on reply length of its own, so the requested limit is passed on as sent instead of being dropped on the way",
+      "an upstream that honors an output length limit, or omit it",
     )
   }
 
@@ -174,6 +186,11 @@ export function resolveCodexFeatures(request: Canonical_Request, options: CodexF
  * "temperature" and "temperature and top-p" are different facts, and a client tuning one knob
  * should not have to guess whether the report is about the other. Unused while this cell stays
  * native, and correct the moment it is not.
+ *
+ * `maxOutputTokens` is not one of these names: it is `outputLength`, its own feature with its
+ * own cell, detected by {@link requestedOutputLengthLimit}. The split is a vocabulary decision
+ * made in core and followed here, not a Codex-specific one — the two features happen to share a
+ * policy on this upstream and do not on every upstream.
  */
 function requestedSamplingControls(request: CodexFeatureRequestView): string[] {
   const sampling = request.sampling
@@ -181,8 +198,15 @@ function requestedSamplingControls(request: CodexFeatureRequestView): string[] {
   return [
     typeof sampling.temperature === "number" ? "temperature" : undefined,
     typeof sampling.topP === "number" ? "top-p" : undefined,
-    typeof sampling.maxOutputTokens === "number" ? "output length limit" : undefined,
   ].filter((name): name is string => name !== undefined)
+}
+
+/**
+ * Whether the client asked for an upper bound on the reply length. A boolean, not a name:
+ * there is one field, so there is nothing to disambiguate the way the sampling controls need.
+ */
+function requestedOutputLengthLimit(request: CodexFeatureRequestView): boolean {
+  return typeof request.sampling?.maxOutputTokens === "number"
 }
 
 function joinControls(names: readonly string[]): string {

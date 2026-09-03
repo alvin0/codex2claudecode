@@ -79,14 +79,30 @@ describe("Codex feature resolution", () => {
 
   // Requirement 10.6. The declaration is what makes this true, so it is asserted alongside the
   // outcome: a future edit that flips the cell fails here as well as on the live case.
+  //
+  // Per-shape counts, since task 12b made them differ: the first two shapes carry `sampling`
+  // alone, and the third carries an output length limit as well, which is `outputLength` — its own
+  // feature and its own cell — so that shape resolves **two** features rather than one. Both cells
+  // are `native` on this upstream, so the zero-notices clause holds for all three shapes; the
+  // resolved-set assertion is what distinguishes them, and it is written per shape so a regression
+  // that stopped resolving the second feature cannot hide behind the shared silence.
   test("generation controls produce zero sampling notices and no rejection", () => {
     expect(CODEX_CAPABILITIES.features.sampling).toBe("native")
+    expect(CODEX_CAPABILITIES.features.outputLength).toBe("native")
 
-    for (const sampling of [{ temperature: 0.2 }, { topP: 0.9 }, { temperature: 0, topP: 1, maxOutputTokens: 256 }]) {
+    const shapes = [
+      { sampling: { temperature: 0.2 }, resolves: ["sampling"] },
+      { sampling: { topP: 0.9 }, resolves: ["sampling"] },
+      { sampling: { temperature: 0, topP: 1, maxOutputTokens: 256 }, resolves: ["sampling", "outputLength"] },
+    ] as const
+
+    for (const { sampling, resolves } of shapes) {
       const decisions = resolveCodexFeatures(withFutureMembers(canonicalRequest(), { sampling }))
 
       expect(decisions.resolvedFeatures().has("sampling")).toBe(true)
+      expect([...decisions.resolvedFeatures()]).toEqual([...resolves])
       expect(noticesFor(decisions, "sampling")).toEqual([])
+      expect(noticesFor(decisions, "outputLength")).toEqual([])
       expect(decisions.notices()).toEqual([])
       expect(decisions.firstRejection()).toBeUndefined()
     }

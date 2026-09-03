@@ -24,11 +24,11 @@ import { COPILOT_CAPABILITIES } from "./capabilities"
  *
  * ## The resolved set
  *
- * Eight features are decided purely from the incoming request: `sampling`, `stopSequences`,
- * `promptCache`, `thinkingBudget`, `systemPrompt`, `toolChoiceForced`, `structuredOutput`, and
- * `strictToolSchema`. The remaining three — `webSearch`, `webFetch`, `mcpToolset` — are decided
- * while the tool list is expanded, where the hosted tool type names and their per-type policies
- * live (`COPILOT_CAPABILITIES.hostedTools`).
+ * Nine features are decided purely from the incoming request: `sampling`, `outputLength`,
+ * `stopSequences`, `promptCache`, `thinkingBudget`, `systemPrompt`, `toolChoiceForced`,
+ * `structuredOutput`, and `strictToolSchema`. The remaining three — `webSearch`, `webFetch`,
+ * `mcpToolset` — are decided while the tool list is expanded, where the hosted tool type names
+ * and their per-type policies live (`COPILOT_CAPABILITIES.hostedTools`).
  *
  * `thinkingBudget` is resolved here and **not** in `../codex/features.ts`, and the difference
  * is the providers', not this file's. `buildCopilotResponsesBody()` (`./parse.ts`) forwards the
@@ -85,10 +85,11 @@ export interface CopilotFeatureResolutionOptions {
 /**
  * Resolve every matrix-covered feature this request carries, in matrix order.
  *
- * Order is `sampling → stopSequences → thinkingBudget → promptCache → systemPrompt →
- * toolChoiceForced → structuredOutput → strictToolSchema`, which fixes both the notice sequence
- * and which rejection a client sees when two fields would each fail: `firstRejection()` is
- * resolution order, so the failure is stable for a given request.
+ * Order is `sampling → outputLength → stopSequences → thinkingBudget → promptCache →
+ * systemPrompt → toolChoiceForced → structuredOutput → strictToolSchema`, matching the
+ * vocabulary order of `PROVIDER_FEATURES`, which fixes both the notice sequence and which
+ * rejection a client sees when two fields would each fail: `firstRejection()` is resolution
+ * order, so the failure is stable for a given request.
  *
  * Resolution never stops early, so `resolvedFeatures()` stays the complete account the
  * no-silent-drop set comparison needs (Requirement 10.8).
@@ -103,6 +104,18 @@ export function resolveCopilotFeatures(request: Canonical_Request, options: Copi
       "sampling",
       `this endpoint takes generation controls of its own, so the requested ${joinControls(sampling)} is passed on as sent`,
       "an upstream that honors generation controls, or omit them",
+    )
+  }
+
+  // Resolved whenever the client sent a limit, like `sampling` above: this cell carries no
+  // notice, but resolving it records the feature in `resolvedFeatures()`, which is what the
+  // no-silent-drop set comparison reads (Requirement 10.8). A field skipped because its outcome
+  // is quiet would be invisible to that walk; a field recorded as covered is accounted for.
+  if (requestedOutputLengthLimit(view)) {
+    decisions.resolve(
+      "outputLength",
+      "this wire format has a field for an upper bound on reply length, so the requested limit is forwarded as stated rather than dropped at this boundary",
+      "an upstream measured to enforce an output length limit, or omit it",
     )
   }
 
@@ -167,6 +180,9 @@ export function resolveCopilotFeatures(request: Canonical_Request, options: Copi
  *
  * Names rather than a boolean, so a reporting outcome can say *which* value was affected.
  * Unused while this cell stays native, and correct the moment it is not.
+ *
+ * `maxOutputTokens` is not one of these names: it is `outputLength`, its own feature with its
+ * own cell, detected by {@link requestedOutputLengthLimit}.
  */
 function requestedSamplingControls(request: CopilotFeatureRequestView): string[] {
   const sampling = request.sampling
@@ -174,8 +190,15 @@ function requestedSamplingControls(request: CopilotFeatureRequestView): string[]
   return [
     typeof sampling.temperature === "number" ? "temperature" : undefined,
     typeof sampling.topP === "number" ? "top-p" : undefined,
-    typeof sampling.maxOutputTokens === "number" ? "output length limit" : undefined,
   ].filter((name): name is string => name !== undefined)
+}
+
+/**
+ * Whether the client asked for an upper bound on the reply length. A boolean, not a name:
+ * there is one field, so there is nothing to disambiguate the way the sampling controls need.
+ */
+function requestedOutputLengthLimit(request: CopilotFeatureRequestView): boolean {
+  return typeof request.sampling?.maxOutputTokens === "number"
 }
 
 function joinControls(names: readonly string[]): string {

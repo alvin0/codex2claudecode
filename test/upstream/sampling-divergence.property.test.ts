@@ -58,6 +58,14 @@ interface SamplingUpstream {
   name: string
   /** The `sampling` cell, read from this provider's own declaration — never restated here. */
   declared: FeaturePolicy
+  /**
+   * The `outputLength` cell, read the same way.
+   *
+   * Its own field because task 12b made it its own feature with its own policy: on Kiro the two
+   * diverge (`reject` versus `degrade`), so a single `declared` could no longer stand for both
+   * without restating one of them here.
+   */
+  declaredOutputLength: FeaturePolicy
   /** This provider's resolver, a pure function of the request. */
   resolve: (request: Canonical_Request, options?: { strict?: boolean }) => FeatureDecisions
 }
@@ -70,9 +78,9 @@ interface SamplingUpstream {
  * upstream is one more row and no new test body.
  */
 const UPSTREAMS: readonly SamplingUpstream[] = [
-  { name: "kiro", declared: KIRO_CAPABILITIES.features.sampling, resolve: resolveKiroFeatures },
-  { name: "codex", declared: CODEX_CAPABILITIES.features.sampling, resolve: resolveCodexFeatures },
-  { name: "copilot", declared: COPILOT_CAPABILITIES.features.sampling, resolve: resolveCopilotFeatures },
+  { name: "kiro", declared: KIRO_CAPABILITIES.features.sampling, declaredOutputLength: KIRO_CAPABILITIES.features.outputLength, resolve: resolveKiroFeatures },
+  { name: "codex", declared: CODEX_CAPABILITIES.features.sampling, declaredOutputLength: CODEX_CAPABILITIES.features.outputLength, resolve: resolveCodexFeatures },
+  { name: "copilot", declared: COPILOT_CAPABILITIES.features.sampling, declaredOutputLength: COPILOT_CAPABILITIES.features.outputLength, resolve: resolveCopilotFeatures },
 ]
 
 const KIRO = UPSTREAMS[0]!
@@ -118,6 +126,13 @@ function expectedChannel(policy: FeaturePolicy, strict: boolean): OutcomeChannel
  * test that widened `Canonical_Request` in core to reach them would be testing a different contract
  * than the one shipping. `stopSequences` is deliberately absent from this view — it is a different
  * `ProviderFeature` with its own cell, and including it would put a second outcome in the request.
+ *
+ * `maxOutputTokens` is also a different `ProviderFeature` since task 12b split `outputLength` out,
+ * and it is kept here on purpose rather than removed with `stopSequences`: it is a sub-member of the
+ * same canonical `sampling` object, so a client sending it alongside a temperature is the ordinary
+ * case, and the file's claim is precisely that one such request yields **one report per feature**
+ * rather than one per knob. Every observation below is scoped to the feature it is about, so the
+ * second outcome is accounted for by name instead of leaking into the `sampling` clauses.
  */
 interface SamplingControls {
   temperature?: number
@@ -191,9 +206,15 @@ const samplingArb: fc.Arbitrary<SamplingControls> = fc.record(
 // ---------------------------------------------------------------------------------------------
 
 const SAMPLING = "sampling" as const
+const OUTPUT_LENGTH = "outputLength" as const
 
 function samplingNotices(decisions: FeatureDecisions): Canonical_FeatureNotice[] {
   return decisions.notices().filter((notice) => notice.feature === SAMPLING)
+}
+
+/** The same projection for the feature task 12b split out, so the two are read apart. */
+function outputLengthNotices(decisions: FeatureDecisions): Canonical_FeatureNotice[] {
+  return decisions.notices().filter((notice) => notice.feature === OUTPUT_LENGTH)
 }
 
 /**
@@ -265,7 +286,10 @@ function assertDeclaredSamplingOutcome(upstream: SamplingUpstream, sampling: Sam
 
   if (observed === "silent") {
     // Requirement 10.6, on the upstreams that declare the cell native: zero notices, and zero
-    // notices *for the whole request*, since this request carries nothing else.
+    // notices *for the whole request*. The whole-request half stays true after task 12b's split
+    // because the only other feature this request can carry is `outputLength`, and every upstream
+    // that declares `sampling` native declares that one native too — so it is asserted rather than
+    // narrowed, and it starts failing if the two cells ever diverge on the same upstream.
     expect(notices).toEqual([])
     expect(decisions.notices()).toEqual([])
     expect(rejection).toBeUndefined()
@@ -376,13 +400,22 @@ describe("Sampling policy divergence", () => {
   })
 
   /**
-   * Three requested controls are still one outcome. `sampling` is one feature covering temperature,
-   * top-p, and the output length limit, so a client tuning all three gets one report — not three, and
-   * not three-deduplicated-to-one by accident of identical wording.
+   * Three requested controls are still **one report per feature** — not one per knob, and not
+   * several-deduplicated-to-one by accident of identical wording.
+   *
+   * The expectation is split the way task 12b split the resolution. `sampling` covers temperature
+   * and top-p, so those two knobs share one outcome; the output length limit is `outputLength`, its
+   * own feature with its own cell, so it carries an outcome of its own. Both halves are asserted
+   * here rather than one of them dropped: a client tuning all three sees two reports at most, each
+   * matching the declaration of the feature it belongs to, and each appearing exactly once.
+   *
+   * The Kiro row is what makes this a real split rather than a restatement — its two cells diverge
+   * (`reject` for the controls, `degrade` for the limit), so a resolver that folded the limit back
+   * into `sampling` would fail the `outputLength` clauses here.
    *
    * **Validates: Requirements 10.5, 10.6**
    */
-  test("Feature: native-api-mode, Property 22: several generation controls still produce one sampling outcome", () => {
+  test("Feature: native-api-mode, Property 22: several generation controls still produce one outcome per feature", () => {
     fc.assert(
       fc.property(
         fc.constantFrom(...UPSTREAMS),
@@ -393,10 +426,26 @@ describe("Sampling policy divergence", () => {
         (upstream, temperature, topP, maxOutputTokens, strict) => {
           const decisions = upstream.resolve(requestWithSampling({ temperature, topP, maxOutputTokens }), { strict })
 
+          // The two sampling controls: one outcome between them, on the declared channel.
           expect(samplingNotices(decisions).length).toBeLessThanOrEqual(1)
           expect(observedChannel(upstream, decisions)).toBe(expectedChannel(upstream.declared, strict))
           // One resolution, so one entry in the covered set.
           expect([...decisions.resolvedFeatures()].filter((feature) => feature === SAMPLING)).toEqual([SAMPLING])
+
+          // The limit: its own resolution, its own single report, on its own declared channel.
+          expect([...decisions.resolvedFeatures()].filter((feature) => feature === OUTPUT_LENGTH)).toEqual([OUTPUT_LENGTH])
+          const limitNotices = outputLengthNotices(decisions)
+          expect(limitNotices.length).toBeLessThanOrEqual(1)
+          if (expectedChannel(upstream.declaredOutputLength, strict) === "notice") {
+            expect(limitNotices).toHaveLength(1)
+            const noticePolicy: string = limitNotices[0]!.policy
+            expect(noticePolicy).toBe(upstream.declaredOutputLength)
+            expect(limitNotices[0]!.detail.trim().length).toBeGreaterThan(0)
+          } else {
+            // `native` is silent and, under strict, a `degrade` becomes a rejection instead of a
+            // notice — either way there is no notice to find, and no second one either.
+            expect(limitNotices).toEqual([])
+          }
         },
       ),
       { numRuns: 300 },
@@ -425,6 +474,9 @@ describe("Sampling policy divergence", () => {
         const decisions = upstream.resolve(bare, { strict })
         expect(decisions.resolvedFeatures().has(SAMPLING)).toBe(false)
         expect(samplingNotices(decisions)).toEqual([])
+        // The same control for the feature task 12b split out: absent field, no resolution.
+        expect(decisions.resolvedFeatures().has(OUTPUT_LENGTH)).toBe(false)
+        expect(outputLengthNotices(decisions)).toEqual([])
         expect(decisions.firstRejection()).toBeUndefined()
       }
     }
@@ -443,6 +495,8 @@ describe("Sampling policy divergence", () => {
       const decisions = upstream.resolve(requestWithSampling({}), { strict: false })
       expect(decisions.resolvedFeatures().has(SAMPLING)).toBe(false)
       expect(samplingNotices(decisions)).toEqual([])
+      expect(decisions.resolvedFeatures().has(OUTPUT_LENGTH)).toBe(false)
+      expect(outputLengthNotices(decisions)).toEqual([])
     }
   })
 

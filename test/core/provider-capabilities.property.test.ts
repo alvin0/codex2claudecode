@@ -3,7 +3,7 @@
 //
 // Two proof techniques, chosen per claim rather than uniformly:
 //
-//   1. Exhaustive enumeration for the closed finite sets. `ProviderFeature` has 11 members and
+//   1. Exhaustive enumeration for the closed finite sets. `ProviderFeature` has 12 members and
 //      `FeaturePolicy` has 4; both are closed, so the test walks the whole domain in both
 //      directions against a frozen expected list written out independently of the module. On a
 //      closed set that is strictly stronger than sampling, so no generator is used for it.
@@ -15,10 +15,10 @@
 // level alone bites in both directions:
 //
 //   - Compile time (`tsc -p tsconfig.test.json --noEmit`) covers drift in the `ProviderFeature`
-//     and `FeaturePolicy` *unions*. `_PROVIDER_FEATURE_UNION_IS_THE_ELEVEN` and its policy twin
+//     and `FeaturePolicy` *unions*. `_PROVIDER_FEATURE_UNION_IS_THE_TWELVE` and its policy twin
 //     are bidirectional set-equality aliases: gaining or losing a union member makes them resolve
 //     to `false`, and assigning `true` to `false` is a compile error. `COMPLETE_FEATURE_MAP` is a
-//     fully written 11-key literal that stops compiling the moment a 12th feature appears, and the
+//     fully written 12-key literal that stops compiling the moment a 13th feature appears, and the
 //     two `@ts-expect-error` declarations pin the other direction: a map missing a key and a map
 //     carrying a key outside the union must each be rejected. Those two comments are themselves
 //     load-bearing — if the guarantee vanished the errors would disappear and TypeScript would
@@ -42,7 +42,7 @@ import {
 } from "../../src/core/provider-capabilities"
 
 /**
- * The 11 features and 4 policies as stated in the requirements Glossary, written here by hand.
+ * The 12 features and 4 policies as stated in the requirements Glossary, written here by hand.
  *
  * These lists are the fixed point of the test: they are NOT derived from the module, so a member
  * added to or removed from `PROVIDER_FEATURES` / `FEATURE_POLICIES` fails an assertion instead of
@@ -50,6 +50,7 @@ import {
  */
 const EXPECTED_FEATURES = [
   "sampling",
+  "outputLength",
   "stopSequences",
   "thinkingBudget",
   "systemPrompt",
@@ -70,20 +71,21 @@ type SetEquals<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : fals
 /**
  * Compile-time half of "adding or removing a feature fails", union direction.
  *
- * A 12th `ProviderFeature` member makes `SetEquals` resolve to `false`; so does deleting one.
+ * A 13th `ProviderFeature` member makes `SetEquals` resolve to `false`; so does deleting one.
  * `true` is not assignable to `false`, so the file stops compiling in either case.
  */
-const _PROVIDER_FEATURE_UNION_IS_THE_ELEVEN: SetEquals<ProviderFeature, (typeof EXPECTED_FEATURES)[number]> = true
+const _PROVIDER_FEATURE_UNION_IS_THE_TWELVE: SetEquals<ProviderFeature, (typeof EXPECTED_FEATURES)[number]> = true
 const _FEATURE_POLICY_UNION_IS_THE_FOUR: SetEquals<FeaturePolicy, (typeof EXPECTED_POLICIES)[number]> = true
 
 /**
  * A total feature map written out key by key.
  *
- * Adding a 12th member to `ProviderFeature` makes this literal incomplete and the file stops
+ * Adding a 13th member to `ProviderFeature` makes this literal incomplete and the file stops
  * compiling — the addition direction of the clause, at the declaration shape rather than the union.
  */
 const COMPLETE_FEATURE_MAP: Record<ProviderFeature, FeaturePolicy> = {
   sampling: "native",
+  outputLength: "emulate",
   stopSequences: "emulate",
   thinkingBudget: "degrade",
   systemPrompt: "reject",
@@ -105,6 +107,7 @@ const COMPLETE_FEATURE_MAP: Record<ProviderFeature, FeaturePolicy> = {
 // @ts-expect-error - a total feature map cannot omit `mcpToolset`
 const _MAP_MISSING_A_FEATURE: Record<ProviderFeature, FeaturePolicy> = {
   sampling: "native",
+  outputLength: "native",
   stopSequences: "native",
   thinkingBudget: "native",
   systemPrompt: "native",
@@ -189,7 +192,7 @@ const nonPolicyArb = fc
 describe("capability vocabulary properties", () => {
   /**
    * Feature: native-api-mode, Property 1: Capability matrix totality — the `ProviderFeature`
-   * member set equals the 11-member set, every `FeaturePolicy` value is one of four, and adding
+   * member set equals the 12-member set, every `FeaturePolicy` value is one of four, and adding
    * or removing a feature fails.
    *
    * **Validates: Requirements 1.2, 1.3, 1.6**
@@ -283,7 +286,7 @@ describe("capability vocabulary properties", () => {
    * **Validates: Requirements 1.2, 1.3**
    */
   test("the vocabulary unions are pinned to the expected sets at compile time", () => {
-    expect(_PROVIDER_FEATURE_UNION_IS_THE_ELEVEN).toBe(true)
+    expect(_PROVIDER_FEATURE_UNION_IS_THE_TWELVE).toBe(true)
     expect(_FEATURE_POLICY_UNION_IS_THE_FOUR).toBe(true)
     expect(totalityFailures(COMPLETE_FEATURE_MAP)).toEqual([])
     expect(Object.keys(_MAP_MISSING_A_FEATURE)).toHaveLength(EXPECTED_FEATURES.length - 1)

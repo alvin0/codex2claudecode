@@ -6,12 +6,12 @@ import { KIRO_CAPABILITIES } from "./capabilities"
 /**
  * Apply the declared Kiro matrix to one request.
  *
- * Role, and only this role: look at a {@link Canonical_Request}, decide which of the six
+ * Role, and only this role: look at a {@link Canonical_Request}, decide which of the seven
  * request-shaped features this upstream covers are actually present, and hand each one to
  * {@link FeatureDecisions} together with the prose that explains what happened to it. It
  * builds no payload, calls nothing, renders nothing, and reads no environment.
  *
- * The six are `sampling`, `stopSequences`, `promptCache`, `toolChoiceForced`,
+ * The seven are `sampling`, `outputLength`, `stopSequences`, `promptCache`, `toolChoiceForced`,
  * `structuredOutput`, and `strictToolSchema` — the features whose outcome is decided purely
  * from the incoming request. The remaining five members of `ProviderFeature` are decided
  * elsewhere and stay out of this file on purpose: `systemPrompt` is unconditional emulation
@@ -73,10 +73,11 @@ export interface KiroFeatureResolutionOptions {
 /**
  * Resolve every matrix-covered feature this request carries, in matrix order.
  *
- * Order is `sampling → stopSequences → promptCache → toolChoiceForced → structuredOutput →
- * strictToolSchema`, which fixes both the notice sequence and which rejection a client sees
- * when two fields would each fail: `firstRejection()` is resolution order, so the 400 is
- * stable for a given request instead of depending on evaluation accidents.
+ * Order is `sampling → outputLength → stopSequences → promptCache → toolChoiceForced →
+ * structuredOutput → strictToolSchema`, matching the vocabulary order of `PROVIDER_FEATURES`,
+ * which fixes both the notice sequence and which rejection a client sees when two fields would
+ * each fail: `firstRejection()` is resolution order, so the 400 is stable for a given request
+ * instead of depending on evaluation accidents.
  *
  * Resolution never stops early. Even on a request that will end in a 400, every present
  * feature is still resolved, so `resolvedFeatures()` stays the complete account the
@@ -90,8 +91,20 @@ export function resolveKiroFeatures(request: Canonical_Request, options: KiroFea
   if (sampling.length) {
     decisions.resolve(
       "sampling",
-      `this endpoint exposes no generation controls, so the requested ${joinControls(sampling)} cannot reach the model — a sent value is accepted and ignored, which reads as honored while changing nothing`,
+      `this endpoint exposes no generation controls, so the requested ${joinControls(sampling)} cannot reach the model — there is nothing here to carry the value, and an invented carrier would be answered with a 200 and discarded, which reads as honored while changing nothing`,
       "an upstream that honors generation controls, or omit them",
+    )
+  }
+
+  // Its own feature rather than a third name inside the `sampling` text, because this endpoint
+  // treats it differently from `temperature` / `topP`: the limit is taken and then disregarded
+  // instead of having nowhere to go at all. The two policies therefore differ, and a policy
+  // difference belongs in `./capabilities.ts` (design decision D3), not in a detection helper.
+  if (requestedOutputLengthLimit(view)) {
+    decisions.resolve(
+      "outputLength",
+      "this endpoint accepts an output length limit and then disregards it — a limit of a handful of tokens was measured answering 200 and still streaming a full-length essay — so the limit is left off the request rather than sent to be ignored, and the reply may run well past the length that was asked for",
+      "an upstream that enforces an output length limit, or stop reading the reply on the client once it is long enough",
     )
   }
 
@@ -141,6 +154,10 @@ export function resolveKiroFeatures(request: Canonical_Request, options: KiroFea
  * Returns names rather than a boolean so the notice can say *which* value went nowhere:
  * "temperature" and "temperature and top-p" are different facts, and a client tuning one knob
  * should not have to guess whether the report is about the other.
+ *
+ * `maxOutputTokens` is deliberately **not** one of these names. It is `outputLength`, resolved
+ * on its own below, so the outcome this list feeds covers only the two controls that have
+ * nowhere at all to go on this endpoint.
  */
 function requestedSamplingControls(request: KiroFeatureRequestView): string[] {
   const sampling = request.sampling
@@ -148,8 +165,19 @@ function requestedSamplingControls(request: KiroFeatureRequestView): string[] {
   return [
     typeof sampling.temperature === "number" ? "temperature" : undefined,
     typeof sampling.topP === "number" ? "top-p" : undefined,
-    typeof sampling.maxOutputTokens === "number" ? "output length limit" : undefined,
   ].filter((name): name is string => name !== undefined)
+}
+
+/**
+ * Whether the client asked for an upper bound on the reply length.
+ *
+ * A boolean, not a name: there is one field, so there is nothing to disambiguate the way the
+ * sampling controls need. The number itself stays out of the notice text — a client that sent
+ * it already knows what it sent, and quoting it back would make the prose vary per request for
+ * no gain in what the client learns.
+ */
+function requestedOutputLengthLimit(request: KiroFeatureRequestView): boolean {
+  return typeof request.sampling?.maxOutputTokens === "number"
 }
 
 function joinControls(names: readonly string[]): string {
