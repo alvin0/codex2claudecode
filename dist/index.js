@@ -871,9 +871,8 @@ See https://react.dev/link/invalid-hook-call for tips about how to debug and fix
 
 // node_modules/react/index.js
 var require_react = __commonJS((exports, module) => {
-  var react_development = __toESM(require_react_development());
   if (false) {} else {
-    module.exports = react_development;
+    module.exports = require_react_development();
   }
 });
 
@@ -1316,9 +1315,8 @@ var require_scheduler_development = __commonJS((exports) => {
 
 // node_modules/scheduler/index.js
 var require_scheduler = __commonJS((exports, module) => {
-  var scheduler_development = __toESM(require_scheduler_development());
   if (false) {} else {
-    module.exports = scheduler_development;
+    module.exports = require_scheduler_development();
   }
 });
 
@@ -29175,9 +29173,8 @@ React keys must be passed directly to JSX without using spread:
 
 // node_modules/react/jsx-dev-runtime.js
 var require_jsx_dev_runtime = __commonJS((exports, module) => {
-  var react_jsx_dev_runtime_development = __toESM(require_react_jsx_dev_runtime_development());
   if (false) {} else {
-    module.exports = react_jsx_dev_runtime_development;
+    module.exports = require_react_jsx_dev_runtime_development();
   }
 });
 
@@ -29227,7 +29224,7 @@ function parsePort(value) {
 // package.json
 var package_default = {
   name: "codex2claudecode",
-  version: "0.3.2",
+  version: "0.4.2",
   description: "Bun-powered Claude-compatible local API for Codex, Kiro, and Copilot credentials.",
   author: "alvin0 <chaulamdinhai@gmail.com>",
   license: "MIT",
@@ -29278,8 +29275,8 @@ var package_default = {
     typecheck: "tsc --noEmit && tsc -p tsconfig.test.json --noEmit",
     check: "bun run typecheck && bun run build",
     prepublishOnly: "bun run build",
-    test: "bun test test/ --test-name-pattern='^(?!.*live (Codex|Kiro|native API) smoke test)'",
-    coverage: "bunx --bun vitest run --config vitest.config.ts --coverage --coverage.provider=istanbul --testNamePattern='^(?!.*live Codex smoke test)'",
+    test: "bun test test/ --timeout 30000 --test-name-pattern='^(?!.*live (Codex|Kiro|native API) smoke test)'",
+    coverage: "bun run --bun vitest run --config vitest.config.ts --coverage --coverage.provider=istanbul --testNamePattern='^(?!.*live (Codex|Kiro|native API) smoke test)'",
     "test:live": "CODEX_AUTH_FILE=auth-codex.json bun test test/live.test.ts",
     "test:kiro:api": "bun scripts/kiro-api-smoke.ts",
     "probe:kiro:mcp": "bun scripts/kiro-mcp-probe.ts",
@@ -30213,7 +30210,7 @@ function emitCanonicalBlock(block, state, events, emitStreamEvents) {
     if (next) {
       appendTextBlock(state, next);
       if (emitStreamEvents)
-        events.push({ type: "text_done", text: block.text });
+        events.push({ type: "text_done", text: block.text, ...block.annotations?.length ? { annotations: block.annotations } : {} });
     }
     return;
   }
@@ -36660,33 +36657,20 @@ var CLAUDE_NOTICE_MARKER = "[gateway]";
 var WARNING_SEPARATOR = `
 
 `;
-function noticeLine(feature, detail) {
-  return `- ${feature}: ${detail}`;
-}
-function flattenDetail(detail) {
-  return detail.replace(/\s+/g, " ").trim();
-}
-function headerLine(count) {
-  const subject = count === 1 ? "1 requested feature was" : `${count} requested features were`;
-  return `${CLAUDE_NOTICE_MARKER} ${subject} not honored as sent:`;
-}
 function renderClaudeFeatureWarning(notices) {
-  const lines = [];
+  const features = [];
   const seen = new Set;
   for (const notice of notices) {
     if (notice.policy !== "degrade")
       continue;
-    const detail = flattenDetail(notice.detail);
-    const key = `${notice.feature}\x00${detail}`;
-    if (seen.has(key))
+    if (seen.has(notice.feature))
       continue;
-    seen.add(key);
-    lines.push(noticeLine(notice.feature, detail));
+    seen.add(notice.feature);
+    features.push(notice.feature);
   }
-  if (!lines.length)
+  if (!features.length)
     return "";
-  return [headerLine(lines.length), ...lines].join(`
-`);
+  return `${CLAUDE_NOTICE_MARKER} not honored as sent: ${features.join(", ")}`;
 }
 function prependClaudeWarning(text, warning) {
   if (!warning)
@@ -36785,6 +36769,13 @@ data: ${JSON.stringify(data)}
       delta: { type: "text_delta", text }
     });
   }
+  citationDelta(citation) {
+    this.send("content_block_delta", {
+      type: "content_block_delta",
+      index: this.contentIndex,
+      delta: { type: "citations_delta", citation }
+    });
+  }
   thinkingDelta(thinking) {
     this.send("content_block_delta", {
       type: "content_block_delta",
@@ -36876,13 +36867,14 @@ data: ${JSON.stringify(data)}
 }
 
 // src/inbound/claude/response.ts
-async function canonicalResponseToClaudeMessage(response, request) {
+async function canonicalResponseToClaudeMessage(response, request, options) {
+  const notices = options?.featureNotices ? response.featureNotices ?? [] : [];
   return {
     id: response.id.replace(/^resp_/, "msg_"),
     type: "message",
     role: "assistant",
     model: response.model || request.model,
-    content: withClaudeWarning(response.content.flatMap(canonicalContentToClaudeBlocks), renderClaudeFeatureWarning(response.featureNotices ?? [])),
+    content: withClaudeWarning(response.content.flatMap(canonicalContentToClaudeBlocks), renderClaudeFeatureWarning(notices)),
     stop_reason: response.stopReason,
     stop_sequence: null,
     usage: canonicalUsageToClaudeUsage(response.usage)
@@ -36909,7 +36901,7 @@ function claudeCanonicalStreamResponse(response, request, options) {
   let iterator;
   let heartbeat;
   let thinkingSignature = "";
-  let inputTokens = initialStreamInputTokens(request);
+  let inputTokens = response.usage?.inputTokens ?? initialStreamInputTokens(request);
   let outputTokens = 0;
   let cacheCreationInputTokens = 0;
   let cacheReadInputTokens = 0;
@@ -36924,6 +36916,14 @@ function claudeCanonicalStreamResponse(response, request, options) {
     const warning = renderClaudeFeatureWarning(pendingNotices);
     pendingNotices.length = 0;
     return warning;
+  }
+  function emitCitations(annotations, text) {
+    if (!annotations?.length)
+      return;
+    for (const annotation of annotations) {
+      for (const citation of annotationToClaudeCitation(annotation, text))
+        writer.citationDelta(citation);
+    }
   }
   function emitText(text) {
     if (!text)
@@ -37026,11 +37026,14 @@ function claudeCanonicalStreamResponse(response, request, options) {
             writer.stopThinkingBlock(thinkingSignature);
             writer.startTextBlock();
             emitText(withPendingWarning(event.text));
+            emitCitations(event.annotations, event.text);
             continue;
           }
           if (event.type === "feature_notice") {
             options?.telemetry?.recordFeatureNotice(event);
-            pendingNotices.push({ feature: event.feature, policy: event.policy, detail: event.detail });
+            if (options?.featureNotices) {
+              pendingNotices.push({ feature: event.feature, policy: event.policy, detail: event.detail });
+            }
             continue;
           }
           if (event.type === "tool_call_done") {
@@ -38276,6 +38279,7 @@ class Claude_Inbound_Provider {
   expectedUpstreamKind;
   localCountTokens;
   countTokens;
+  featureNotices;
   constructor(optionsOrModelResolver = {}) {
     const options = typeof optionsOrModelResolver === "function" ? { modelResolver: optionsOrModelResolver } : optionsOrModelResolver;
     this.name = options.name ?? "claude";
@@ -38292,7 +38296,11 @@ class Claude_Inbound_Provider {
     this.expectedUpstreamKind = options.expectedUpstreamKind;
     this.localCountTokens = options.localCountTokens ?? false;
     this.countTokens = options.countTokens ?? countClaudeInputTokens;
+    this.featureNotices = options.featureNotices ?? false;
     this.modelCatalog = new Model_Catalog;
+  }
+  renderableNotices(notices) {
+    return this.featureNotices ? notices ?? [] : [];
   }
   routes() {
     return this.routeDescriptors;
@@ -38404,7 +38412,7 @@ class Claude_Inbound_Provider {
         }
         context.onProxy(proxyLog2);
       }
-      return claudeErrorResponse(prependClaudeWarning(claudeUpstreamErrorMessage(result.status, result.body), renderClaudeFeatureWarning(result.featureNotices ?? [])), result.status);
+      return claudeErrorResponse(prependClaudeWarning(claudeUpstreamErrorMessage(result.status, result.body), renderClaudeFeatureWarning(this.renderableNotices(result.featureNotices))), result.status);
     }
     const proxyLog = context.onProxy ? {
       label: this.upstreamLogLabel,
@@ -38425,7 +38433,7 @@ class Claude_Inbound_Provider {
           proxyLog.telemetry = canonicalResponseTelemetrySummary(accumulated);
         if (proxyLog && shouldCaptureProxyBody)
           proxyLog.responseBody = upstreamResponseBody?.();
-        return Response.json(await canonicalResponseToClaudeMessage(accumulated, body));
+        return Response.json(await canonicalResponseToClaudeMessage(accumulated, body, { featureNotices: this.featureNotices }));
       }
       const telemetry = new StreamTelemetryCollector({
         requestId: context.requestId,
@@ -38434,9 +38442,10 @@ class Claude_Inbound_Provider {
         streaming: true
       });
       if (!proxyLog)
-        return claudeCanonicalStreamResponse(result, body, { telemetry });
+        return claudeCanonicalStreamResponse(result, body, { telemetry, featureNotices: this.featureNotices });
       return claudeCanonicalStreamResponse(withLoggedCanonicalStream(result, proxyLog, started, upstreamResponseBody, telemetry), body, {
         telemetry,
+        featureNotices: this.featureNotices,
         onCancel: (reason) => {
           proxyLog.durationMs = Date.now() - started;
           proxyLog.error = `stream cancelled: ${reasonText(reason)}`;
@@ -38451,7 +38460,7 @@ class Claude_Inbound_Provider {
         proxyLog.telemetry = canonicalResponseTelemetrySummary(result);
       if (proxyLog && shouldCaptureProxyBody)
         proxyLog.responseBody = upstreamResponseBody?.();
-      return Response.json(await canonicalResponseToClaudeMessage(result, body));
+      return Response.json(await canonicalResponseToClaudeMessage(result, body, { featureNotices: this.featureNotices }));
     }
     if (isCanonicalPassthrough(result))
       return claudeErrorResponse("Unexpected passthrough response for Claude inbound provider", 500);
@@ -38725,8 +38734,9 @@ function withChunkCallback(response, onChunk) {
 }
 // src/inbound/claude/codex.ts
 class Claude_Codex_Inbound_Adapter extends Claude_Inbound_Provider {
-  constructor(modelResolver, routes) {
+  constructor(modelResolver, routes, featureNotices) {
     super({
+      featureNotices,
       name: "claude-codex",
       modelResolver: modelResolver ?? claudeSettingsModelResolver,
       upstreamLogLabel: "Codex responses",
@@ -38739,8 +38749,9 @@ class Claude_Codex_Inbound_Adapter extends Claude_Inbound_Provider {
 
 // src/inbound/claude/copilot.ts
 class Claude_Copilot_Inbound_Adapter extends Claude_Inbound_Provider {
-  constructor(modelResolver, routes) {
+  constructor(modelResolver, routes, featureNotices) {
     super({
+      featureNotices,
       name: "claude-copilot",
       modelResolver: modelResolver ?? claudeSettingsModelResolver,
       upstreamLogLabel: "Copilot messages",
@@ -38905,8 +38916,9 @@ function stringifyUnknown2(value) {
 
 // src/inbound/claude/kiro.ts
 class Claude_Kiro_Inbound_Adapter extends Claude_Inbound_Provider {
-  constructor(modelResolver, routes) {
+  constructor(modelResolver, routes, featureNotices) {
     super({
+      featureNotices,
       name: "claude-kiro",
       modelResolver,
       upstreamLogLabel: "Kiro messages",
@@ -41604,10 +41616,10 @@ var KIRO_CAPABILITIES = {
   features: {
     sampling: "reject",
     outputLength: "degrade",
-    stopSequences: "reject",
+    stopSequences: "degrade",
     thinkingBudget: "degrade",
     systemPrompt: "emulate",
-    promptCache: "reject",
+    promptCache: "degrade",
     strictToolSchema: "degrade",
     toolChoiceForced: "degrade",
     structuredOutput: "emulate",
@@ -44813,6 +44825,7 @@ function streamKiroResponse(response, fallbackModel, effectiveTools, inputTokenE
     status: response.status,
     id,
     model: fallbackModel,
+    usage: { inputTokens: inputTokenEstimate },
     events: {
       async* [Symbol.asyncIterator]() {
         yield* iterateKiroEvents(response.body, inputTokenEstimate, effectiveTools, serverTools, true, initialServerToolBlocks, prefaceText, maxInputTokens, mcp);
@@ -47293,33 +47306,20 @@ var OPENAI_NOTICE_MARKER = "[gateway]";
 var OPENAI_WARNING_SEPARATOR = `
 
 `;
-function noticeLine2(feature, detail) {
-  return `- ${feature}: ${detail}`;
-}
-function flattenDetail2(detail) {
-  return detail.replace(/\s+/g, " ").trim();
-}
-function headerLine2(count) {
-  const subject = count === 1 ? "1 requested feature was" : `${count} requested features were`;
-  return `${OPENAI_NOTICE_MARKER} ${subject} not honored as sent:`;
-}
 function renderOpenAIFeatureWarning(notices) {
-  const lines = [];
+  const features = [];
   const seen = new Set;
   for (const notice2 of notices) {
     if (notice2.policy !== "degrade")
       continue;
-    const detail = flattenDetail2(notice2.detail);
-    const key = `${notice2.feature}\x00${detail}`;
-    if (seen.has(key))
+    if (seen.has(notice2.feature))
       continue;
-    seen.add(key);
-    lines.push(noticeLine2(notice2.feature, detail));
+    seen.add(notice2.feature);
+    features.push(notice2.feature);
   }
-  if (!lines.length)
+  if (!features.length)
     return "";
-  return [headerLine2(lines.length), ...lines].join(`
-`);
+  return `${OPENAI_NOTICE_MARKER} not honored as sent: ${features.join(", ")}`;
 }
 function prependOpenAIWarning(text, warning) {
   if (!warning)
@@ -47330,18 +47330,18 @@ function prependOpenAIWarning(text, warning) {
 }
 
 // src/inbound/openai/response.ts
-function openAICanonicalResponse(response, pathname, request) {
+function openAICanonicalResponse(response, pathname, request, options) {
   if (isChatPath2(pathname))
-    return Response.json(canonicalResponseToChatCompletion(response));
-  return Response.json(canonicalResponseToResponsesBody(response, request));
+    return Response.json(canonicalResponseToChatCompletion(response, options));
+  return Response.json(canonicalResponseToResponsesBody(response, request, options));
 }
 function openAICanonicalStreamResponse(response, pathname, request, options) {
   if (isChatPath2(pathname))
-    return chatCompletionStreamResponse(response, options?.telemetry);
-  return responsesStreamResponse(response, request, options?.telemetry);
+    return chatCompletionStreamResponse(response, options?.telemetry, options?.featureNotices);
+  return responsesStreamResponse(response, request, options?.telemetry, options?.featureNotices);
 }
-function canonicalResponseToResponsesBody(response, request) {
-  const output = withResponsesWarning(canonicalContentToResponsesOutput(response.content), renderOpenAIFeatureWarning(response.featureNotices ?? []));
+function canonicalResponseToResponsesBody(response, request, options) {
+  const output = withResponsesWarning(canonicalContentToResponsesOutput(response.content), renderOpenAIFeatureWarning(options?.featureNotices ? response.featureNotices ?? [] : []));
   const incompleteReason = response.stopReason === "max_tokens" ? "max_output_tokens" : undefined;
   return responseObject({
     id: response.id,
@@ -47353,9 +47353,9 @@ function canonicalResponseToResponsesBody(response, request) {
     incompleteReason
   });
 }
-function canonicalResponseToChatCompletion(response) {
+function canonicalResponseToChatCompletion(response, options) {
   const toolCalls = response.content.filter((block) => block.type === "tool_call");
-  const text = prependOpenAIWarning(response.content.flatMap((block) => block.type === "text" ? [block.text] : []).join(""), renderOpenAIFeatureWarning(response.featureNotices ?? []));
+  const text = prependOpenAIWarning(response.content.flatMap((block) => block.type === "text" ? [block.text] : []).join(""), renderOpenAIFeatureWarning(options?.featureNotices ? response.featureNotices ?? [] : []));
   const thinking = response.content.flatMap((block) => block.type === "thinking" ? [block.thinking] : []).join("");
   return {
     id: response.id.replace(/^resp_/, "chatcmpl_"),
@@ -47377,7 +47377,7 @@ function canonicalResponseToChatCompletion(response) {
     usage: chatUsage(response.usage)
   };
 }
-function responsesStreamResponse(response, request, telemetry) {
+function responsesStreamResponse(response, request, telemetry, featureNotices) {
   const encoder = new TextEncoder;
   const id = response.id;
   const model = response.model || stringOr(request.model, "unknown");
@@ -47876,7 +47876,8 @@ data: ${JSON.stringify(data)}
           }
           if (event.type === "feature_notice") {
             telemetry?.recordFeatureNotice(event);
-            pendingNotices.push({ feature: event.feature, policy: event.policy, detail: event.detail });
+            if (featureNotices)
+              pendingNotices.push({ feature: event.feature, policy: event.policy, detail: event.detail });
             continue;
           }
           if (event.type === "usage") {
@@ -47978,7 +47979,7 @@ data: ${JSON.stringify(data)}
     }
   }), streamHeaders());
 }
-function chatCompletionStreamResponse(response, telemetry) {
+function chatCompletionStreamResponse(response, telemetry, featureNotices) {
   const encoder = new TextEncoder;
   const id = response.id.replace(/^resp_/, "chatcmpl_");
   const created = nowSeconds();
@@ -48190,7 +48191,8 @@ function chatCompletionStreamResponse(response, telemetry) {
           }
           if (event.type === "feature_notice") {
             telemetry?.recordFeatureNotice(event);
-            pendingNotices.push({ feature: event.feature, policy: event.policy, detail: event.detail });
+            if (featureNotices)
+              pendingNotices.push({ feature: event.feature, policy: event.policy, detail: event.detail });
             continue;
           }
           if (event.type === "usage") {
@@ -48669,6 +48671,7 @@ class OpenAI_Inbound_Provider {
   upstreamTarget;
   expectedUpstreamKind;
   modelResolver;
+  featureNotices;
   constructor(options = {}) {
     this.name = options.name ?? "openai";
     this.routeDescriptors = options.routes ?? OPENAI_NON_EMBEDDINGS_ROUTES.map(openAIProxyRouteDescriptor);
@@ -48678,6 +48681,7 @@ class OpenAI_Inbound_Provider {
     this.upstreamTarget = options.upstreamTarget ?? "/v1/responses";
     this.expectedUpstreamKind = options.expectedUpstreamKind;
     this.modelResolver = options.modelResolver;
+    this.featureNotices = options.featureNotices ?? false;
   }
   routes() {
     return this.routeDescriptors;
@@ -48819,7 +48823,7 @@ class OpenAI_Inbound_Provider {
       if (proxyLog)
         context.onProxy?.(proxyLog);
       if (!this.passthrough) {
-        return openAIErrorResponse(prependOpenAIWarning(result.body, renderOpenAIFeatureWarning(result.featureNotices ?? [])), result.status, "upstream_error", result.headers);
+        return openAIErrorResponse(prependOpenAIWarning(result.body, renderOpenAIFeatureWarning(this.featureNotices ? result.featureNotices ?? [] : [])), result.status, "upstream_error", result.headers);
       }
       return new Response(result.body, {
         status: result.status,
@@ -48828,7 +48832,7 @@ class OpenAI_Inbound_Provider {
     }
     if (isCanonicalResponse2(result)) {
       backfillInputTokens2(result, wireBody);
-      const response = openAICanonicalResponse(result, route.path, wireBody);
+      const response = openAICanonicalResponse(result, route.path, wireBody, { featureNotices: this.featureNotices });
       if (context.onProxy) {
         const proxyLog = {
           label: this.upstreamLogLabel,
@@ -48850,7 +48854,7 @@ class OpenAI_Inbound_Provider {
       if (!clientWantsStream) {
         const accumulated = await accumulateCanonicalStream(result);
         backfillInputTokens2(accumulated, wireBody);
-        const response2 = openAICanonicalResponse(accumulated, route.path, wireBody);
+        const response2 = openAICanonicalResponse(accumulated, route.path, wireBody, { featureNotices: this.featureNotices });
         if (context.onProxy) {
           const proxyLog2 = {
             label: this.upstreamLogLabel,
@@ -48885,7 +48889,7 @@ class OpenAI_Inbound_Provider {
         model: typeof wireBody.model === "string" ? wireBody.model : "",
         streaming: true
       });
-      const response = openAICanonicalStreamResponse(result, route.path, wireBody, { telemetry });
+      const response = openAICanonicalStreamResponse(result, route.path, wireBody, { telemetry, featureNotices: this.featureNotices });
       if (!proxyLog)
         return response;
       return interceptResponseStream(response, {
@@ -49103,7 +49107,7 @@ function resolveEndpointProxyDisplayValue(mode, endpoint, proxy) {
     return "Unavailable";
   return sourceMode === mode ? "self" : endpointProxyProviderLabel(sourceMode);
 }
-function endpointProxyRouteProvider(sourceMode, endpoint, upstream, passthroughEnabled) {
+function endpointProxyRouteProvider(sourceMode, endpoint, upstream, passthroughEnabled, featureNoticesEnabled = false) {
   const route = endpointProxyRoute(endpoint);
   const upstreamLabels = {
     codex: {
@@ -49132,7 +49136,8 @@ function endpointProxyRouteProvider(sourceMode, endpoint, upstream, passthroughE
       expectedUpstreamKind: sourceMode,
       localCountTokens: sourceMode === "kiro",
       countTokens: sourceMode === "kiro" ? countKiroClaudeInputTokens : undefined,
-      routes: route.routes
+      routes: route.routes,
+      featureNotices: featureNoticesEnabled
     });
   }
   const upstreamWithModels = upstream;
@@ -49147,14 +49152,15 @@ function endpointProxyRouteProvider(sourceMode, endpoint, upstream, passthroughE
       ...codexBasePathRoutes(route.routes),
       ...route.endpoint === "responses" ? [OPENAI_MODELS_ROUTE, CODEX_MODELS_ROUTE] : []
     ],
-    modelResolver: () => upstreamWithModels.listModelDescriptors?.() ?? upstreamWithModels.listModels()
+    modelResolver: () => upstreamWithModels.listModelDescriptors?.() ?? upstreamWithModels.listModels(),
+    featureNotices: featureNoticesEnabled
   });
 }
 function bindInboundProvider(provider, upstream) {
   return new BoundInboundProvider(provider, upstream);
 }
-function buildEndpointProxyProvider(sourceMode, endpoint, upstream, passthroughEnabled) {
-  return bindInboundProvider(endpointProxyRouteProvider(sourceMode, endpoint, upstream, passthroughEnabled), upstream);
+function buildEndpointProxyProvider(sourceMode, endpoint, upstream, passthroughEnabled, featureNoticesEnabled = false) {
+  return bindInboundProvider(endpointProxyRouteProvider(sourceMode, endpoint, upstream, passthroughEnabled, featureNoticesEnabled), upstream);
 }
 async function canUseEndpointProxySource(mode, endpoint, proxy) {
   const sourceMode = resolveEndpointProxySourceMode(mode, endpoint, proxy);
@@ -49203,7 +49209,8 @@ function readNativeFlags(env = process.env) {
     strict: isEnablingValue(env.NATIVE_STRICT),
     passthrough: isEnablingValue(env.NATIVE_PASSTHROUGH),
     mcpEmulation: isEnablingValue(env.NATIVE_MCP_EMULATION),
-    kiroWebSearchHeuristics: isEnablingValue(env.KIRO_WEB_SEARCH_HEURISTICS)
+    kiroWebSearchHeuristics: isEnablingValue(env.KIRO_WEB_SEARCH_HEURISTICS),
+    featureNotices: isEnablingValue(env.NATIVE_FEATURE_NOTICES)
   };
 }
 
@@ -49326,12 +49333,13 @@ async function bootstrapRuntime(options) {
     mcpEmulation: nativeFlags.mcpEmulation
   });
   const registry = new Provider_Registry;
-  registerClaudeProvider(providerMode, activeRuntime.upstream, registry);
+  registerClaudeProvider(providerMode, activeRuntime.upstream, registry, nativeFlags.featureNotices);
   await registerEndpointProxyProviders(providerMode, activeRuntime, registry, options?.providerConfigPath, {
     strict: nativeFlags.strict,
     passthrough: nativeFlags.passthrough,
     kiroWebSearchHeuristics: nativeFlags.kiroWebSearchHeuristics,
-    mcpEmulation: nativeFlags.mcpEmulation
+    mcpEmulation: nativeFlags.mcpEmulation,
+    featureNotices: nativeFlags.featureNotices
   });
   return {
     authFile: activeRuntime.authFile,
@@ -49340,20 +49348,20 @@ async function bootstrapRuntime(options) {
     upstream: activeRuntime.upstream
   };
 }
-function registerClaudeProvider(mode, upstream, registry) {
+function registerClaudeProvider(mode, upstream, registry, featureNotices) {
   const upstreamWithModels = upstream;
   if (mode === "copilot") {
-    registry.register(new Claude_Copilot_Inbound_Adapter(() => upstreamWithModels.listModels(), CLAUDE_MODEL_ROUTES));
+    registry.register(new Claude_Copilot_Inbound_Adapter(() => upstreamWithModels.listModels(), CLAUDE_MODEL_ROUTES, featureNotices));
     return;
   }
   if (mode === "kiro") {
-    registry.register(new Claude_Kiro_Inbound_Adapter(() => upstreamWithModels.listModelDescriptors?.() ?? upstreamWithModels.listModels(), CLAUDE_MODEL_ROUTES));
+    registry.register(new Claude_Kiro_Inbound_Adapter(() => upstreamWithModels.listModelDescriptors?.() ?? upstreamWithModels.listModels(), CLAUDE_MODEL_ROUTES, featureNotices));
     return;
   }
-  registry.register(new Claude_Codex_Inbound_Adapter(() => upstreamWithModels.listModelDescriptors?.() ?? upstreamWithModels.listModels(), CLAUDE_MODEL_ROUTES));
+  registry.register(new Claude_Codex_Inbound_Adapter(() => upstreamWithModels.listModelDescriptors?.() ?? upstreamWithModels.listModels(), CLAUDE_MODEL_ROUTES, featureNotices));
 }
 async function registerEndpointProxyProviders(mode, activeRuntime, registry, providerConfigPath, flags = {}) {
-  const { strict, passthrough = false, kiroWebSearchHeuristics, mcpEmulation } = flags;
+  const { strict, passthrough = false, kiroWebSearchHeuristics, mcpEmulation, featureNotices = false } = flags;
   const endpointProxy = await readEndpointProxyMap(mode, providerConfigPath);
   const sourceRuntimeCache = new Map;
   for (const route of ENDPOINT_PROXY_ROUTES) {
@@ -49365,7 +49373,7 @@ async function registerEndpointProxyProviders(mode, activeRuntime, registry, pro
     const sourceRuntime = sourceMode === mode ? activeRuntime : await loadSourceRuntime(sourceMode, sourceRuntimeCache, { strict, kiroWebSearchHeuristics, mcpEmulation });
     if (!sourceRuntime)
       continue;
-    registry.register(buildEndpointProxyProvider(sourceMode, route.endpoint, sourceRuntime.upstream, passthrough));
+    registry.register(buildEndpointProxyProvider(sourceMode, route.endpoint, sourceRuntime.upstream, passthrough, featureNotices));
   }
 }
 async function loadSourceRuntime(mode, cache2, flags = {}) {
@@ -59190,8 +59198,6 @@ var CLAUDE_CODE_ENV_CONFIG = {
     ANTHROPIC_DEFAULT_HAIKU_MODEL: MODEL_CLIENT_DEFAULTS.ANTHROPIC_DEFAULT_HAIKU_MODEL
   },
   defaultExtraEnv: {
-    CLAUDE_CODE_DISABLE_1M_CONTEXT: "1",
-    CLAUDE_AUTOCOMPACT_PCT_OVERRIDE: "64",
     NODE_TLS_REJECT_UNAUTHORIZED: "0"
   },
   defaultUnsetEnv: []
@@ -59205,8 +59211,8 @@ var config2 = {
       ANTHROPIC_DEFAULT_OPUS_MODEL: "gpt-5.6-sol",
       ANTHROPIC_DEFAULT_SONNET_MODEL: "gpt-5.6-terra",
       ANTHROPIC_DEFAULT_HAIKU_MODEL: "gpt-5.6-luna",
-      CLAUDE_CODE_DISABLE_1M_CONTEXT: "1",
-      CLAUDE_AUTOCOMPACT_PCT_OVERRIDE: "64"
+      CLAUDE_CODE_DISABLE_1M_CONTEXT: "",
+      CLAUDE_AUTOCOMPACT_PCT_OVERRIDE: ""
     },
     static: {
       NODE_TLS_REJECT_UNAUTHORIZED: "0",
@@ -59221,8 +59227,8 @@ var config2 = {
       ANTHROPIC_DEFAULT_OPUS_MODEL: "claude-opus-5",
       ANTHROPIC_DEFAULT_SONNET_MODEL: "claude-sonnet-5",
       ANTHROPIC_DEFAULT_HAIKU_MODEL: "claude-haiku-4.5",
-      CLAUDE_CODE_DISABLE_1M_CONTEXT: "1",
-      CLAUDE_AUTOCOMPACT_PCT_OVERRIDE: "64"
+      CLAUDE_CODE_DISABLE_1M_CONTEXT: "",
+      CLAUDE_AUTOCOMPACT_PCT_OVERRIDE: ""
     },
     static: {
       NODE_TLS_REJECT_UNAUTHORIZED: "0",
@@ -59237,8 +59243,8 @@ var config2 = {
       ANTHROPIC_DEFAULT_OPUS_MODEL: "gpt-5.5",
       ANTHROPIC_DEFAULT_SONNET_MODEL: "gpt-5.4",
       ANTHROPIC_DEFAULT_HAIKU_MODEL: "gpt-5.4-mini",
-      CLAUDE_CODE_DISABLE_1M_CONTEXT: "1",
-      CLAUDE_AUTOCOMPACT_PCT_OVERRIDE: "64"
+      CLAUDE_CODE_DISABLE_1M_CONTEXT: "",
+      CLAUDE_AUTOCOMPACT_PCT_OVERRIDE: ""
     },
     static: {
       NODE_TLS_REJECT_UNAUTHORIZED: "0",
@@ -59362,7 +59368,7 @@ async function persistClaudeEnvironment(draft, baseUrl, _shell, options) {
     ...settings.env,
     ...Object.fromEntries(managedEnvironmentEntries(draft, baseUrl, options?.apiPassword))
   };
-  unsetKeysForSet(draft, baseUrl, options?.apiPassword).forEach((key) => {
+  [...unsetKeysForSet(draft, baseUrl, options?.apiPassword), ...blankExtraEnvKeys(draft)].forEach((key) => {
     delete nextEnv[key];
   });
   await writeClaudeSettingsFile({ ...settings, env: nextEnv }, options?.settingsFile);
@@ -59429,7 +59435,7 @@ function extraEnvDefaultsForProvider(providerMode) {
 }
 function extraEditableEnvDefaultsForProvider(providerMode) {
   const canEdit = exportEnvConfigForProvider(providerMode).canEdit;
-  return Object.fromEntries(EXPORT_ENV_EXTRA_EDITABLE_KEYS.map((key) => [key, canEdit[key]]));
+  return Object.fromEntries(EXPORT_ENV_EXTRA_EDITABLE_KEYS.map((key) => [key, canEdit[key]]).filter(([, value]) => value.trim()));
 }
 function modelEnvValue(key, fallback, providerMode) {
   if (providerMode === "kiro")
@@ -59444,12 +59450,16 @@ function managedEnvironmentEntries(draft, baseUrl, apiPassword) {
     ["ANTHROPIC_AUTH_TOKEN", authValue],
     ["ANTHROPIC_API_KEY", authValue],
     ...CLAUDE_MODEL_ENV_KEYS.map((key) => [key, normalized[key]]),
-    ...Object.entries(normalized.extraEnv)
+    ...Object.entries(normalized.extraEnv).filter(([, value]) => value.trim())
   ];
+}
+function blankExtraEnvKeys(draft) {
+  const extraEnv = normalizeClaudeEnvironment(draft).extraEnv;
+  return EXPORT_ENV_EXTRA_EDITABLE_KEYS.filter((key) => !(extraEnv[key] ?? "").trim());
 }
 function managedEnvironmentKeys(draft) {
   const normalized = normalizeClaudeEnvironment(draft);
-  return [...new Set([...CLAUDE_ENV_KEYS, ...Object.keys(normalized.extraEnv), ...normalized.unsetEnv])];
+  return [...new Set([...CLAUDE_ENV_KEYS, ...Object.keys(normalized.extraEnv), ...EXPORT_ENV_EXTRA_EDITABLE_KEYS, ...normalized.unsetEnv])];
 }
 function unsetKeysForSet(draft, baseUrl, apiPassword) {
   const managedKeys = new Set(managedEnvironmentEntries(draft, baseUrl, apiPassword).map(([key]) => key));
@@ -59902,7 +59912,8 @@ function ClaudeEnvironmentEditor(props) {
             name: key,
             value: props.draft.extraEnv[key] ?? "",
             active: props.selected === modelKeyCount + index,
-            confirm: props.confirm
+            confirm: props.confirm,
+            optional: true
           }, key, false, undefined, this))
         ]
       }, undefined, true, undefined, this),
@@ -59984,6 +59995,10 @@ function EditableRow(props) {
       /* @__PURE__ */ jsx_dev_runtime2.jsxDEV(Text, {
         color: props.active ? "#d97757" : "#c0caf5",
         children: props.value
+      }, undefined, false, undefined, this),
+      props.optional && !props.value && /* @__PURE__ */ jsx_dev_runtime2.jsxDEV(Text, {
+        color: "#636a83",
+        children: "(optional - blank means not set)"
       }, undefined, false, undefined, this),
       props.active && !props.confirm && /* @__PURE__ */ jsx_dev_runtime2.jsxDEV(Text, {
         inverse: true,
@@ -63689,6 +63704,11 @@ function useProviderLimits(options) {
 
 // src/ui/providers/use-provider-runtime.ts
 var import_react39 = __toESM(require_react(), 1);
+function persistProviderMode(mode, onMessage) {
+  writeProviderConfig(mode).catch((error) => {
+    onMessage(`Switched to ${mode} but saving the provider selection failed: ${error instanceof Error ? error.message : String(error)}`);
+  });
+}
 function useProviderRuntime(options) {
   const {
     hostname,
@@ -63738,10 +63758,10 @@ function useProviderRuntime(options) {
       setUpstream(undefined);
       const pendingSwitch = pendingProviderSwitch.current;
       if (pendingSwitch?.targetMode === providerMode) {
-        writeProviderConfig(providerMode);
+        persistProviderMode(providerMode, onMessage);
         pendingProviderSwitch.current = undefined;
         setSwitchingProvider(false);
-        onMessage(`Switched to ${pendingSwitch.targetLabel}. No account connected yet.`);
+        onMessage(`Switched to ${pendingSwitch.targetLabel}. No account connected yet \u2014 use /connect to add one.`);
       }
       setRuntime({ status: "error", error: `No ${providerDefinition(providerMode).label} account connected. Use /connect to add one.` });
       return;
@@ -63763,7 +63783,7 @@ function useProviderRuntime(options) {
         bootstrapSucceeded = true;
         const pendingSwitch = pendingProviderSwitch.current;
         if (pendingSwitch?.targetMode === providerMode)
-          writeProviderConfig(providerMode);
+          persistProviderMode(providerMode, onMessage);
         const nextServer = await startRuntimeWithBootstrap({
           authFile: bootstrapped.authFile,
           authAccount: bootstrapped.authAccount,

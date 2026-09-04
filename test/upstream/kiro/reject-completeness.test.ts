@@ -46,11 +46,13 @@ function errorOf(result: Awaited<ReturnType<ReturnType<typeof kiroEffortProbe>["
 }
 
 describe("Feature: native-api-mode, a Kiro rejection is a complete account of the request", () => {
-  test("the live no-silent-drop request yields one 400 naming both rejected features and reporting both degrades", async () => {
-    // The declarations this case rests on, read rather than assumed: two `reject` cells reached by
-    // one request is the whole subject, and it stops being the subject if a cell moves.
+  test("the live no-silent-drop request yields one 400 naming the rejected feature and reporting every degrade", async () => {
+    // The declarations this case rests on, read rather than assumed. `stopSequences` was the second
+    // `reject` cell this request reached until it moved to `degrade`; it is asserted here in its new
+    // position because the move is what turned it from part of the 400's body into part of its
+    // notice list, and a move back has to come through this line.
     expect(KIRO_CAPABILITIES.features.sampling).toBe("reject")
-    expect(KIRO_CAPABILITIES.features.stopSequences).toBe("reject")
+    expect(KIRO_CAPABILITIES.features.stopSequences).toBe("degrade")
     expect(KIRO_CAPABILITIES.features.thinkingBudget).toBe("degrade")
     expect(KIRO_CAPABILITIES.features.toolChoiceForced).toBe("degrade")
 
@@ -61,13 +63,14 @@ describe("Feature: native-api-mode, a Kiro rejection is a complete account of th
     // message still leads (task 14b.7 changes what the message *continues with*, not its head).
     expect(error.status).toBe(400)
     expect(error.body.startsWith("This upstream does not support sampling:")).toBe(true)
-    // Gap (b): every rejected feature is named, each with its own reason and alternative.
-    expect(error.body).toContain("stopSequences")
-    expect(error.body).toContain("stop-sequence field")
-    expect(error.body).toContain("This request was also rejected on one further feature.")
+    // One rejection now, so no continuation — the multi-rejection body of gap (b) is exercised by
+    // the strict case below rather than dropped.
+    expect(error.body).not.toContain("also rejected")
     // Gap (a): the feature decided inside the effort resolver is on the notice list too, so the
-    // client learns what happened to its thinking budget from the same response.
-    expect(error.featureNotices?.map((notice) => notice.feature)).toEqual(["outputLength", "toolChoiceForced", "thinkingBudget"])
+    // client learns what happened to its thinking budget from the same response. `stopSequences`
+    // joins it in matrix order — the stop strings went nowhere, and the client is told rather than
+    // refused.
+    expect(error.featureNotices?.map((notice) => notice.feature)).toEqual(["outputLength", "stopSequences", "toolChoiceForced", "thinkingBudget"])
     const budgetNotice = error.featureNotices?.find((notice) => notice.feature === "thinkingBudget")
     expect(budgetNotice?.policy).toBe("degrade")
     // Both sides of the mapping, exactly as on a 200 (Requirement 16.7): 4000 sits between low
@@ -75,6 +78,26 @@ describe("Feature: native-api-mode, a Kiro rejection is a complete account of th
     expect(budgetNotice?.detail).toContain("4000")
     expect(budgetNotice?.detail).toContain("low")
     // A refused request still spends nothing upstream.
+    expect(probe.upstreamCalls()).toBe(0)
+  })
+
+  /**
+   * Gap (b) in example form, kept alive after `stopSequences` moved to `degrade`.
+   *
+   * Under `NATIVE_STRICT` every degrade escalates, so the same live body reaches several rejections
+   * again — which is what the continuation clause was written for. The unstrict case above no
+   * longer produces one, so without this the "every rejected feature is named" behavior would only
+   * be covered by the property test.
+   */
+  test("under strict the same request names every rejected feature, not just the first", async () => {
+    const probe = kiroEffortProbe({ levels: KIRO_LEVELS, defaultLevel: "medium", strict: true })
+    const error = errorOf(await probe.proxy(undefined, { mode: "enabled", budgetTokens: 4000 }, NO_SILENT_DROP_FIELDS))
+
+    expect(error.status).toBe(400)
+    expect(error.body.startsWith("This upstream does not support sampling:")).toBe(true)
+    expect(error.body).toContain("stopSequences")
+    expect(error.body).toContain("stop-sequence field")
+    expect(error.body).toContain("also rejected")
     expect(probe.upstreamCalls()).toBe(0)
   })
 

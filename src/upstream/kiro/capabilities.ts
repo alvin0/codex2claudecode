@@ -49,7 +49,16 @@ export const KIRO_CAPABILITIES: ProviderCapabilities = {
     // spike §4: no stop-sequence field exists on this endpoint, and the same paragraph
     // shows unknown fields answering 200 while being discarded — sending one would look
     // honoured and change nothing.
-    stopSequences: "reject",
+    //
+    // `degrade` rather than `reject`, on the same reading `outputLength` and `promptCache`
+    // take: a dropped stop sequence changes *where the reply ends*, never whether the request
+    // can be served, so the client can be told and handed a longer reply rather than refused.
+    // Read the other way this cell refuses every request that carries `stop_sequences` — 19 of
+    // 100 consecutive Claude Code requests in one recorded session — which is the failure mode
+    // Requirements 3.7 / 3.8 already rule out for `max_tokens`. Codex and Copilot declare
+    // `degrade` on the identical fact (no stop field on the endpoint), so this is the matrix
+    // agreeing with itself rather than a Kiro-specific concession.
+    stopSequences: "degrade",
     // spike §4 + §6: effort is a per-model enum validated server-side
     // (`REQUEST_BODY_INVALID` outside `[low, medium, high, xhigh, max]`), and §6 records
     // the enum plus default level per model. A token budget has no wire representation,

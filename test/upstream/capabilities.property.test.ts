@@ -101,8 +101,13 @@ type UpstreamName = (typeof UPSTREAM_CAPABILITY_MODULES)[number]["upstream"]
  * and a fourth table row above makes the outer record incomplete.
  *
  * Cells worth knowing about while reading, because they are the ones under active pressure:
- *   - `kiro.sampling` / `kiro.stopSequences` — Requirements 2.3 and 3.3, each resting on a
- *     measurement in `.omc/research/kiro-wire-spike.md` (§4, §7).
+ *   - `kiro.sampling` — Requirement 2.3, resting on a measurement in
+ *     `.omc/research/kiro-wire-spike.md` (§4).
+ *   - `kiro.stopSequences` — `degrade` on the same §4 measurement read the way `outputLength` and
+ *     `promptCache` read theirs: a dropped stop sequence changes where the reply ends, not whether
+ *     the request can be served. It rejected until a client that routinely sends `stop_sequences`
+ *     (Claude Code, on 19 of 100 consecutive requests in one recorded session) turned that cell
+ *     into a refusal of that whole share. All three upstreams now agree on `degrade` here.
  *   - `kiro.outputLength` — `degrade` rather than `reject`, on the same §4 measurement read the
  *     other way: the limit is accepted with a 200 and then disregarded, so the semantics changed
  *     rather than the field having nowhere to go. Task 12b split it out of `sampling` for exactly
@@ -129,7 +134,7 @@ const DECLARED_POLICY_MATRIX: Record<UpstreamName, Record<ProviderFeature, Featu
   kiro: {
     sampling: "reject",
     outputLength: "degrade",
-    stopSequences: "reject",
+    stopSequences: "degrade",
     thinkingBudget: "degrade",
     systemPrompt: "emulate",
     promptCache: "degrade",

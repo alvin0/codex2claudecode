@@ -4,13 +4,20 @@ All notable changes to this package are documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [0.4.2] - 2026-09-04
+
+### Fixed
+
+- Kiro no longer refuses a request that carries `stop_sequences`. The `stopSequences` cell moved from `reject` to `degrade`, on the same reading `outputLength` and `promptCache` already take: a dropped stop sequence changes where the reply ends, not whether the request can be served, so the client is told through a notice instead of getting a 400. Rejecting it refused every request carrying the field — 19 of 100 consecutive Claude Code requests in one recorded session — and Codex and Copilot already declared `degrade` on the identical fact (no stop-sequence field on the endpoint).
+- Rebuilt the bundled `dist/index.js` artifact for this release.
+
 ## [0.4.1] - 2026-09-04
 
 ### Added
 
 - Added `NATIVE_FEATURE_NOTICES`, which controls whether `degrade` notices are written into the client's own text. Off by default: the notices describe the upstream rather than the request, so they repeated on every turn. They still reach `Canonical_Response.featureNotices`, stream telemetry, and `/logs`.
 - Added citation support to the Claude streaming path: `text_done` now carries the upstream's annotations, and the renderer emits `citations_delta` events through the same mapping the non-streaming path uses.
-- Added `Canonical_StreamResponse.usage`, so an upstream that already counted its input (Kiro) reports the same `input_tokens` in `message_start` that `message_delta` closes on.
+- Added `Canonical_StreamResponse.usage`, so an upstream that already counted the input it is about to send (Kiro) opens `message_start` on that count instead of on the renderer's own estimate of the client's request.
 
 ### Changed
 

@@ -129,10 +129,9 @@ describe("Kiro feature resolution", () => {
     expect(open.notices()).toEqual([])
   })
 
-  test("sampling and stop sequences reject, naming the feature and an alternative", () => {
+  test("sampling rejects, naming the feature and an alternative", () => {
     const cases: Array<[ProviderFeature, Partial<FutureRequest>]> = [
       ["sampling", { sampling: { temperature: 0.2 } }],
-      ["stopSequences", { sampling: { stopSequences: ["STOP"] } }],
     ]
     for (const [feature, overrides] of cases) {
       const rejection = features(overrides).firstRejection()
@@ -193,6 +192,23 @@ describe("Kiro feature resolution", () => {
   })
 
   /**
+   * The same shape as the two tests above, and load-bearing for the same reason: Claude Code puts
+   * `stop_sequences` on a sizeable share of its requests — 19 of 100 in one recorded session — so a
+   * rejecting cell here refuses that whole share rather than answering them without the stop.
+   */
+  test("stop sequences alone report through stopSequences and reject nothing", () => {
+    const decisions = features({ sampling: { stopSequences: ["STOP"] } })
+
+    expect(decisions.firstRejection()).toBeUndefined()
+    expect([...decisions.resolvedFeatures()]).toEqual(["stopSequences"])
+    expect(noticeFeatures(decisions.notices())).toEqual(["stopSequences"])
+    const [notice] = decisions.notices()
+    const noticePolicy: string = notice.policy
+    expect(noticePolicy).toBe(KIRO_CAPABILITIES.features.stopSequences)
+    expect(notice.detail.trim().length).toBeGreaterThan(0)
+  })
+
+  /**
    * The two cells side by side on one request: the limit still reports while the controls still
    * reject, and the 400 a client sees is the `sampling` one because it comes first in matrix order.
    */
@@ -215,7 +231,7 @@ describe("Kiro feature resolution", () => {
     expect([...decisions.resolvedFeatures()]).toEqual(["sampling", "stopSequences", "promptCache", "toolChoiceForced", "structuredOutput"])
     // The first rejection in matrix order wins, so one request yields one stable 400.
     expect(decisions.firstRejection()?.feature).toBe("sampling")
-    expect(noticeFeatures(decisions.notices())).toEqual(["promptCache", "toolChoiceForced", "structuredOutput"])
+    expect(noticeFeatures(decisions.notices())).toEqual(["stopSequences", "promptCache", "toolChoiceForced", "structuredOutput"])
   })
 
   test("strict escalates the declared degrade to a rejection and leaves emulation alone", () => {

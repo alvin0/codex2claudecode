@@ -217,13 +217,15 @@ describe("Property 42 — every upstream's own declaration", () => {
    * caught here rather than by a clause quietly covering less — the same guard
    * `reject-notices.property.test.ts` keeps for its own sets.
    */
-  test("Feature: native-api-mode, Property 42: several rejections at once are reachable, unstrict on Kiro and strict everywhere", () => {
-    // `promptCache` was the third member until it moved to `degrade`; the two that remain are
-    // the whole of Kiro's unstrict `reject` set among request-resolved fields, so this stays a
-    // multi-rejection case rather than becoming one.
+  test("Feature: native-api-mode, Property 42: several rejections at once are reachable under strict everywhere, while unstrict Kiro rejects only sampling", () => {
+    // `promptCache` and then `stopSequences` left this set as each moved to `degrade`, so `sampling`
+    // is now the whole of Kiro's unstrict `reject` set among request-resolved fields. Asserted as
+    // the exact set rather than dropped: a cell moving back to `reject` has to come through here.
     const kiroUnstrict = resolveKiroFeatures(requestFor(["sampling", "stopSequences", "promptCache"]), { strict: false })
-    expect(kiroUnstrict.rejections().map((rejection) => rejection.feature)).toEqual(["sampling", "stopSequences"])
+    expect(kiroUnstrict.rejections().map((rejection) => rejection.feature)).toEqual(["sampling"])
     expect(kiroUnstrict.rejectionReport()?.feature).toBe("sampling")
+    // The multi-rejection half of this property is carried by the strict loop below, which covers
+    // Kiro too — so nothing above becomes vacuous by shrinking to one.
 
     for (const upstream of UPSTREAMS) {
       const fields = resolvable(upstream)
