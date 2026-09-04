@@ -3,20 +3,32 @@ import type { ClaudeMessagesRequest, JsonObject } from "../types"
 
 import { parseJsonObject } from "./sse"
 import { claudeErrorBody } from "./errors"
-import { responseOutputTextToClaudeBlocks } from "./content"
+import { annotationToClaudeCitation, responseOutputTextToClaudeBlocks } from "./content"
 import { countClaudeInputTokens } from "./convert"
 import { prependClaudeWarning, renderClaudeFeatureWarning } from "./notice"
 import { mergeCanonicalUsage, mergeServerToolUse } from "../../core/usage"
 import type { StreamTelemetryCollector } from "../../core/stream-telemetry"
 import { ClaudeSseWriter } from "./sse-writer"
 
-export async function canonicalResponseToClaudeMessage(response: Canonical_Response, request: ClaudeMessagesRequest) {
+/**
+ * `featureNotices` is the resolved `NATIVE_FEATURE_NOTICES` value the inbound provider was built
+ * with, threaded rather than read here (design decision D3). It defaults to **off**, which is what
+ * a caller outside the composition root — a test, or the legacy Codex handler path — gets: the
+ * notice list is emptied before rendering, and every downstream branch takes the "no degrade
+ * notice" path Requirement 9.2 already pins as byte-identical to a notice-free response.
+ */
+export async function canonicalResponseToClaudeMessage(
+  response: Canonical_Response,
+  request: ClaudeMessagesRequest,
+  options?: { featureNotices?: boolean },
+) {
+  const notices = options?.featureNotices ? response.featureNotices ?? [] : []
   return {
     id: response.id.replace(/^resp_/, "msg_"),
     type: "message",
     role: "assistant",
     model: response.model || request.model,
-    content: withClaudeWarning(response.content.flatMap(canonicalContentToClaudeBlocks), renderClaudeFeatureWarning(response.featureNotices ?? [])),
+    content: withClaudeWarning(response.content.flatMap(canonicalContentToClaudeBlocks), renderClaudeFeatureWarning(notices)),
     stop_reason: response.stopReason,
     stop_sequence: null,
     usage: canonicalUsageToClaudeUsage(response.usage),
@@ -54,14 +66,17 @@ function trailingWarningSegment(text: string, warning: string) {
   return prependClaudeWarning(warning, text).slice(text.length)
 }
 
-export function claudeCanonicalStreamResponse(response: Canonical_StreamResponse, request: ClaudeMessagesRequest, options?: { heartbeatMs?: number; onCancel?: (reason: unknown) => void; telemetry?: StreamTelemetryCollector }) {
+export function claudeCanonicalStreamResponse(response: Canonical_StreamResponse, request: ClaudeMessagesRequest, options?: { heartbeatMs?: number; onCancel?: (reason: unknown) => void; telemetry?: StreamTelemetryCollector; featureNotices?: boolean }) {
   const messageId = response.id.replace(/^resp_/, "msg_")
   const model = response.model || request.model
   const heartbeatMs = options?.heartbeatMs ?? 5000
   let iterator: AsyncIterator<Canonical_Event> | undefined
   let heartbeat: ReturnType<typeof setInterval> | undefined
   let thinkingSignature = ""
-  let inputTokens = initialStreamInputTokens(request)
+  // The upstream's own count when it has one, so `message_start` opens on the figure
+  // `message_delta` will close on. Falling back to the local estimate keeps the opening number
+  // non-zero for upstreams that only learn their input count from mid-stream usage frames.
+  let inputTokens = response.usage?.inputTokens ?? initialStreamInputTokens(request)
   let outputTokens = 0
   let cacheCreationInputTokens = 0
   let cacheReadInputTokens = 0
@@ -82,6 +97,21 @@ export function claudeCanonicalStreamResponse(response: Canonical_StreamResponse
     const warning = renderClaudeFeatureWarning(pendingNotices)
     pendingNotices.length = 0
     return warning
+  }
+
+  /**
+   * Emits one `citations_delta` per citation the upstream attached to the text just sent.
+   *
+   * Runs after the text delta rather than before it: a citation names a span of the block it
+   * annotates, so the span has to exist first. Mapped through the same function the
+   * non-streaming renderer uses, so a client that rebuilds the message from the stream gets
+   * byte-identical citations to the ones a non-streaming call would have returned.
+   */
+  function emitCitations(annotations: JsonObject[] | undefined, text: string) {
+    if (!annotations?.length) return
+    for (const annotation of annotations) {
+      for (const citation of annotationToClaudeCitation(annotation, text)) writer.citationDelta(citation)
+    }
   }
 
   /** The single place text reaches the client, so warning placement sees exactly what it saw. */
@@ -200,14 +230,22 @@ export function claudeCanonicalStreamResponse(response: Canonical_StreamResponse
               writer.stopThinkingBlock(thinkingSignature)
               writer.startTextBlock()
               emitText(withPendingWarning(event.text))
+              emitCitations(event.annotations, event.text)
               continue
             }
             if (event.type === "feature_notice") {
               // Token- and content-neutral (Requirement 8.4): the notice is only recorded and
               // queued here — nothing is started, stopped, or flushed — so a notice arriving
               // between two text deltas cannot split the text block.
+              // Telemetry is recorded before the visibility gate, never behind it: switching the
+              // client-facing rendering off must not cost the operator the record (`/logs`) or
+              // the native harness its observation. Only the queue that feeds the rendered
+              // segment is skipped, which leaves every placement helper on its already-pinned
+              // "nothing queued" branch (Requirement 9.2).
               options?.telemetry?.recordFeatureNotice(event)
-              pendingNotices.push({ feature: event.feature, policy: event.policy, detail: event.detail })
+              if (options?.featureNotices) {
+                pendingNotices.push({ feature: event.feature, policy: event.policy, detail: event.detail })
+              }
               continue
             }
             if (event.type === "tool_call_done") {

@@ -252,6 +252,10 @@ export function streamKiroResponse(
     status: response.status,
     id,
     model: fallbackModel,
+    // The payload was built before this stream opened, so the input count is already known and
+    // does not have to wait for the first `usage` frame. Handing it over here is what lets an
+    // inbound renderer open with the same number it will close on.
+    usage: { inputTokens: inputTokenEstimate },
     events: {
       async *[Symbol.asyncIterator]() {
         yield* iterateKiroEvents(response.body, inputTokenEstimate, effectiveTools, serverTools, true, initialServerToolBlocks, prefaceText, maxInputTokens, mcp)

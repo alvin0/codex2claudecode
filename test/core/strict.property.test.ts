@@ -857,7 +857,9 @@ describe("the Kiro unit pair, on a genuinely degraded feature", () => {
 
     // "200 carrying a Feature_Notice" as the client sees it: the degrade renders as a warning ahead
     // of the model text, naming the feature (Requirement 9.1's channel, already in place).
-    const message = await canonicalResponseToClaudeMessage(accepted, claudeRequest)
+    // `featureNotices: true` because this clause is about the rendered channel; the flag's own
+    // default is off and is covered by `test/app/native-flags.test.ts`.
+    const message = await canonicalResponseToClaudeMessage(accepted, claudeRequest, { featureNotices: true })
     const rendered = message.content.map((block) => ("text" in block ? block.text : "")).join("\n")
     expect(rendered).toContain(feature)
   })

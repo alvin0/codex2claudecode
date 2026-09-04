@@ -25,6 +25,14 @@ export interface ClaudeInboundProviderOptions {
   localCountTokens?: boolean
   countTokens?: (body: ClaudeMessagesRequest) => number
   routes?: Route_Descriptor[]
+  /**
+   * Whether `degrade` notices are rendered into the client's text. The resolved
+   * `NATIVE_FEATURE_NOTICES` value, threaded from `src/app/bootstrap.ts` (design decision D3) —
+   * this module never reads the environment. Defaults to **off**: the notices repeat verbatim on
+   * every turn and name nothing the client can act on, while the same notices keep reaching
+   * telemetry and the request log regardless.
+   */
+  featureNotices?: boolean
 }
 
 export class Claude_Inbound_Provider implements Inbound_Provider {
@@ -37,6 +45,7 @@ export class Claude_Inbound_Provider implements Inbound_Provider {
   private readonly expectedUpstreamKind?: UpstreamProviderKind
   private readonly localCountTokens: boolean
   private readonly countTokens: (body: ClaudeMessagesRequest) => number
+  private readonly featureNotices: boolean
 
   constructor(optionsOrModelResolver: ClaudeInboundProviderOptions | ModelResolverFn = {}) {
     const options = typeof optionsOrModelResolver === "function" ? { modelResolver: optionsOrModelResolver } : optionsOrModelResolver
@@ -54,7 +63,22 @@ export class Claude_Inbound_Provider implements Inbound_Provider {
     this.expectedUpstreamKind = options.expectedUpstreamKind
     this.localCountTokens = options.localCountTokens ?? false
     this.countTokens = options.countTokens ?? countClaudeInputTokens
+    this.featureNotices = options.featureNotices ?? false
     this.modelCatalog = new Model_Catalog()
+  }
+
+  /**
+   * The notices the client-facing rendering may use: the ones this request decided when the
+   * rendering is on, and none when it is off.
+   *
+   * Emptying the list rather than skipping the render keeps every downstream path on its existing
+   * "no degrade notice" branch — which Requirement 9.2 already pins as byte-identical to the
+   * notice-free response — instead of adding a second way to produce no warning. The full list is
+   * untouched on `Canonical_Response.featureNotices`, so telemetry and the request log still carry
+   * it (Requirement 10.1 is answered on that channel, not this one).
+   */
+  private renderableNotices(notices: Canonical_Response["featureNotices"]) {
+    return this.featureNotices ? notices ?? [] : []
   }
 
   routes(): Route_Descriptor[] {
@@ -193,7 +217,7 @@ export class Claude_Inbound_Provider implements Inbound_Provider {
       return claudeErrorResponse(
         prependClaudeWarning(
           claudeUpstreamErrorMessage(result.status, result.body),
-          renderClaudeFeatureWarning(result.featureNotices ?? []),
+          renderClaudeFeatureWarning(this.renderableNotices(result.featureNotices)),
         ),
         result.status,
       )
@@ -223,7 +247,7 @@ export class Claude_Inbound_Provider implements Inbound_Provider {
         // (Requirement 27.5) — the same mechanism `responseBody` below relies on.
         if (proxyLog) proxyLog.telemetry = canonicalResponseTelemetrySummary(accumulated)
         if (proxyLog && shouldCaptureProxyBody) proxyLog.responseBody = upstreamResponseBody?.()
-        return Response.json(await canonicalResponseToClaudeMessage(accumulated, body))
+        return Response.json(await canonicalResponseToClaudeMessage(accumulated, body, { featureNotices: this.featureNotices }))
       }
       // One collector per streaming request. The renderer records provider spend and
       // non-native handling decisions into it as canonical events flow past; without a
@@ -238,9 +262,10 @@ export class Claude_Inbound_Provider implements Inbound_Provider {
         model: body.model,
         streaming: true,
       })
-      if (!proxyLog) return claudeCanonicalStreamResponse(result, body, { telemetry })
+      if (!proxyLog) return claudeCanonicalStreamResponse(result, body, { telemetry, featureNotices: this.featureNotices })
       return claudeCanonicalStreamResponse(withLoggedCanonicalStream(result, proxyLog, started, upstreamResponseBody, telemetry), body, {
         telemetry,
+        featureNotices: this.featureNotices,
         onCancel: (reason) => {
           proxyLog.durationMs = Date.now() - started
           proxyLog.error = `stream cancelled: ${reasonText(reason)}`
@@ -256,7 +281,7 @@ export class Claude_Inbound_Provider implements Inbound_Provider {
       // branch above — is where the 10 non-streaming live cases land.
       if (proxyLog) proxyLog.telemetry = canonicalResponseTelemetrySummary(result)
       if (proxyLog && shouldCaptureProxyBody) proxyLog.responseBody = upstreamResponseBody?.()
-      return Response.json(await canonicalResponseToClaudeMessage(result, body))
+      return Response.json(await canonicalResponseToClaudeMessage(result, body, { featureNotices: this.featureNotices }))
     }
     if (isCanonicalPassthrough(result)) return claudeErrorResponse("Unexpected passthrough response for Claude inbound provider", 500)
     return claudeErrorResponse("Unexpected upstream response", 500)

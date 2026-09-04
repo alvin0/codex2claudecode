@@ -2,7 +2,7 @@
  * The only reader of the native-mode environment.
  *
  * Role, and only this role: environment in, booleans out. This module reads the
- * four native-mode variables and returns their resolved values. It decides
+ * five native-mode variables and returns their resolved values. It decides
  * nothing — no policy escalation, no provider selection, no wire behavior — so
  * every consumer downstream receives a plain boolean and stays testable without
  * touching `process.env`.
@@ -26,7 +26,7 @@
  */
 
 /**
- * Resolved state of the four native-mode environment variables.
+ * Resolved state of the five native-mode environment variables.
  *
  * Every member is required and boolean: an absent variable is `false`, not
  * `undefined`, so a consumer can never accidentally treat "unset" as a third
@@ -41,6 +41,18 @@ export interface NativeFlags {
   mcpEmulation: boolean
   /** `KIRO_WEB_SEARCH_HEURISTICS` — restores the pre-native-mode Kiro web-search heuristics (task 27). */
   kiroWebSearchHeuristics: boolean
+  /**
+   * `NATIVE_FEATURE_NOTICES` — `degrade` notices are rendered into the client's own text.
+   *
+   * Off by default, unlike the reporting this replaces. The notices describe the upstream rather
+   * than the request, so they repeat verbatim on every turn of a session while naming nothing the
+   * client can act on; prepended to each reply they crowd out the model's text and accumulate in
+   * the transcript. What the client loses is only the *rendering* — every notice still reaches
+   * `Canonical_Response.featureNotices`, stream telemetry, and the request log, so the operator
+   * can still read which fields were changed and why (`/logs`), and the native harness still
+   * observes them through telemetry.
+   */
+  featureNotices: boolean
 }
 
 /**
@@ -70,7 +82,7 @@ export function isEnablingValue(value: string | undefined): boolean {
 }
 
 /**
- * Read all four native-mode flags from `env`.
+ * Read all five native-mode flags from `env`.
  *
  * Total and side-effect-free: it never throws, never writes, and never caches.
  * `env` defaults to `process.env` for production callers and is passed
@@ -83,5 +95,6 @@ export function readNativeFlags(env: Record<string, string | undefined> = proces
     passthrough: isEnablingValue(env.NATIVE_PASSTHROUGH),
     mcpEmulation: isEnablingValue(env.NATIVE_MCP_EMULATION),
     kiroWebSearchHeuristics: isEnablingValue(env.KIRO_WEB_SEARCH_HEURISTICS),
+    featureNotices: isEnablingValue(env.NATIVE_FEATURE_NOTICES),
   }
 }

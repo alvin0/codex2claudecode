@@ -101,12 +101,17 @@ type UpstreamName = (typeof UPSTREAM_CAPABILITY_MODULES)[number]["upstream"]
  * and a fourth table row above makes the outer record incomplete.
  *
  * Cells worth knowing about while reading, because they are the ones under active pressure:
- *   - `kiro.sampling` / `kiro.stopSequences` / `kiro.promptCache` — Requirements 2.3 and 3.3, each
- *     resting on a measurement in `.omc/research/kiro-wire-spike.md` (§4, §7).
+ *   - `kiro.sampling` / `kiro.stopSequences` — Requirements 2.3 and 3.3, each resting on a
+ *     measurement in `.omc/research/kiro-wire-spike.md` (§4, §7).
  *   - `kiro.outputLength` — `degrade` rather than `reject`, on the same §4 measurement read the
  *     other way: the limit is accepted with a 200 and then disregarded, so the semantics changed
  *     rather than the field having nowhere to go. Task 12b split it out of `sampling` for exactly
  *     that reason, so the two cells diverging here is the point rather than an inconsistency.
+ *   - `kiro.promptCache` — `degrade` on the §7 measurement read the same way as `outputLength`:
+ *     a dropped cache hint changes what a request costs, not what it answers, so it reports
+ *     instead of refusing. It rejected until a client that always sends `cache_control`
+ *     (Claude Code) turned that cell into a refusal of every request. All three upstreams now
+ *     agree on `degrade` here, which is the point rather than a Kiro-specific concession.
  *   - `codex.sampling` / `codex.outputLength` — **`degrade`, measured** (spike §11.2, §11.5). Both
  *     read `native` until that probe: `sampling` by elimination from Requirement 10.6, and
  *     `outputLength` on wire-format grounds because the Responses API documents
@@ -127,7 +132,7 @@ const DECLARED_POLICY_MATRIX: Record<UpstreamName, Record<ProviderFeature, Featu
     stopSequences: "reject",
     thinkingBudget: "degrade",
     systemPrompt: "emulate",
-    promptCache: "reject",
+    promptCache: "degrade",
     strictToolSchema: "degrade",
     toolChoiceForced: "degrade",
     structuredOutput: "emulate",

@@ -163,22 +163,22 @@ describe("native harness observation", () => {
   test("parses the rendered degrade warning into one notice per feature", () => {
     const notices = textNotices(
       [
-        "[gateway] 2 requested features were not honored as sent:",
-        "- sampling: temperature=0.2 was not sent upstream",
-        "- toolChoiceForced: tool_choice \"required\" was applied by narrowing the tool list",
+        "[gateway] not honored as sent: sampling, toolChoiceForced",
         "",
         "ok",
       ].join("\n"),
     )
     expect(notices.map((notice) => notice.feature)).toEqual(["sampling", "toolChoiceForced"])
-    expect(notices[0].detail).toContain("temperature=0.2")
+    // The rendered warning names features and nothing else, so this channel carries no detail —
+    // `featureNotices()` reads telemetry when the detail matters.
+    expect(notices[0].detail).toBeUndefined()
     expect(notices[0].source).toBe("text")
   })
 
   test("prefers telemetry notices over the rendered text", () => {
     const notices = featureNotices(
       observation({
-        clientJson: { content: [{ type: "text", text: "[gateway] 1 …\n- sampling: from text" }] },
+        clientJson: { content: [{ type: "text", text: "[gateway] not honored as sent: sampling" }] },
         requestLog: {
           id: "1",
           at: "now",
@@ -224,7 +224,7 @@ describe("native harness assertions", () => {
     expect(declared.evaluate(observation({ clientJson: { content: [{ type: "text", text: "ok" }] } })).ok).toBe(false)
     expect(
       declared.evaluate(
-        observation({ clientJson: { content: [{ type: "text", text: "[gateway] 1 …\n- sampling: temperature dropped" }] } }),
+        observation({ clientJson: { content: [{ type: "text", text: "[gateway] not honored as sent: sampling" }] } }),
       ).ok,
     ).toBe(true)
     expect(
@@ -776,7 +776,7 @@ describe("native matrix records", () => {
     const records = nativeMatrixObservationsFor(
       nativeLiveCase("sampling-declared"),
       observation({
-        clientJson: { content: [{ type: "text", text: "[gateway] 1 …\n- sampling: temperature dropped" }] },
+        clientJson: { content: [{ type: "text", text: "[gateway] not honored as sent: sampling" }] },
       }),
     )
 
@@ -812,7 +812,7 @@ describe("native matrix records", () => {
       nativeLiveCase("sampling-declared"),
       observation({
         clientJson: {
-          content: [{ type: "text", text: "[gateway] 2 …\n- sampling: dropped\n- stopSequences: dropped" }],
+          content: [{ type: "text", text: "[gateway] not honored as sent: sampling, stopSequences" }],
         },
       }),
     )

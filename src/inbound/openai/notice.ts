@@ -31,49 +31,35 @@ export const OPENAI_NOTICE_MARKER = "[gateway]"
 export const OPENAI_WARNING_SEPARATOR = "\n\n"
 
 /**
- * One rendered notice line. The harness parses `- <feature>: <detail>` lines, one notice per
- * line, so a detail spanning lines would truncate the list — details are flattened first.
- */
-function noticeLine(feature: string, detail: string) {
-  return `- ${feature}: ${detail}`
-}
-
-/** Collapses any whitespace run (including newlines) to a single space, so one notice is one line. */
-function flattenDetail(detail: string) {
-  return detail.replace(/\s+/g, " ").trim()
-}
-
-function headerLine(count: number) {
-  const subject = count === 1 ? "1 requested feature was" : `${count} requested features were`
-  return `${OPENAI_NOTICE_MARKER} ${subject} not honored as sent:`
-}
-
-/**
- * Renders every `degrade` notice of one request as a single warning segment: one header line
- * plus one line per notice (Requirement 9.4 — one combined warning, not one per notice).
+ * Renders every `degrade` notice of one request as a single warning line naming the features
+ * (Requirement 9.4 — one combined warning, not one per notice).
+ *
+ * Names only, no `detail` — the same rendering `src/inbound/claude/notice.ts` produces, and for
+ * the reason written out there: the details describe the upstream rather than the request, so
+ * they repeat verbatim on every turn while crowding out the model's own text. The prose stays
+ * on `Canonical_Response.featureNotices`, which reaches stream telemetry and the request log
+ * untouched.
  *
  * Returns `""` when the list holds no `degrade` notice. `emulate` notices are telemetry-only
  * (Requirement 9.2), so an `emulate`-only list renders exactly what an empty list renders.
  *
- * Duplicate notices are collapsed by `(feature, detail)` — the collectors keep one entry per
- * event on purpose, so deduping is this renderer's job. First-seen order is preserved; two
- * notices sharing a feature but differing in detail are two distinct lines.
+ * Deduped by feature in first-seen order. The key is the feature alone rather than the
+ * `(feature, detail)` pair the per-notice lines used: with the detail gone, two notices for one
+ * feature would otherwise render as the same name twice.
  */
 export function renderOpenAIFeatureWarning(notices: readonly Canonical_FeatureNotice[]): string {
-  const lines: string[] = []
+  const features: string[] = []
   const seen = new Set<string>()
 
   for (const notice of notices) {
     if (notice.policy !== "degrade") continue
-    const detail = flattenDetail(notice.detail)
-    const key = `${notice.feature}\u0000${detail}`
-    if (seen.has(key)) continue
-    seen.add(key)
-    lines.push(noticeLine(notice.feature, detail))
+    if (seen.has(notice.feature)) continue
+    seen.add(notice.feature)
+    features.push(notice.feature)
   }
 
-  if (!lines.length) return ""
-  return [headerLine(lines.length), ...lines].join("\n")
+  if (!features.length) return ""
+  return `${OPENAI_NOTICE_MARKER} not honored as sent: ${features.join(", ")}`
 }
 
 /**

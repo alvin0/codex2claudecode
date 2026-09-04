@@ -28,6 +28,16 @@ interface SwitchProviderOptions {
   onBeforeApply?: (targetMode: ProviderMode, targetLabel: string) => void
 }
 
+/**
+ * Saves the active provider without blocking the switch. The write is fire-and-forget
+ * so a failure has to be caught here — an unhandled rejection kills the process on Bun.
+ */
+function persistProviderMode(mode: ProviderMode, onMessage: (message: string) => void) {
+  void writeProviderConfig(mode).catch((error) => {
+    onMessage(`Switched to ${mode} but saving the provider selection failed: ${error instanceof Error ? error.message : String(error)}`)
+  })
+}
+
 export function useProviderRuntime(options: UseProviderRuntimeOptions) {
   const {
     hostname,
@@ -76,10 +86,10 @@ export function useProviderRuntime(options: UseProviderRuntimeOptions) {
       setUpstream(undefined)
       const pendingSwitch = pendingProviderSwitch.current
       if (pendingSwitch?.targetMode === providerMode) {
-        void writeProviderConfig(providerMode)
+        persistProviderMode(providerMode, onMessage)
         pendingProviderSwitch.current = undefined
         setSwitchingProvider(false)
-        onMessage(`Switched to ${pendingSwitch.targetLabel}. No account connected yet.`)
+        onMessage(`Switched to ${pendingSwitch.targetLabel}. No account connected yet — use /connect to add one.`)
       }
       setRuntime({ status: "error", error: `No ${providerDefinition(providerMode).label} account connected. Use /connect to add one.` })
       return
@@ -103,7 +113,7 @@ export function useProviderRuntime(options: UseProviderRuntimeOptions) {
         bootstrapSucceeded = true
 
         const pendingSwitch = pendingProviderSwitch.current
-        if (pendingSwitch?.targetMode === providerMode) void writeProviderConfig(providerMode)
+        if (pendingSwitch?.targetMode === providerMode) persistProviderMode(providerMode, onMessage)
 
         const nextServer = await startRuntimeWithBootstrap(
           {

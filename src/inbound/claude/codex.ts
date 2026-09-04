@@ -23,8 +23,9 @@ export function codexProxyFn(client: CodexStandaloneClient): CodexProxyFn {
 }
 
 export class Claude_Codex_Inbound_Adapter extends Claude_Inbound_Provider {
-  constructor(modelResolver?: ModelResolverFn, routes?: Route_Descriptor[]) {
+  constructor(modelResolver?: ModelResolverFn, routes?: Route_Descriptor[], featureNotices?: boolean) {
     super({
+      featureNotices,
       name: "claude-codex",
       modelResolver: modelResolver ?? claudeSettingsModelResolver,
       upstreamLogLabel: "Codex responses",

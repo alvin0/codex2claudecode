@@ -12,18 +12,24 @@ import { canonicalInputTokenTotal, mergeCanonicalUsage } from "../../core/usage"
 import type { StreamTelemetryCollector } from "../../core/stream-telemetry"
 import { OPENAI_WARNING_SEPARATOR, prependOpenAIWarning, renderOpenAIFeatureWarning } from "./notice"
 
-export function openAICanonicalResponse(response: Canonical_Response, pathname: string, request: JsonObject): Response {
-  if (isChatPath(pathname)) return Response.json(canonicalResponseToChatCompletion(response))
-  return Response.json(canonicalResponseToResponsesBody(response, request))
+export function openAICanonicalResponse(response: Canonical_Response, pathname: string, request: JsonObject, options?: { featureNotices?: boolean }): Response {
+  if (isChatPath(pathname)) return Response.json(canonicalResponseToChatCompletion(response, options))
+  return Response.json(canonicalResponseToResponsesBody(response, request, options))
 }
 
-export function openAICanonicalStreamResponse(response: Canonical_StreamResponse, pathname: string, request: JsonObject, options?: { telemetry?: StreamTelemetryCollector }): Response {
-  if (isChatPath(pathname)) return chatCompletionStreamResponse(response, options?.telemetry)
-  return responsesStreamResponse(response, request, options?.telemetry)
+export function openAICanonicalStreamResponse(response: Canonical_StreamResponse, pathname: string, request: JsonObject, options?: { telemetry?: StreamTelemetryCollector; featureNotices?: boolean }): Response {
+  if (isChatPath(pathname)) return chatCompletionStreamResponse(response, options?.telemetry, options?.featureNotices)
+  return responsesStreamResponse(response, request, options?.telemetry, options?.featureNotices)
 }
 
-export function canonicalResponseToResponsesBody(response: Canonical_Response, request: JsonObject): JsonObject {
-  const output = withResponsesWarning(canonicalContentToResponsesOutput(response.content), renderOpenAIFeatureWarning(response.featureNotices ?? []))
+/**
+ * `featureNotices` is the resolved `NATIVE_FEATURE_NOTICES` value, threaded from the composition
+ * root rather than read here (design decision D3). Default **off**: the notice list is emptied
+ * before rendering, so every downstream branch takes the "no degrade notice" path Requirement 9.2
+ * already pins as byte-identical to a notice-free body.
+ */
+export function canonicalResponseToResponsesBody(response: Canonical_Response, request: JsonObject, options?: { featureNotices?: boolean }): JsonObject {
+  const output = withResponsesWarning(canonicalContentToResponsesOutput(response.content), renderOpenAIFeatureWarning(options?.featureNotices ? response.featureNotices ?? [] : []))
   const incompleteReason = response.stopReason === "max_tokens" ? "max_output_tokens" : undefined
   return responseObject({
     id: response.id,
@@ -36,7 +42,7 @@ export function canonicalResponseToResponsesBody(response: Canonical_Response, r
   })
 }
 
-export function canonicalResponseToChatCompletion(response: Canonical_Response): JsonObject {
+export function canonicalResponseToChatCompletion(response: Canonical_Response, options?: { featureNotices?: boolean }): JsonObject {
   const toolCalls = response.content.filter((block): block is Canonical_ToolCallBlock => block.type === "tool_call")
   // The warning is leading text of the assistant message — the chat-completions equivalent of
   // the Responses `output_text` prefix, and of Claude's `content[0].text` prefix. Requirement
@@ -45,7 +51,7 @@ export function canonicalResponseToChatCompletion(response: Canonical_Response):
   // client at all on that shape; with no degrade notice the render is unchanged.
   const text = prependOpenAIWarning(
     response.content.flatMap((block) => block.type === "text" ? [block.text] : []).join(""),
-    renderOpenAIFeatureWarning(response.featureNotices ?? []),
+    renderOpenAIFeatureWarning(options?.featureNotices ? response.featureNotices ?? [] : []),
   )
   const thinking = response.content.flatMap((block) => block.type === "thinking" ? [block.thinking] : []).join("")
   return {
@@ -69,7 +75,7 @@ export function canonicalResponseToChatCompletion(response: Canonical_Response):
   }
 }
 
-function responsesStreamResponse(response: Canonical_StreamResponse, request: JsonObject, telemetry?: StreamTelemetryCollector): Response {
+function responsesStreamResponse(response: Canonical_StreamResponse, request: JsonObject, telemetry?: StreamTelemetryCollector, featureNotices?: boolean): Response {
   const encoder = new TextEncoder()
   const id = response.id
   const model = response.model || stringOr(request.model, "unknown")
@@ -597,8 +603,11 @@ function responsesStreamResponse(response: Canonical_StreamResponse, request: Js
               // Token- and content-neutral (Requirement 8.4): the notice is recorded and queued,
               // and nothing is flushed, started or stopped here — a notice between two text
               // deltas must not split the text block.
+              // Telemetry first, visibility gate second: switching the client-facing rendering
+              // off must not cost the operator the record (`/logs`) or the harness its
+              // observation. Only the queue feeding the rendered segment is skipped.
               telemetry?.recordFeatureNotice(event)
-              pendingNotices.push({ feature: event.feature, policy: event.policy, detail: event.detail })
+              if (featureNotices) pendingNotices.push({ feature: event.feature, policy: event.policy, detail: event.detail })
               continue
             }
             if (event.type === "usage") {
@@ -696,7 +705,7 @@ function responsesStreamResponse(response: Canonical_StreamResponse, request: Js
   )
 }
 
-function chatCompletionStreamResponse(response: Canonical_StreamResponse, telemetry?: StreamTelemetryCollector): Response {
+function chatCompletionStreamResponse(response: Canonical_StreamResponse, telemetry?: StreamTelemetryCollector, featureNotices?: boolean): Response {
   const encoder = new TextEncoder()
   const id = response.id.replace(/^resp_/, "chatcmpl_")
   const created = nowSeconds()
@@ -922,8 +931,11 @@ function chatCompletionStreamResponse(response: Canonical_StreamResponse, teleme
             if (event.type === "feature_notice") {
               // Token- and content-neutral (Requirement 8.4): recorded and queued, nothing
               // emitted here, so a notice between two deltas cannot split the content stream.
+              // Telemetry first, visibility gate second: switching the client-facing rendering
+              // off must not cost the operator the record (`/logs`) or the harness its
+              // observation. Only the queue feeding the rendered segment is skipped.
               telemetry?.recordFeatureNotice(event)
-              pendingNotices.push({ feature: event.feature, policy: event.policy, detail: event.detail })
+              if (featureNotices) pendingNotices.push({ feature: event.feature, policy: event.policy, detail: event.detail })
               continue
             }
             if (event.type === "usage") {

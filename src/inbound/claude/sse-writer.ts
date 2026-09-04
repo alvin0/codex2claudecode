@@ -115,6 +115,20 @@ export class ClaudeSseWriter {
     })
   }
 
+  /**
+   * Emit one citation delta within the current text block.
+   *
+   * One event per citation, each appending to the `citations` list of the text block at the
+   * current index — the shape the Messages API documents for `citations_delta`.
+   */
+  citationDelta(citation: JsonObject): void {
+    this.send("content_block_delta", {
+      type: "content_block_delta",
+      index: this.contentIndex,
+      delta: { type: "citations_delta", citation },
+    })
+  }
+
   /** Emit a thinking delta within the current thinking block. */
   thinkingDelta(thinking: string): void {
     this.send("content_block_delta", {

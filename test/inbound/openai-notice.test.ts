@@ -36,11 +36,12 @@ describe("renderOpenAIFeatureWarning", () => {
     expect(renderOpenAIFeatureWarning(emulateOnly)).toBe(renderOpenAIFeatureWarning([]))
   })
 
-  test("renders one header line plus one line for a single degrade notice", () => {
-    expect(renderOpenAIFeatureWarning([SAMPLING]).split("\n")).toEqual([
-      "[gateway] 1 requested feature was not honored as sent:",
-      "- sampling: temperature=0.2 was not sent upstream",
-    ])
+  test("names the feature on one line for a single degrade notice", () => {
+    expect(renderOpenAIFeatureWarning([SAMPLING]).split("\n")).toEqual(["[gateway] not honored as sent: sampling"])
+  })
+
+  test("carries no detail prose into the rendered warning", () => {
+    expect(renderOpenAIFeatureWarning([SAMPLING])).not.toInclude("temperature=0.2")
   })
 
   test("renders one combined warning for several notices", () => {
@@ -48,12 +49,7 @@ describe("renderOpenAIFeatureWarning", () => {
     const lines = warning.split("\n")
     // Requirement 9.4: one warning segment for the whole request, not one per notice.
     expect(lines.filter((line) => line.includes(OPENAI_NOTICE_MARKER))).toHaveLength(1)
-    expect(lines[0]).toBe("[gateway] 3 requested features were not honored as sent:")
-    expect(lines.slice(1)).toEqual([
-      "- sampling: temperature=0.2 was not sent upstream",
-      '- toolChoiceForced: tool_choice "required" was applied by narrowing the tool list',
-      "- stopSequences: stop sequences were dropped",
-    ])
+    expect(lines).toEqual(["[gateway] not honored as sent: sampling, toolChoiceForced, stopSequences"])
   })
 
   test("drops only emulate notices when both policies are present", () => {
@@ -62,19 +58,16 @@ describe("renderOpenAIFeatureWarning", () => {
       SAMPLING,
       emulate("webSearch", "served through MCP"),
     ])
-    expect(warning).toBe(["[gateway] 1 requested feature was not honored as sent:", "- sampling: temperature=0.2 was not sent upstream"].join("\n"))
+    expect(warning).toBe("[gateway] not honored as sent: sampling")
   })
 
   test("collapses exact duplicates and counts them once", () => {
     expect(renderOpenAIFeatureWarning([SAMPLING, SAMPLING, SAMPLING])).toBe(renderOpenAIFeatureWarning([SAMPLING]))
   })
 
-  test("keeps near-duplicates that share a feature but differ in detail", () => {
+  test("collapses near-duplicates that share a feature but differ in detail", () => {
     const warning = renderOpenAIFeatureWarning([SAMPLING, degrade("sampling", "top_p=0.9 was not sent upstream")])
-    expect(warning.split("\n").slice(1)).toEqual([
-      "- sampling: temperature=0.2 was not sent upstream",
-      "- sampling: top_p=0.9 was not sent upstream",
-    ])
+    expect(warning).toBe("[gateway] not honored as sent: sampling")
   })
 
   test("preserves first-seen order when a duplicate arrives later", () => {
@@ -87,10 +80,9 @@ describe("renderOpenAIFeatureWarning", () => {
     expect(textNotices(warning).map((notice) => notice.feature)).toEqual(["sampling", "stopSequences", "toolChoiceForced"])
   })
 
-  test("flattens a multi-line detail so one notice stays one line", () => {
+  test("a multi-line detail cannot break the warning across lines", () => {
     expect(renderOpenAIFeatureWarning([degrade("mcpToolset", "tools/list failed:\n  connection reset\n")]).split("\n")).toEqual([
-      "[gateway] 1 requested feature was not honored as sent:",
-      "- mcpToolset: tools/list failed: connection reset",
+      "[gateway] not honored as sent: mcpToolset",
     ])
   })
 
@@ -99,10 +91,7 @@ describe("renderOpenAIFeatureWarning", () => {
     // single parser. What makes this rendering OpenAI-shaped is where the text lands.
     const parsed = textNotices(renderOpenAIFeatureWarning([SAMPLING, TOOL_CHOICE]))
     expect(parsed.map((notice) => notice.feature)).toEqual(["sampling", "toolChoiceForced"])
-    expect(parsed.map((notice) => notice.detail)).toEqual([
-      "temperature=0.2 was not sent upstream",
-      'tool_choice "required" was applied by narrowing the tool list',
-    ])
+    expect(parsed.map((notice) => notice.detail)).toEqual([undefined, undefined])
   })
 })
 
@@ -187,12 +176,12 @@ function responsesOutputText(body: Record<string, any>) {
 }
 
 async function readResponsesStream(events: Canonical_Event[], telemetry?: StreamTelemetryCollector) {
-  return readSse(openAICanonicalStreamResponse(canonicalStream(events), "/v1/responses", { model: "m", input: "hi" }, telemetry ? { telemetry } : undefined))
+  return readSse(openAICanonicalStreamResponse(canonicalStream(events), "/v1/responses", { model: "m", input: "hi" }, { featureNotices: true, ...(telemetry ? { telemetry } : {}) }))
 }
 
 /** `data: [DONE]` is not JSON, so the chat shape gets its own reader rather than `readSse()`. */
 async function readChatStream(events: Canonical_Event[], telemetry?: StreamTelemetryCollector) {
-  const response = openAICanonicalStreamResponse(canonicalStream(events), "/v1/chat/completions", { model: "m", messages: [] }, telemetry ? { telemetry } : undefined)
+  const response = openAICanonicalStreamResponse(canonicalStream(events), "/v1/chat/completions", { model: "m", messages: [] }, { featureNotices: true, ...(telemetry ? { telemetry } : {}) })
   const body = await response.text()
   return body
     .split("\n\n")
@@ -227,7 +216,7 @@ const NOTICE_EVENTS: Canonical_Event[] = [
 
 describe("placement — Responses API, non-streaming", () => {
   test("one warning segment leads the first output_text part", () => {
-    const body = canonicalResponseToResponsesBody(canonicalResponse({ featureNotices: [SAMPLING, TOOL_CHOICE] }), { model: "m", input: "hi" }) as Record<string, any>
+    const body = canonicalResponseToResponsesBody(canonicalResponse({ featureNotices: [SAMPLING, TOOL_CHOICE] }), { model: "m", input: "hi" }, { featureNotices: true }) as Record<string, any>
     expect(markerCount(JSON.stringify(body))).toBe(1)
     expect(responsesOutputText(body)).toBe(`${WARNING}\n\nHere is the answer.`)
     expect(textNotices(responsesOutputText(body)).map((notice) => notice.feature)).toEqual(["sampling", "toolChoiceForced"])
@@ -235,17 +224,17 @@ describe("placement — Responses API, non-streaming", () => {
 
   test("a notice-free body is byte-identical to the same body rendered with an empty notice list", () => {
     const request = { model: "m", input: "hi" }
-    const withoutField = canonicalResponseToResponsesBody(canonicalResponse(), request)
-    const withEmptyList = canonicalResponseToResponsesBody(canonicalResponse({ featureNotices: [] }), request)
-    const withEmulateOnly = canonicalResponseToResponsesBody(canonicalResponse({ featureNotices: [emulate("structuredOutput", "schema enforced by prompt")] }), request)
+    const withoutField = canonicalResponseToResponsesBody(canonicalResponse(), request, { featureNotices: true })
+    const withEmptyList = canonicalResponseToResponsesBody(canonicalResponse({ featureNotices: [] }), request, { featureNotices: true })
+    const withEmulateOnly = canonicalResponseToResponsesBody(canonicalResponse({ featureNotices: [emulate("structuredOutput", "schema enforced by prompt")] }), request, { featureNotices: true })
     expect(JSON.stringify(stable(withEmptyList))).toBe(JSON.stringify(stable(withoutField)))
     // Requirement 9.2 on this path.
     expect(JSON.stringify(stable(withEmulateOnly))).toBe(JSON.stringify(stable(withoutField)))
   })
 
   test("adds no output item type a text-carrying response does not already produce", () => {
-    const warned = canonicalResponseToResponsesBody(canonicalResponse({ featureNotices: [SAMPLING] }), { model: "m", input: "hi" }) as Record<string, any>
-    const plain = canonicalResponseToResponsesBody(canonicalResponse(), { model: "m", input: "hi" }) as Record<string, any>
+    const warned = canonicalResponseToResponsesBody(canonicalResponse({ featureNotices: [SAMPLING] }), { model: "m", input: "hi" }, { featureNotices: true }) as Record<string, any>
+    const plain = canonicalResponseToResponsesBody(canonicalResponse(), { model: "m", input: "hi" }, { featureNotices: true }) as Record<string, any>
     expect((warned.output as any[]).map((item) => item.type)).toEqual((plain.output as any[]).map((item) => item.type))
   })
 
@@ -256,6 +245,7 @@ describe("placement — Responses API, non-streaming", () => {
         featureNotices: [SAMPLING],
       }),
       { model: "m", input: "hi" },
+      { featureNotices: true },
     ) as Record<string, any>
     expect(markerCount(JSON.stringify(body))).toBe(1)
     expect(responsesOutputText(body)).toBe(renderOpenAIFeatureWarning([SAMPLING]))
@@ -266,22 +256,22 @@ describe("placement — Responses API, non-streaming", () => {
 
 describe("placement — chat completions, non-streaming", () => {
   test("one warning segment leads the assistant content", () => {
-    const body = canonicalResponseToChatCompletion(canonicalResponse({ featureNotices: [SAMPLING, TOOL_CHOICE] })) as Record<string, any>
+    const body = canonicalResponseToChatCompletion(canonicalResponse({ featureNotices: [SAMPLING, TOOL_CHOICE] }), { featureNotices: true }) as Record<string, any>
     expect(markerCount(JSON.stringify(body))).toBe(1)
     expect(body.choices[0].message.content).toBe(`${WARNING}\n\nHere is the answer.`)
   })
 
   test("a notice-free body is byte-identical to the same body rendered with an empty notice list", () => {
-    const withoutField = canonicalResponseToChatCompletion(canonicalResponse())
-    const withEmptyList = canonicalResponseToChatCompletion(canonicalResponse({ featureNotices: [] }))
-    const withEmulateOnly = canonicalResponseToChatCompletion(canonicalResponse({ featureNotices: [emulate("webSearch", "served through MCP")] }))
+    const withoutField = canonicalResponseToChatCompletion(canonicalResponse(), { featureNotices: true })
+    const withEmptyList = canonicalResponseToChatCompletion(canonicalResponse({ featureNotices: [] }), { featureNotices: true })
+    const withEmulateOnly = canonicalResponseToChatCompletion(canonicalResponse({ featureNotices: [emulate("webSearch", "served through MCP")] }), { featureNotices: true })
     expect(JSON.stringify(stable(withEmptyList))).toBe(JSON.stringify(stable(withoutField)))
     expect(JSON.stringify(stable(withEmulateOnly))).toBe(JSON.stringify(stable(withoutField)))
   })
 
   test("adds no field the notice-free body lacks", () => {
-    const warned = canonicalResponseToChatCompletion(canonicalResponse({ featureNotices: [SAMPLING] })) as Record<string, any>
-    const plain = canonicalResponseToChatCompletion(canonicalResponse()) as Record<string, any>
+    const warned = canonicalResponseToChatCompletion(canonicalResponse({ featureNotices: [SAMPLING] }), { featureNotices: true }) as Record<string, any>
+    const plain = canonicalResponseToChatCompletion(canonicalResponse(), { featureNotices: true }) as Record<string, any>
     expect(Object.keys(warned)).toEqual(Object.keys(plain))
     expect(Object.keys(warned.choices[0].message)).toEqual(Object.keys(plain.choices[0].message))
   })
@@ -292,6 +282,7 @@ describe("placement — chat completions, non-streaming", () => {
         content: [{ type: "tool_call", id: "fc_1", callId: "call_1", name: "Read", arguments: "{}" }],
         featureNotices: [SAMPLING],
       }),
+      { featureNotices: true },
     ) as Record<string, any>
     expect(body.choices[0].message.content).toBe(renderOpenAIFeatureWarning([SAMPLING]))
     expect(body.choices[0].message.tool_calls).toHaveLength(1)
@@ -422,7 +413,7 @@ function erroringUpstream(featureNotices?: Canonical_FeatureNotice[]) {
   }
 }
 async function openAIErrorFor(featureNotices?: Canonical_FeatureNotice[], options: { passthrough?: boolean; onProxy?: (log: RequestProxyLog) => void } = {}) {
-  const response = await new OpenAI_Inbound_Provider({ passthrough: options.passthrough ?? false }).handle(
+  const response = await new OpenAI_Inbound_Provider({ passthrough: options.passthrough ?? false, featureNotices: true }).handle(
     new Request("http://localhost/v1/responses", { method: "POST", body: JSON.stringify({ model: "m", input: "hi" }) }),
     { path: "/v1/responses", method: "POST" },
     erroringUpstream(featureNotices),
@@ -444,8 +435,8 @@ describe("placement — OpenAI error response", () => {
   test("the harness parser reads the notices back off the error body", async () => {
     const { text } = await openAIErrorFor([SAMPLING, TOOL_CHOICE])
     expect(textNotices(JSON.parse(text).error.message)).toEqual([
-      { feature: "sampling", detail: "temperature=0.2 was not sent upstream", source: "text" },
-      { feature: "toolChoiceForced", detail: 'tool_choice "required" was applied by narrowing the tool list', source: "text" },
+      { feature: "sampling", source: "text" },
+      { feature: "toolChoiceForced", source: "text" },
     ])
   })
   test("a notice-free error is byte-identical to the same error carrying an empty list", async () => {

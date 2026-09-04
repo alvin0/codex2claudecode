@@ -218,8 +218,11 @@ describe("Property 42 — every upstream's own declaration", () => {
    * `reject-notices.property.test.ts` keeps for its own sets.
    */
   test("Feature: native-api-mode, Property 42: several rejections at once are reachable, unstrict on Kiro and strict everywhere", () => {
+    // `promptCache` was the third member until it moved to `degrade`; the two that remain are
+    // the whole of Kiro's unstrict `reject` set among request-resolved fields, so this stays a
+    // multi-rejection case rather than becoming one.
     const kiroUnstrict = resolveKiroFeatures(requestFor(["sampling", "stopSequences", "promptCache"]), { strict: false })
-    expect(kiroUnstrict.rejections().map((rejection) => rejection.feature)).toEqual(["sampling", "stopSequences", "promptCache"])
+    expect(kiroUnstrict.rejections().map((rejection) => rejection.feature)).toEqual(["sampling", "stopSequences"])
     expect(kiroUnstrict.rejectionReport()?.feature).toBe("sampling")
 
     for (const upstream of UPSTREAMS) {

@@ -129,11 +129,10 @@ describe("Kiro feature resolution", () => {
     expect(open.notices()).toEqual([])
   })
 
-  test("sampling, stop sequences, and prompt cache reject, naming the feature and an alternative", () => {
+  test("sampling and stop sequences reject, naming the feature and an alternative", () => {
     const cases: Array<[ProviderFeature, Partial<FutureRequest>]> = [
       ["sampling", { sampling: { temperature: 0.2 } }],
       ["stopSequences", { sampling: { stopSequences: ["STOP"] } }],
-      ["promptCache", { cacheHint: [{ scope: "system" }] }],
     ]
     for (const [feature, overrides] of cases) {
       const rejection = features(overrides).firstRejection()
@@ -177,6 +176,23 @@ describe("Kiro feature resolution", () => {
   })
 
   /**
+   * The same shape as the `outputLength` test above, and load-bearing for the same reason: a
+   * client that always sends `cache_control` — Claude Code does — puts a cache hint on every
+   * request, so a rejecting cell here would refuse all of them.
+   */
+  test("a cache hint alone reports through promptCache and rejects nothing", () => {
+    const decisions = features({ cacheHint: [{ scope: "system" }] })
+
+    expect(decisions.firstRejection()).toBeUndefined()
+    expect([...decisions.resolvedFeatures()]).toEqual(["promptCache"])
+    expect(noticeFeatures(decisions.notices())).toEqual(["promptCache"])
+    const [notice] = decisions.notices()
+    const noticePolicy: string = notice.policy
+    expect(noticePolicy).toBe(KIRO_CAPABILITIES.features.promptCache)
+    expect(notice.detail.trim().length).toBeGreaterThan(0)
+  })
+
+  /**
    * The two cells side by side on one request: the limit still reports while the controls still
    * reject, and the 400 a client sees is the `sampling` one because it comes first in matrix order.
    */
@@ -199,7 +215,7 @@ describe("Kiro feature resolution", () => {
     expect([...decisions.resolvedFeatures()]).toEqual(["sampling", "stopSequences", "promptCache", "toolChoiceForced", "structuredOutput"])
     // The first rejection in matrix order wins, so one request yields one stable 400.
     expect(decisions.firstRejection()?.feature).toBe("sampling")
-    expect(noticeFeatures(decisions.notices())).toEqual(["toolChoiceForced", "structuredOutput"])
+    expect(noticeFeatures(decisions.notices())).toEqual(["promptCache", "toolChoiceForced", "structuredOutput"])
   })
 
   test("strict escalates the declared degrade to a rejection and leaves emulation alone", () => {

@@ -15,7 +15,15 @@ export function responseOutputTextToClaudeBlocks(content: unknown): JsonObject[]
   ]
 }
 
-function annotationToClaudeCitation(annotation: unknown, text: string) {
+/**
+ * One upstream annotation as a Claude citation, or nothing when it is not one.
+ *
+ * Exported because the streaming renderer needs the same mapping: a citation delivered as a
+ * `citations_delta` and one sitting in a finished block's `citations` array must be the same
+ * object, or a client that reconstructs the message from the stream ends up with a different
+ * result than the non-streaming call would have given it.
+ */
+export function annotationToClaudeCitation(annotation: unknown, text: string) {
   if (!annotation || typeof annotation !== "object") return []
   const item = annotation as {
     type?: unknown

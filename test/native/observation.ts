@@ -11,7 +11,9 @@ import type { NativeLiveObservation, NativeObservedNotice, NativeSseEvent } from
  */
 export const GATEWAY_NOTICE_MARKER = "[gateway]"
 
-const NOTICE_LINE = /^-\s*([A-Za-z][A-Za-z0-9_]*)\s*:\s*(.*)$/
+/** The one warning line: everything after `<marker> not honored as sent:` is the feature list. */
+const NOTICE_LINE = /not honored as sent:\s*(.*)$/
+const FEATURE_NAME = /^[A-Za-z][A-Za-z0-9_]*$/
 
 /** Client web tool names the Kiro heuristics used to synthesize (Requirement 17.7). */
 export const SYNTHESIZED_CLIENT_TOOL_NAMES = ["WebSearch", "WebFetch", "list_allowed_directories"] as const
@@ -257,18 +259,25 @@ function telemetryNotices(entry: RequestLogEntry | undefined): NativeObservedNot
   return []
 }
 
-/** Parses the rendered warning segment: a marker line followed by `- <feature>: <detail>` lines. */
+/**
+ * Parses the rendered warning segment: one `<marker> not honored as sent: a, b, c` line.
+ *
+ * Feature names only — the renderers stopped putting `detail` in front of the model text, so a
+ * notice observed through this channel carries no `detail`. `featureNotices()` prefers telemetry
+ * precisely because that channel still has it; this stays the fallback that answers *which*
+ * features were reported when telemetry is absent.
+ */
 export function textNotices(text: string): NativeObservedNotice[] {
   const markerIndex = text.indexOf(GATEWAY_NOTICE_MARKER)
   if (markerIndex < 0) return []
 
-  const notices: NativeObservedNotice[] = []
-  for (const line of text.slice(markerIndex).split(/\r?\n/).slice(1)) {
-    const trimmed = line.trim()
-    if (!trimmed) break
-    const match = NOTICE_LINE.exec(trimmed)
-    if (!match) break
-    notices.push({ feature: match[1], detail: match[2], source: "text" })
-  }
-  return notices
+  const line = text.slice(markerIndex).split(/\r?\n/)[0] ?? ""
+  const match = NOTICE_LINE.exec(line)
+  if (!match) return []
+
+  return match[1]!
+    .split(",")
+    .map((feature) => feature.trim())
+    .filter((feature) => FEATURE_NAME.test(feature))
+    .map((feature) => ({ feature, source: "text" as const }))
 }

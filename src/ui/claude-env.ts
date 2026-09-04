@@ -199,7 +199,7 @@ export async function persistClaudeEnvironment(draft: ClaudeEnvironmentDraft, ba
     ...settings.env,
     ...Object.fromEntries(managedEnvironmentEntries(draft, baseUrl, options?.apiPassword)),
   }
-  unsetKeysForSet(draft, baseUrl, options?.apiPassword).forEach((key) => {
+  ;[...unsetKeysForSet(draft, baseUrl, options?.apiPassword), ...blankExtraEnvKeys(draft)].forEach((key) => {
     delete nextEnv[key]
   })
   await writeClaudeSettingsFile({ ...settings, env: nextEnv }, options?.settingsFile)
@@ -274,7 +274,8 @@ function extraEnvDefaultsForProvider(providerMode: ProviderMode) {
 
 function extraEditableEnvDefaultsForProvider(providerMode: ProviderMode) {
   const canEdit = exportEnvConfigForProvider(providerMode).canEdit
-  return Object.fromEntries(EXPORT_ENV_EXTRA_EDITABLE_KEYS.map((key) => [key, canEdit[key]] as const))
+  // Keys with a blank default are optional: they stay out of the draft until the user types a value.
+  return Object.fromEntries(EXPORT_ENV_EXTRA_EDITABLE_KEYS.map((key) => [key, canEdit[key]] as const).filter(([, value]) => value.trim()))
 }
 
 function modelEnvValue(key: ClaudeCodeEditableEnvKey, fallback: string, providerMode: ProviderMode) {
@@ -288,7 +289,7 @@ function claudeEnvironmentPreviewLines(draft: ClaudeEnvironmentDraft, baseUrl: s
     ...managedEnvironmentEntries(draft, baseUrl, apiPassword).map(([key, value]) =>
       key === "ANTHROPIC_AUTH_TOKEN" || key === "ANTHROPIC_API_KEY" ? `${key} = [redacted]` : `${key} = ${JSON.stringify(value)}`,
     ),
-    ...unsetKeysForSet(draft, baseUrl, apiPassword).map((key) => `delete ${key}`),
+    ...[...new Set([...unsetKeysForSet(draft, baseUrl, apiPassword), ...blankExtraEnvKeys(draft)])].map((key) => `delete ${key}`),
   ]
 }
 
@@ -300,13 +301,19 @@ function managedEnvironmentEntries(draft: ClaudeEnvironmentDraft, baseUrl: strin
     ["ANTHROPIC_AUTH_TOKEN", authValue],
     ["ANTHROPIC_API_KEY", authValue],
     ...CLAUDE_MODEL_ENV_KEYS.map((key) => [key, normalized[key]] as [string, string]),
-    ...Object.entries(normalized.extraEnv),
+    ...Object.entries(normalized.extraEnv).filter(([, value]) => value.trim()),
   ]
+}
+
+/** Optional extra env keys left blank in the draft: never written, and removed from settings on save. */
+function blankExtraEnvKeys(draft: ClaudeEnvironmentDraft) {
+  const extraEnv = normalizeClaudeEnvironment(draft).extraEnv
+  return EXPORT_ENV_EXTRA_EDITABLE_KEYS.filter((key) => !(extraEnv[key] ?? "").trim())
 }
 
 function managedEnvironmentKeys(draft: ClaudeEnvironmentDraft) {
   const normalized = normalizeClaudeEnvironment(draft)
-  return [...new Set([...CLAUDE_ENV_KEYS, ...Object.keys(normalized.extraEnv), ...normalized.unsetEnv])]
+  return [...new Set([...CLAUDE_ENV_KEYS, ...Object.keys(normalized.extraEnv), ...EXPORT_ENV_EXTRA_EDITABLE_KEYS, ...normalized.unsetEnv])]
 }
 
 function unsetKeysForSet(draft: ClaudeEnvironmentDraft, baseUrl: string, apiPassword?: string) {

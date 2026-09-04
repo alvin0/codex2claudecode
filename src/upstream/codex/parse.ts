@@ -499,7 +499,9 @@ function emitCanonicalBlock(block: Canonical_ContentBlock, state: ParserState, e
     const next = remainingText(state, block.text)
     if (next) {
       appendTextBlock(state, next)
-      if (emitStreamEvents) events.push({ type: "text_done", text: block.text })
+      // Annotations ride along so the streaming renderer can emit the citations the
+      // non-streaming renderer reads off the block itself.
+      if (emitStreamEvents) events.push({ type: "text_done", text: block.text, ...(block.annotations?.length ? { annotations: block.annotations } : {}) })
     }
     return
   }

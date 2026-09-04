@@ -244,8 +244,9 @@ describe("native matrix source resolution", () => {
   test("resolves the output paths from the environment with a default", () => {
     expect(nativeMatrixOutputDir({})).toBe(DEFAULT_NATIVE_TRANSCRIPT_DIR)
     expect(nativeMatrixOutputDir({ NATIVE_TRANSCRIPT_DIR: "  " })).toBe(DEFAULT_NATIVE_TRANSCRIPT_DIR)
-    expect(nativeMatrixFile({ NATIVE_TRANSCRIPT_DIR: "/tmp/native" })).toBe("/tmp/native/matrix.md")
-    expect(nativeObservationsFile({})).toBe(`${DEFAULT_NATIVE_TRANSCRIPT_DIR}/observations.json`)
+    // joinPath emits the host separator, so the expectations are built the same way.
+    expect(nativeMatrixFile({ NATIVE_TRANSCRIPT_DIR: "/tmp/native" })).toBe(joinPath("/tmp/native", "matrix.md"))
+    expect(nativeObservationsFile({})).toBe(joinPath(DEFAULT_NATIVE_TRANSCRIPT_DIR, "observations.json"))
   })
 })
 

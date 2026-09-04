@@ -4,6 +4,25 @@ All notable changes to this package are documented in this file.
 
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [0.4.1] - 2026-09-04
+
+### Added
+
+- Added `NATIVE_FEATURE_NOTICES`, which controls whether `degrade` notices are written into the client's own text. Off by default: the notices describe the upstream rather than the request, so they repeated on every turn. They still reach `Canonical_Response.featureNotices`, stream telemetry, and `/logs`.
+- Added citation support to the Claude streaming path: `text_done` now carries the upstream's annotations, and the renderer emits `citations_delta` events through the same mapping the non-streaming path uses.
+- Added `Canonical_StreamResponse.usage`, so an upstream that already counted its input (Kiro) reports the same `input_tokens` in `message_start` that `message_delta` closes on.
+
+### Changed
+
+- Feature warnings now render as one line naming the affected features instead of a header plus one detail line per notice. The prose stays on the telemetry channel.
+- Kiro's `promptCache` cell is now `degrade` instead of `reject`: a dropped cache hint changes what a request costs, not what it answers, and rejecting it turned away every Claude Code request (which always sends `cache_control`). Codex and Copilot already declared `degrade` on the same fact.
+- `CLAUDE_CODE_DISABLE_1M_CONTEXT` and `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` are now optional in the Claude environment editor: blank by default, written only when given a value, and removed from `settings.json` when cleared.
+- `/switch-provider` now reports a failed provider-state write instead of letting the rejection escape, and says how to connect an account when the target has none.
+
+### Fixed
+
+- Fixed `bun test` timeouts on slower machines by raising the per-test limit to 30s, and made `coverage` skip the same live smoke tests `test` does.
+
 ## [0.4.0] - 2026-09-03
 
 ### Added

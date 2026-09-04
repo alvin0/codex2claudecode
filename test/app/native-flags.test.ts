@@ -16,6 +16,7 @@ const FLAG_VARIABLES: ReadonlyArray<[keyof NativeFlags, string]> = [
   ["passthrough", "NATIVE_PASSTHROUGH"],
   ["mcpEmulation", "NATIVE_MCP_EMULATION"],
   ["kiroWebSearchHeuristics", "KIRO_WEB_SEARCH_HEURISTICS"],
+  ["featureNotices", "NATIVE_FEATURE_NOTICES"],
 ]
 
 const ENABLING = ["1", "true", "yes", "on", "TRUE", "Yes", "On", "TrUe"]
@@ -28,6 +29,7 @@ describe("readNativeFlags", () => {
       passthrough: false,
       mcpEmulation: false,
       kiroWebSearchHeuristics: false,
+      featureNotices: false,
     })
   })
 
@@ -41,13 +43,14 @@ describe("readNativeFlags", () => {
     }
   })
 
-  test("all four flags can be enabled at once", () => {
+  test("all five flags can be enabled at once", () => {
     const env = Object.fromEntries(FLAG_VARIABLES.map(([, variable]) => [variable, "on"]))
     expect(readNativeFlags(env)).toEqual({
       strict: true,
       passthrough: true,
       mcpEmulation: true,
       kiroWebSearchHeuristics: true,
+      featureNotices: true,
     })
   })
 

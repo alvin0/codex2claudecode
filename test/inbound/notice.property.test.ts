@@ -497,7 +497,7 @@ const CLAUDE_PATHS: RenderPath[] = [
     renderWarning: renderClaudeFeatureWarning,
     prepend: prependClaudeWarning,
     async render(scenario, plan) {
-      const body = await canonicalResponseToClaudeMessage(canonicalResponse(scenario, planNotices(plan)), CLAUDE_REQUEST)
+      const body = await canonicalResponseToClaudeMessage(canonicalResponse(scenario, planNotices(plan)), CLAUDE_REQUEST, { featureNotices: true })
       return fromBody(body, claudeBodyText(body))
     },
   },
@@ -510,7 +510,7 @@ const CLAUDE_PATHS: RenderPath[] = [
     async render(scenario, plan) {
       // `heartbeatMs: 0` disables the ping timer, whose firing is wall-clock dependent and would
       // make two renderings of one input differ for a reason unrelated to notices.
-      const response = claudeCanonicalStreamResponse(canonicalStream(buildEvents(scenario, plan)), CLAUDE_REQUEST, { heartbeatMs: 0 })
+      const response = claudeCanonicalStreamResponse(canonicalStream(buildEvents(scenario, plan)), CLAUDE_REQUEST, { heartbeatMs: 0, featureNotices: true })
       const headers = headerNames(response)
       const frames = await readFrames(response)
       return fromFrames(frames, claudeStreamedText(frames), headers)
@@ -526,7 +526,7 @@ const OPENAI_PATHS: RenderPath[] = [
     renderWarning: renderOpenAIFeatureWarning,
     prepend: prependOpenAIWarning,
     async render(scenario, plan) {
-      const body = canonicalResponseToResponsesBody(canonicalResponse(scenario, planNotices(plan)), RESPONSES_REQUEST) as Record<string, any>
+      const body = canonicalResponseToResponsesBody(canonicalResponse(scenario, planNotices(plan)), RESPONSES_REQUEST, { featureNotices: true }) as Record<string, any>
       return fromBody(body, responsesBodyText(body))
     },
   },
@@ -537,7 +537,7 @@ const OPENAI_PATHS: RenderPath[] = [
     renderWarning: renderOpenAIFeatureWarning,
     prepend: prependOpenAIWarning,
     async render(scenario, plan) {
-      const body = canonicalResponseToChatCompletion(canonicalResponse(scenario, planNotices(plan))) as Record<string, any>
+      const body = canonicalResponseToChatCompletion(canonicalResponse(scenario, planNotices(plan)), { featureNotices: true }) as Record<string, any>
       return fromBody(body, chatBodyText(body))
     },
   },
@@ -548,7 +548,7 @@ const OPENAI_PATHS: RenderPath[] = [
     renderWarning: renderOpenAIFeatureWarning,
     prepend: prependOpenAIWarning,
     async render(scenario, plan) {
-      const response = openAICanonicalStreamResponse(canonicalStream(buildEvents(scenario, plan)), "/v1/responses", RESPONSES_REQUEST)
+      const response = openAICanonicalStreamResponse(canonicalStream(buildEvents(scenario, plan)), "/v1/responses", RESPONSES_REQUEST, { featureNotices: true })
       const headers = headerNames(response)
       const frames = await readFrames(response)
       return fromFrames(frames, responsesStreamedText(frames), headers)
@@ -561,7 +561,7 @@ const OPENAI_PATHS: RenderPath[] = [
     renderWarning: renderOpenAIFeatureWarning,
     prepend: prependOpenAIWarning,
     async render(scenario, plan) {
-      const response = openAICanonicalStreamResponse(canonicalStream(buildEvents(scenario, plan)), "/v1/chat/completions", CHAT_REQUEST)
+      const response = openAICanonicalStreamResponse(canonicalStream(buildEvents(scenario, plan)), "/v1/chat/completions", CHAT_REQUEST, { featureNotices: true })
       const headers = headerNames(response)
       const frames = await readFrames(response)
       return fromFrames(frames, chatStreamedText(frames), headers)
@@ -603,22 +603,47 @@ function flattenDetail(detail: string) {
 }
 
 /** First-seen dedupe by `(feature, flattened detail)`, matching what the renderers do. */
-function expectedNoticeLines(notices: readonly Canonical_FeatureNotice[]) {
-  const lines: Array<{ feature: string; detail: string }> = []
+/**
+ * The feature names the warning segment must carry, deduped by feature in first-seen order.
+ *
+ * Names rather than `(feature, detail)` pairs since the renderers stopped putting `detail` in
+ * front of the model text: the detail travels on `Canonical_Response.featureNotices` into stream
+ * telemetry and the request log instead, so what this channel still owes the client is *which*
+ * of its fields were changed.
+ */
+function expectedNoticeFeatures(notices: readonly Canonical_FeatureNotice[]) {
+  const features: string[] = []
   const seen = new Set<string>()
   for (const notice of notices) {
     if (notice.policy !== "degrade") continue
-    const detail = flattenDetail(notice.detail)
-    const key = `${notice.feature}\u0000${detail}`
-    if (seen.has(key)) continue
-    seen.add(key)
-    lines.push({ feature: notice.feature, detail })
+    if (seen.has(notice.feature)) continue
+    seen.add(notice.feature)
+    features.push(notice.feature)
   }
-  return lines
+  return features
 }
 
 function markerCount(text: string, marker: string) {
   return text.split(marker).length - 1
+}
+
+const WARNING_PREFIX = "not honored as sent:"
+
+/**
+ * Every feature name the warning segments of `text` carry, across all delivery points.
+ *
+ * Reads the warning lines rather than the whole rendering, because the names are now bare tokens
+ * in a comma list: counting them over the full text would also count a feature name the model
+ * happened to say. `textNotices()` answers only for the first segment, and the split-delivery
+ * clause below needs both.
+ */
+function warningFeatures(text: string): string[] {
+  return text
+    .split(/\r?\n/)
+    .filter((line) => line.includes(WARNING_PREFIX))
+    .flatMap((line) => line.slice(line.indexOf(WARNING_PREFIX) + WARNING_PREFIX.length).split(","))
+    .map((feature) => feature.trim())
+    .filter((feature) => feature.length > 0)
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -714,11 +739,9 @@ async function assertProperty7(path: RenderPath, scenario: Scenario, plan: Notic
   // returns exactly it — the warning added text and changed nothing else.
   expect(bare.text).toBe(scenario.plainText)
 
-  // Clause 3 — every notice appears exactly once, in first-seen order, deduped by
-  // `(feature, detail)`. See the header note on how this reads Requirement 9.4.
-  expect(textNotices(warned.text).map((notice) => ({ feature: notice.feature, detail: notice.detail }))).toEqual(
-    expectedNoticeLines(notices),
-  )
+  // Clause 3 — every degraded feature is named exactly once, in first-seen order. See the header
+  // note on how this reads Requirement 9.4.
+  expect(textNotices(warned.text).map((notice) => notice.feature)).toEqual(expectedNoticeFeatures(notices))
 
   // Clause 4 — no new kind of thing (Requirement 9.6). Reading (b): compared against what the
   // path already produces for a text-carrying turn, so design D2's created text block is not a
@@ -833,7 +856,7 @@ describe("Inbound notice rendering properties", () => {
         for (const path of ALL_PATHS) {
           const warned = await path.render(generated, plan)
           for (const notice of planNotices(plan)) {
-            expect(warned.text.split(`- ${notice.feature}:`)).toHaveLength(2)
+            expect(warningFeatures(warned.text).filter((feature) => feature === notice.feature)).toHaveLength(1)
           }
         }
       }),
@@ -907,7 +930,7 @@ describe("Inbound notice rendering properties", () => {
 
           // Requirement 9.4 in the form that survives two segments: no notice is delivered twice.
           for (const notice of [...early, ...late]) {
-            expect(warned.text.split(`- ${notice.feature}:`)).toHaveLength(2)
+            expect(warningFeatures(warned.text).filter((feature) => feature === notice.feature)).toHaveLength(1)
           }
         }
       }),

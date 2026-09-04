@@ -62,7 +62,15 @@ export const KIRO_CAPABILITIES: ProviderCapabilities = {
     // spike §7: reusing `conversationId` produced no downward credit trend (0.0416 /
     // 0.0279 / 0.0307) and a brand-new id was the cheapest run (0.0225); no
     // `cacheReadInputTokens` field was ever observed. No cache to address.
-    promptCache: "reject",
+    //
+    // `degrade` rather than `reject`, on the same reading the `outputLength` cell above takes:
+    // a dropped cache hint changes what the request *costs*, never what it answers, so the
+    // client can be told rather than refused. Read the other way this cell refuses every
+    // request from a client that always sends `cache_control` — Claude Code does — which is
+    // the failure mode Requirements 3.7 / 3.8 already rule out for `max_tokens`. Codex and
+    // Copilot declare `degrade` on the identical fact (no cache on the endpoint), so this is
+    // the matrix agreeing with itself rather than a Kiro-specific concession.
+    promptCache: "degrade",
     // `sanitizeToolSchema()` (`./payload.ts`) strips `additionalProperties` from every
     // tool schema, so a client asking for strict validation gets a non-strict schema.
     strictToolSchema: "degrade",

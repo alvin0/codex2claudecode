@@ -88,7 +88,7 @@ export function resolveEndpointProxyDisplayValue(mode: ProviderMode, endpoint: P
  * once and threads the value here (design decision D3), so the flag has exactly one reader and a
  * test covers both states without mutating `process.env`. The flag's own default is off.
  */
-export function endpointProxyRouteProvider(sourceMode: ProviderMode, endpoint: ProxyableEndpoint, upstream: Upstream_Provider, passthroughEnabled: boolean) {
+export function endpointProxyRouteProvider(sourceMode: ProviderMode, endpoint: ProxyableEndpoint, upstream: Upstream_Provider, passthroughEnabled: boolean, featureNoticesEnabled = false) {
   const route = endpointProxyRoute(endpoint)
   const upstreamLabels = {
     codex: {
@@ -119,6 +119,7 @@ export function endpointProxyRouteProvider(sourceMode: ProviderMode, endpoint: P
       localCountTokens: sourceMode === "kiro",
       countTokens: sourceMode === "kiro" ? countKiroClaudeInputTokens : undefined,
       routes: route.routes,
+      featureNotices: featureNoticesEnabled,
     })
   }
 
@@ -155,6 +156,7 @@ export function endpointProxyRouteProvider(sourceMode: ProviderMode, endpoint: P
       ...(route.endpoint === "responses" ? [OPENAI_MODELS_ROUTE, CODEX_MODELS_ROUTE] : []),
     ],
     modelResolver: () => upstreamWithModels.listModelDescriptors?.() ?? upstreamWithModels.listModels(),
+    featureNotices: featureNoticesEnabled,
   })
 }
 
@@ -162,8 +164,8 @@ export function bindInboundProvider(provider: Inbound_Provider, upstream: Upstre
   return new BoundInboundProvider(provider, upstream)
 }
 
-export function buildEndpointProxyProvider(sourceMode: ProviderMode, endpoint: ProxyableEndpoint, upstream: Upstream_Provider, passthroughEnabled: boolean): Inbound_Provider {
-  return bindInboundProvider(endpointProxyRouteProvider(sourceMode, endpoint, upstream, passthroughEnabled), upstream)
+export function buildEndpointProxyProvider(sourceMode: ProviderMode, endpoint: ProxyableEndpoint, upstream: Upstream_Provider, passthroughEnabled: boolean, featureNoticesEnabled = false): Inbound_Provider {
+  return bindInboundProvider(endpointProxyRouteProvider(sourceMode, endpoint, upstream, passthroughEnabled, featureNoticesEnabled), upstream)
 }
 
 export async function canUseEndpointProxySource(mode: ProviderMode, endpoint: ProxyableEndpoint, proxy?: EndpointProxyMap) {

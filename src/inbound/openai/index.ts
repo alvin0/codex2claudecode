@@ -32,6 +32,13 @@ interface OpenAIInboundProviderOptions {
   upstreamTarget?: string
   expectedUpstreamKind?: UpstreamProviderKind
   modelResolver?: OpenAIModelResolverFn
+  /**
+   * Whether `degrade` notices are rendered into the client-visible text. The resolved
+   * `NATIVE_FEATURE_NOTICES` value, threaded from `src/app/bootstrap.ts` (design decision D3).
+   * Defaults to **off**, matching the Claude inbound provider; the notices keep reaching
+   * telemetry and the request log either way.
+   */
+  featureNotices?: boolean
 }
 
 export class OpenAI_Inbound_Provider implements Inbound_Provider {
@@ -58,6 +65,7 @@ export class OpenAI_Inbound_Provider implements Inbound_Provider {
   private readonly upstreamTarget: string
   private readonly expectedUpstreamKind?: UpstreamProviderKind
   private readonly modelResolver?: OpenAIModelResolverFn
+  private readonly featureNotices: boolean
 
   constructor(options: OpenAIInboundProviderOptions = {}) {
     this.name = options.name ?? "openai"
@@ -68,6 +76,7 @@ export class OpenAI_Inbound_Provider implements Inbound_Provider {
     this.upstreamTarget = options.upstreamTarget ?? "/v1/responses"
     this.expectedUpstreamKind = options.expectedUpstreamKind
     this.modelResolver = options.modelResolver
+    this.featureNotices = options.featureNotices ?? false
   }
 
   routes(): Route_Descriptor[] {
@@ -236,7 +245,7 @@ export class OpenAI_Inbound_Provider implements Inbound_Provider {
         // including an `emulate`-only one, which stays telemetry-only (Requirement 9.2) — is
         // byte-identical to what this branch produced before (Requirement 9.8).
         return openAIErrorResponse(
-          prependOpenAIWarning(result.body, renderOpenAIFeatureWarning(result.featureNotices ?? [])),
+          prependOpenAIWarning(result.body, renderOpenAIFeatureWarning(this.featureNotices ? result.featureNotices ?? [] : [])),
           result.status,
           "upstream_error",
           result.headers,
@@ -253,7 +262,7 @@ export class OpenAI_Inbound_Provider implements Inbound_Provider {
 
     if (isCanonicalResponse(result)) {
       backfillInputTokens(result, wireBody)
-      const response = openAICanonicalResponse(result, route.path, wireBody)
+      const response = openAICanonicalResponse(result, route.path, wireBody, { featureNotices: this.featureNotices })
       if (context.onProxy) {
         // Named rather than passed as a literal so the telemetry projection has an object
         // to write to. Unlike the Claude provider, this site holds the finished response
@@ -285,7 +294,7 @@ export class OpenAI_Inbound_Provider implements Inbound_Provider {
       if (!clientWantsStream) {
         const accumulated = await accumulateCanonicalStream(result)
         backfillInputTokens(accumulated, wireBody)
-        const response = openAICanonicalResponse(accumulated, route.path, wireBody)
+        const response = openAICanonicalResponse(accumulated, route.path, wireBody, { featureNotices: this.featureNotices })
         if (context.onProxy) {
           // The client asked for a non-streaming reply from an upstream that only streams,
           // so the stream is accumulated here and the summary comes from the accumulated
@@ -327,7 +336,7 @@ export class OpenAI_Inbound_Provider implements Inbound_Provider {
         model: typeof wireBody.model === "string" ? wireBody.model : "",
         streaming: true,
       })
-      const response = openAICanonicalStreamResponse(result, route.path, wireBody, { telemetry })
+      const response = openAICanonicalStreamResponse(result, route.path, wireBody, { telemetry, featureNotices: this.featureNotices })
       // Body capture is no longer part of this guard: telemetry is not a body preview,
       // so the stream-end hook has to run whenever a proxy log exists. The body preview
       // stays behind its own check inside the hook, keeping `responseBody` untouched

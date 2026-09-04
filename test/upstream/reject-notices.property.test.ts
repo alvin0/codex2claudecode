@@ -574,7 +574,7 @@ const CLAUDE_INBOUND: InboundUnderTest = {
   render: renderClaudeFeatureWarning,
   prepend: prependClaudeWarning,
   errorFor: async (notices, onProxy) => {
-    const response = await new Claude_Inbound_Provider().handle(
+    const response = await new Claude_Inbound_Provider({ featureNotices: true }).handle(
       new Request("http://localhost/v1/messages", { method: "POST", body: JSON.stringify({ model: "m", messages: [{ role: "user", content: "hi" }] }) }),
       { path: "/v1/messages", method: "POST" },
       erroringUpstream(notices),
@@ -590,7 +590,7 @@ const OPENAI_INBOUND: InboundUnderTest = {
   render: renderOpenAIFeatureWarning,
   prepend: prependOpenAIWarning,
   errorFor: async (notices, onProxy) => {
-    const response = await new OpenAI_Inbound_Provider({ passthrough: false }).handle(
+    const response = await new OpenAI_Inbound_Provider({ passthrough: false, featureNotices: true }).handle(
       new Request("http://localhost/v1/responses", { method: "POST", body: JSON.stringify({ model: "m", input: "hi" }) }),
       { path: "/v1/responses", method: "POST" },
       erroringUpstream(notices),
@@ -606,18 +606,23 @@ function markerCount(text: string): number {
   return text.split("[gateway]").length - 1
 }
 
-function dedupedDegrades(notices: readonly Canonical_FeatureNotice[]): Array<{ feature: string; detail: string }> {
+/**
+ * The features the warning segment must name, deduped by feature in first-seen order.
+ *
+ * Feature names rather than `(feature, detail)` pairs: the renderers name the features and leave
+ * the prose on `Canonical_Response.featureNotices`, so this is the whole of what the error body
+ * carries about a degrade.
+ */
+function dedupedDegradeFeatures(notices: readonly Canonical_FeatureNotice[]): string[] {
   const seen = new Set<string>()
-  const rows: Array<{ feature: string; detail: string }> = []
+  const features: string[] = []
   for (const notice of notices) {
     if (notice.policy !== "degrade") continue
-    const detail = notice.detail.replace(/\s+/g, " ").trim()
-    const key = `${notice.feature}\u0000${detail}`
-    if (seen.has(key)) continue
-    seen.add(key)
-    rows.push({ feature: notice.feature, detail })
+    if (seen.has(notice.feature)) continue
+    seen.add(notice.feature)
+    features.push(notice.feature)
   }
-  return rows
+  return features
 }
 
 describe("Property 41 — the inbound error response", () => {
@@ -630,7 +635,7 @@ describe("Property 41 — the inbound error response", () => {
         fc.asyncProperty(inboundNoticeListArb, async (notices) => {
           const { response, text } = await inbound.errorFor(notices)
           const body = JSON.parse(text) as { error: { message: string; type: string } }
-          const expected = dedupedDegrades(notices)
+          const expected = dedupedDegradeFeatures(notices)
 
           expect(response.status).toBe(plain.response.status)
 
@@ -648,9 +653,9 @@ describe("Property 41 — the inbound error response", () => {
           expect(body.error.message.endsWith(inbound.baseMessage())).toBe(true)
           expect(body.error.message.indexOf("[gateway]")).toBe(0)
 
-          // Every `degrade` named exactly once, deduped by `(feature, detail)`, read back through
-          // the parser the harness uses.
-          expect(textNotices(body.error.message)).toEqual(expected.map((row) => ({ ...row, source: "text" })))
+          // Every `degrade` named exactly once, deduped by feature, read back through the parser
+          // the harness uses.
+          expect(textNotices(body.error.message)).toEqual(expected.map((feature) => ({ feature, source: "text" })))
 
           // Zero members, block types, SSE event names, and headers the notice-free error lacks.
           expect(Object.keys(JSON.parse(text) as object).sort()).toEqual(Object.keys(JSON.parse(plain.text) as object).sort())

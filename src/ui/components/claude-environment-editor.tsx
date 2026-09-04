@@ -56,6 +56,7 @@ export function ClaudeEnvironmentEditor(props: {
             value={props.draft.extraEnv[key] ?? ""}
             active={props.selected === modelKeyCount + index}
             confirm={props.confirm}
+            optional
           />
         ))}
       </Box>
@@ -90,7 +91,7 @@ function LockedRow(props: { name: string; value: string }) {
   )
 }
 
-function EditableRow(props: { name: string; value: string; active: boolean; confirm: boolean }) {
+function EditableRow(props: { name: string; value: string; active: boolean; confirm: boolean; optional?: boolean }) {
   return (
     <Box>
       <Box width={2}>
@@ -100,6 +101,7 @@ function EditableRow(props: { name: string; value: string; active: boolean; conf
         <Text color={props.active ? "white" : "#aab3cf"}>{props.name}</Text>
       </Box>
       <Text color={props.active ? "#d97757" : "#c0caf5"}>{props.value}</Text>
+      {props.optional && !props.value && <Text color="#636a83">(optional - blank means not set)</Text>}
       {props.active && !props.confirm && <Text inverse> </Text>}
     </Box>
   )

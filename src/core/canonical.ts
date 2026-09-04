@@ -201,12 +201,32 @@ export interface Canonical_StreamResponse {
   status: number
   id: string
   model: string
+  /**
+   * What the upstream already knows about token usage when the stream opens, before any event
+   * has been read.
+   *
+   * An upstream that builds its own request payload counts the input it is about to send, so it
+   * knows `inputTokens` at construction time; the `usage` events it yields later carry the same
+   * figure. Without this field an inbound renderer has to invent an opening number and then
+   * contradict it — Claude's `message_start` would report a local estimate of the *client's*
+   * request while `message_delta` reports what the upstream actually processed, and the two
+   * differ by whatever the gateway added on the way out (embedded instructions, tool docs).
+   *
+   * Optional because not every upstream knows: Codex and Copilot learn their input count only
+   * from the usage frames the endpoint sends mid-stream. An absent field means "no better answer
+   * than the renderer's own estimate", never "zero".
+   */
+  usage?: Partial<Canonical_Usage>
   events: AsyncIterable<Canonical_Event>
 }
 
 export type Canonical_Event =
   | { type: "text_delta"; delta: string }
-  | { type: "text_done"; text: string }
+  // `annotations` are the upstream's own citation records for this text, in its wire shape.
+  // Carried here because a streaming renderer has no other way to reach them: the non-streaming
+  // path reads them off `Canonical_TextBlock.annotations`, and without this field the streaming
+  // path silently drops every citation an upstream produced.
+  | { type: "text_done"; text: string; annotations?: JsonObject[] }
   | { type: "tool_call_delta"; callId: string; name: string; argumentsDelta: string }
   | { type: "tool_call_done"; callId: string; name: string; arguments: string }
   | { type: "server_tool_block"; blocks: JsonObject[] }

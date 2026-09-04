@@ -695,7 +695,7 @@ describe("Architecture boundary invariants", () => {
   test("Feature: native-api-mode, Property 2: a directory-local index specifier never resolves to the barrel", async () => {
     const { files } = await loadImportGraph()
     const existing = new Set(files)
-    const dirsWithIndex = [...new Set(files.filter((f) => f.endsWith("/index.ts")).map((f) => path.dirname(f)))]
+    const dirsWithIndex = [...new Set(files.filter((f) => f.endsWith("/index.ts")).map((f) => normalizeSlashes(path.dirname(f))))]
       .filter((dir) => dir !== "src")
       .sort()
     expect(dirsWithIndex.length).toBeGreaterThan(0)

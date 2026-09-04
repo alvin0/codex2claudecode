@@ -54,8 +54,8 @@ test("formats preview lines for Claude settings updates", async () => {
   expect(claudeEnvironmentPowerShellCommands(value, "http://127.0.0.1:8787")).toContain('ANTHROPIC_DEFAULT_OPUS_MODEL = "gpt-5.6-sol"')
   expect(claudeEnvironmentCommands(value, "http://127.0.0.1:8787", "posix")).toContain("ANTHROPIC_AUTH_TOKEN = [redacted]")
   await expect(echoClaudeEnvironment(value, "http://127.0.0.1:8787", "posix")).resolves.toContain('ANTHROPIC_DEFAULT_HAIKU_MODEL = "gpt-5.6-luna"')
-  await expect(echoClaudeEnvironment(value, "http://127.0.0.1:8787", "posix")).resolves.toContain('CLAUDE_CODE_DISABLE_1M_CONTEXT = "1"')
-  await expect(echoClaudeEnvironment(value, "http://127.0.0.1:8787", "posix")).resolves.toContain('CLAUDE_AUTOCOMPACT_PCT_OVERRIDE = "64"')
+  await expect(echoClaudeEnvironment(value, "http://127.0.0.1:8787", "posix")).resolves.not.toContain("CLAUDE_CODE_DISABLE_1M_CONTEXT =")
+  await expect(echoClaudeEnvironment(value, "http://127.0.0.1:8787", "posix")).resolves.not.toContain("CLAUDE_AUTOCOMPACT_PCT_OVERRIDE =")
   await expect(runClaudeEnvironmentSet(value, "http://127.0.0.1:8787", "posix", { persist: false })).resolves.toContain("ANTHROPIC_BASE_URL=http://127.0.0.1:8787")
 })
 
@@ -70,9 +70,9 @@ test("formats unset preview lines for Claude settings env keys", async () => {
     "ANTHROPIC_DEFAULT_OPUS_MODEL",
     "ANTHROPIC_DEFAULT_SONNET_MODEL",
     "ANTHROPIC_DEFAULT_HAIKU_MODEL",
+    "NODE_TLS_REJECT_UNAUTHORIZED",
     "CLAUDE_CODE_DISABLE_1M_CONTEXT",
     "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE",
-    "NODE_TLS_REJECT_UNAUTHORIZED",
   ])
   await expect(echoClaudeEnvironmentUnset(value, "posix")).resolves.toContain("ANTHROPIC_BASE_URL")
   await expect(runClaudeEnvironmentUnset(value, "posix", { persist: false })).resolves.toBe(`Updated ${claudeSettingsPath()} env object.`)
@@ -166,8 +166,8 @@ test("merges env updates into ~/.claude/settings.json without changing other fie
     expect(saved.env.ANTHROPIC_AUTH_TOKEN).toBe("codex2claudecode")
     expect(saved.env.ANTHROPIC_API_KEY).toBe("codex2claudecode")
     expect(saved.env.CUSTOM_ENV).toBe("custom-value")
-    expect(saved.env.CLAUDE_CODE_DISABLE_1M_CONTEXT).toBe("1")
-    expect(saved.env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE).toBe("64")
+    expect(saved.env.CLAUDE_CODE_DISABLE_1M_CONTEXT).toBeUndefined()
+    expect(saved.env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE).toBeUndefined()
     expect(saved.env.NODE_TLS_REJECT_UNAUTHORIZED).toBe("0")
     expect(saved.env.REMOVE_ME).toBeUndefined()
   })
@@ -228,9 +228,37 @@ test("creates ~/.claude/settings.json if it does not exist", async () => {
     expect(saved.env.ANTHROPIC_AUTH_TOKEN).toBe("codex2claudecode")
     expect(saved.env.ANTHROPIC_API_KEY).toBe("codex2claudecode")
     expect(saved.env.CUSTOM_ENV).toBe("custom-value")
+    expect(saved.env.CLAUDE_CODE_DISABLE_1M_CONTEXT).toBeUndefined()
+    expect(saved.env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE).toBeUndefined()
+    expect(saved.env.NODE_TLS_REJECT_UNAUTHORIZED).toBe("0")
+  })
+})
+
+test("writes optional Claude Code flags only when a value is provided", async () => {
+  await withTempDir("claude-settings-optional-", async (dir) => {
+    const settingsFile = path.join(dir, "settings.json")
+
+    await persistClaudeEnvironment(
+      draft({ extraEnv: { ...CLAUDE_CODE_ENV_CONFIG.defaultExtraEnv, CLAUDE_CODE_DISABLE_1M_CONTEXT: "1", CLAUDE_AUTOCOMPACT_PCT_OVERRIDE: "64" } }),
+      "http://127.0.0.1:8787",
+      "posix",
+      { settingsFile },
+    )
+
+    const saved = JSON.parse(await readFile(settingsFile, "utf8")) as { env: Record<string, string> }
     expect(saved.env.CLAUDE_CODE_DISABLE_1M_CONTEXT).toBe("1")
     expect(saved.env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE).toBe("64")
-    expect(saved.env.NODE_TLS_REJECT_UNAUTHORIZED).toBe("0")
+
+    await persistClaudeEnvironment(
+      draft({ extraEnv: { ...CLAUDE_CODE_ENV_CONFIG.defaultExtraEnv, CLAUDE_CODE_DISABLE_1M_CONTEXT: "", CLAUDE_AUTOCOMPACT_PCT_OVERRIDE: "" } }),
+      "http://127.0.0.1:8787",
+      "posix",
+      { settingsFile },
+    )
+
+    const cleared = JSON.parse(await readFile(settingsFile, "utf8")) as { env: Record<string, string> }
+    expect(cleared.env.CLAUDE_CODE_DISABLE_1M_CONTEXT).toBeUndefined()
+    expect(cleared.env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE).toBeUndefined()
   })
 })
 

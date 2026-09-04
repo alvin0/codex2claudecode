@@ -8,6 +8,10 @@ export default defineConfig({
   },
   test: {
     include: ["test/**/*.test.ts"],
+    // The property suites run tens of thousands of assertions and overrun the 5 s default.
+    // Twice the `--timeout` the `test` script passes to `bun test`, because this config only
+    // ever runs under istanbul instrumentation, which roughly doubles their wall clock.
+    testTimeout: 60_000,
     setupFiles: ["test/vitest-bun-shim.ts"],
     exclude: ["**/*.d.ts"],
     coverage: {

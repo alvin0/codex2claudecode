@@ -46,12 +46,13 @@ export async function bootstrapRuntime(options?: RuntimeOptions & { providerMode
   })
   const registry = new Provider_Registry()
 
-  registerClaudeProvider(providerMode, activeRuntime.upstream, registry)
+  registerClaudeProvider(providerMode, activeRuntime.upstream, registry, nativeFlags.featureNotices)
   await registerEndpointProxyProviders(providerMode, activeRuntime, registry, options?.providerConfigPath, {
     strict: nativeFlags.strict,
     passthrough: nativeFlags.passthrough,
     kiroWebSearchHeuristics: nativeFlags.kiroWebSearchHeuristics,
     mcpEmulation: nativeFlags.mcpEmulation,
+    featureNotices: nativeFlags.featureNotices,
   })
 
   return {
@@ -62,11 +63,17 @@ export async function bootstrapRuntime(options?: RuntimeOptions & { providerMode
   }
 }
 
-function registerClaudeProvider(mode: ProviderMode, upstream: ProviderRuntimeResult["upstream"], registry: Provider_Registry) {
+/**
+ * `featureNotices` is the resolved `NATIVE_FEATURE_NOTICES` value, threaded in like the other
+ * flags rather than re-read (design decision D3). Default off, so the active provider renders no
+ * notice into the client's text while `Canonical_Response.featureNotices` still reaches telemetry
+ * and the request log untouched.
+ */
+function registerClaudeProvider(mode: ProviderMode, upstream: ProviderRuntimeResult["upstream"], registry: Provider_Registry, featureNotices: boolean) {
   const upstreamWithModels = upstream as typeof upstream & { listModels: () => Promise<string[]> }
 
   if (mode === "copilot") {
-    registry.register(new Claude_Copilot_Inbound_Adapter(() => upstreamWithModels.listModels(), CLAUDE_MODEL_ROUTES))
+    registry.register(new Claude_Copilot_Inbound_Adapter(() => upstreamWithModels.listModels(), CLAUDE_MODEL_ROUTES, featureNotices))
     return
   }
 
@@ -74,6 +81,7 @@ function registerClaudeProvider(mode: ProviderMode, upstream: ProviderRuntimeRes
     registry.register(new Claude_Kiro_Inbound_Adapter(
       () => upstreamWithModels.listModelDescriptors?.() ?? upstreamWithModels.listModels(),
       CLAUDE_MODEL_ROUTES,
+      featureNotices,
     ))
     return
   }
@@ -81,15 +89,17 @@ function registerClaudeProvider(mode: ProviderMode, upstream: ProviderRuntimeRes
   registry.register(new Claude_Codex_Inbound_Adapter(
     () => upstreamWithModels.listModelDescriptors?.() ?? upstreamWithModels.listModels(),
     CLAUDE_MODEL_ROUTES,
+    featureNotices,
   ))
 }
 
 /**
- * `strict`, `passthrough`, `kiroWebSearchHeuristics`, and `mcpEmulation` are threaded in rather than
- * re-read so a borrowed upstream resolves features, decides passthrough, guesses (or does not guess)
- * web search, and emulates (or refuses) an MCP toolset exactly like the active one: one flag read,
- * one value, every provider the process builds.
- * An object rather than four positional booleans, because same-typed positions next to each other
+ * `strict`, `passthrough`, `kiroWebSearchHeuristics`, `mcpEmulation`, and `featureNotices` are
+ * threaded in rather than re-read so a borrowed upstream resolves features, decides passthrough,
+ * guesses (or does not guess) web search, emulates (or refuses) an MCP toolset, and reports (or
+ * stays quiet about) degraded fields exactly like the active one: one flag read, one value, every
+ * provider the process builds.
+ * An object rather than five positional booleans, because same-typed positions next to each other
  * are the kind of thing a later edit swaps silently.
  */
 async function registerEndpointProxyProviders(
@@ -97,9 +107,9 @@ async function registerEndpointProxyProviders(
   activeRuntime: ProviderRuntimeResult,
   registry: Provider_Registry,
   providerConfigPath?: string,
-  flags: { strict?: boolean; passthrough?: boolean; kiroWebSearchHeuristics?: boolean; mcpEmulation?: boolean } = {},
+  flags: { strict?: boolean; passthrough?: boolean; kiroWebSearchHeuristics?: boolean; mcpEmulation?: boolean; featureNotices?: boolean } = {},
 ) {
-  const { strict, passthrough = false, kiroWebSearchHeuristics, mcpEmulation } = flags
+  const { strict, passthrough = false, kiroWebSearchHeuristics, mcpEmulation, featureNotices = false } = flags
   const endpointProxy = await readEndpointProxyMap(mode, providerConfigPath)
   const sourceRuntimeCache = new Map<ProviderMode, ProviderRuntimeResult>()
 
@@ -113,7 +123,7 @@ async function registerEndpointProxyProviders(
       : await loadSourceRuntime(sourceMode, sourceRuntimeCache, { strict, kiroWebSearchHeuristics, mcpEmulation })
 
     if (!sourceRuntime) continue
-    registry.register(buildEndpointProxyProvider(sourceMode, route.endpoint, sourceRuntime.upstream, passthrough))
+    registry.register(buildEndpointProxyProvider(sourceMode, route.endpoint, sourceRuntime.upstream, passthrough, featureNotices))
   }
 }
 

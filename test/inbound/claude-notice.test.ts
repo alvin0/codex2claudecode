@@ -31,12 +31,19 @@ describe("renderClaudeFeatureWarning", () => {
     expect(renderClaudeFeatureWarning(emulateOnly)).toBe(renderClaudeFeatureWarning([]))
   })
 
-  test("renders one header line plus one line for a single degrade notice", () => {
+  test("names the feature on one line for a single degrade notice", () => {
     const warning = renderClaudeFeatureWarning([degrade("sampling", "temperature=0.2 was not sent upstream")])
-    expect(warning.split("\n")).toEqual([
-      "[gateway] 1 requested feature was not honored as sent:",
-      "- sampling: temperature=0.2 was not sent upstream",
-    ])
+    expect(warning.split("\n")).toEqual(["[gateway] not honored as sent: sampling"])
+  })
+
+  /**
+   * The detail is deliberately absent from the client-visible text. It stays on
+   * `Canonical_Response.featureNotices`, which the request log and stream telemetry carry
+   * unchanged — the assertion below is that none of that prose reaches the conversation.
+   */
+  test("carries no detail prose into the rendered warning", () => {
+    const warning = renderClaudeFeatureWarning([degrade("sampling", "temperature=0.2 was not sent upstream")])
+    expect(warning).not.toInclude("temperature=0.2")
   })
 
   test("renders one combined warning for several notices", () => {
@@ -48,12 +55,7 @@ describe("renderClaudeFeatureWarning", () => {
     const lines = warning.split("\n")
     // Requirement 9.4: one warning segment for the whole request, not one per notice.
     expect(lines.filter((line) => line.includes(CLAUDE_NOTICE_MARKER))).toHaveLength(1)
-    expect(lines[0]).toBe("[gateway] 3 requested features were not honored as sent:")
-    expect(lines.slice(1)).toEqual([
-      "- sampling: temperature=0.2 was not sent upstream",
-      '- toolChoiceForced: tool_choice "required" was applied by narrowing the tool list',
-      "- stopSequences: stop sequences were dropped",
-    ])
+    expect(lines).toEqual(["[gateway] not honored as sent: sampling, toolChoiceForced, stopSequences"])
   })
 
   test("drops only emulate notices when both policies are present", () => {
@@ -62,27 +64,28 @@ describe("renderClaudeFeatureWarning", () => {
       degrade("sampling", "temperature=0.2 was not sent upstream"),
       emulate("webSearch", "served through MCP"),
     ])
-    expect(warning).toBe(["[gateway] 1 requested feature was not honored as sent:", "- sampling: temperature=0.2 was not sent upstream"].join("\n"))
+    expect(warning).toBe("[gateway] not honored as sent: sampling")
   })
 
-  test("collapses exact duplicates and counts them once", () => {
+  test("collapses exact duplicates and names the feature once", () => {
     const warning = renderClaudeFeatureWarning([
       degrade("sampling", "temperature=0.2 was not sent upstream"),
       degrade("sampling", "temperature=0.2 was not sent upstream"),
       degrade("sampling", "temperature=0.2 was not sent upstream"),
     ])
-    expect(warning).toBe(["[gateway] 1 requested feature was not honored as sent:", "- sampling: temperature=0.2 was not sent upstream"].join("\n"))
+    expect(warning).toBe("[gateway] not honored as sent: sampling")
   })
 
-  test("keeps near-duplicates that share a feature but differ in detail", () => {
+  /**
+   * Two notices for one feature differing only in detail were two lines while the detail was
+   * rendered. With names only they are one name — repeating it would say nothing twice.
+   */
+  test("collapses near-duplicates that share a feature but differ in detail", () => {
     const warning = renderClaudeFeatureWarning([
       degrade("sampling", "temperature=0.2 was not sent upstream"),
       degrade("sampling", "top_p=0.9 was not sent upstream"),
     ])
-    expect(warning.split("\n").slice(1)).toEqual([
-      "- sampling: temperature=0.2 was not sent upstream",
-      "- sampling: top_p=0.9 was not sent upstream",
-    ])
+    expect(warning).toBe("[gateway] not honored as sent: sampling")
   })
 
   test("preserves first-seen order when a duplicate arrives later", () => {
@@ -95,12 +98,9 @@ describe("renderClaudeFeatureWarning", () => {
     expect(textNotices(warning).map((notice) => notice.feature)).toEqual(["sampling", "stopSequences", "toolChoiceForced"])
   })
 
-  test("flattens a multi-line detail so one notice stays one line", () => {
+  test("a multi-line detail cannot break the warning across lines", () => {
     const warning = renderClaudeFeatureWarning([degrade("mcpToolset", "tools/list failed:\n  connection reset\n")])
-    expect(warning.split("\n")).toEqual([
-      "[gateway] 1 requested feature was not honored as sent:",
-      "- mcpToolset: tools/list failed: connection reset",
-    ])
+    expect(warning.split("\n")).toEqual(["[gateway] not honored as sent: mcpToolset"])
   })
 })
 
@@ -127,7 +127,7 @@ describe("prependClaudeWarning", () => {
 })
 
 describe("rendered warning round-trips through the harness parser", () => {
-  test("the harness reads back every notice, in order, with details intact", () => {
+  test("the harness reads back every notice, in order", () => {
     const notices = [
       degrade("sampling", "temperature=0.2 was not sent upstream"),
       degrade("toolChoiceForced", 'tool_choice "required" was applied by narrowing the tool list'),
@@ -135,16 +135,14 @@ describe("rendered warning round-trips through the harness parser", () => {
     const combined = prependClaudeWarning("ok", renderClaudeFeatureWarning(notices))
     const parsed = textNotices(combined)
     expect(parsed.map((notice) => notice.feature)).toEqual(["sampling", "toolChoiceForced"])
-    expect(parsed.map((notice) => notice.detail)).toEqual([
-      "temperature=0.2 was not sent upstream",
-      'tool_choice "required" was applied by narrowing the tool list',
-    ])
+    // No detail through this channel any more: `featureNotices()` reads telemetry for that.
+    expect(parsed.map((notice) => notice.detail)).toEqual([undefined, undefined])
     expect(parsed.every((notice) => notice.source === "text")).toBe(true)
   })
 
-  test("the blank line stops the parser before model text that looks like a notice line", () => {
+  test("the parser stops at the warning line, before model text that looks like one", () => {
     const combined = prependClaudeWarning("- sampling: this line is model text", renderClaudeFeatureWarning([degrade("sampling", "temperature dropped")]))
-    expect(textNotices(combined)).toEqual([{ feature: "sampling", detail: "temperature dropped", source: "text" }])
+    expect(textNotices(combined)).toEqual([{ feature: "sampling", source: "text" }])
   })
 
   test("the harness sees no notice when nothing degraded", () => {
@@ -202,7 +200,7 @@ function bodyText(body: { content: any[] }) {
 }
 
 async function readClaudeStream(events: Canonical_Event[], telemetry?: StreamTelemetryCollector) {
-  return readSse(claudeCanonicalStreamResponse(canonicalStream(events), CLAUDE_REQUEST, { heartbeatMs: 0, ...(telemetry ? { telemetry } : {}) }))
+  return readSse(claudeCanonicalStreamResponse(canonicalStream(events), CLAUDE_REQUEST, { heartbeatMs: 0, featureNotices: true, ...(telemetry ? { telemetry } : {}) }))
 }
 
 /** Text the client actually saw, in arrival order, from `text_delta` content block deltas. */
@@ -226,25 +224,26 @@ const NOTICE_EVENTS: Canonical_Event[] = [
 
 describe("placement — Claude message body", () => {
   test("one warning segment leads the first text block", async () => {
-    const body = await canonicalResponseToClaudeMessage(canonicalResponse({ featureNotices: [SAMPLING, TOOL_CHOICE] }), CLAUDE_REQUEST)
+    const body = await canonicalResponseToClaudeMessage(canonicalResponse({ featureNotices: [SAMPLING, TOOL_CHOICE] }), CLAUDE_REQUEST, { featureNotices: true })
     expect(markerCount(JSON.stringify(body))).toBe(1)
     expect(body.content[0]).toEqual({ type: "text", text: `${WARNING}\n\nHere is the answer.` })
   })
 
   test("the harness parser reads the notices back off the rendered body", async () => {
-    const body = await canonicalResponseToClaudeMessage(canonicalResponse({ featureNotices: [SAMPLING, TOOL_CHOICE] }), CLAUDE_REQUEST)
+    const body = await canonicalResponseToClaudeMessage(canonicalResponse({ featureNotices: [SAMPLING, TOOL_CHOICE] }), CLAUDE_REQUEST, { featureNotices: true })
     expect(textNotices(bodyText(body))).toEqual([
-      { feature: "sampling", detail: "temperature=0.2 was not sent upstream", source: "text" },
-      { feature: "toolChoiceForced", detail: 'tool_choice "required" was applied by narrowing the tool list', source: "text" },
+      { feature: "sampling", source: "text" },
+      { feature: "toolChoiceForced", source: "text" },
     ])
   })
 
   test("a notice-free body is byte-identical to the same body rendered with an empty notice list", async () => {
-    const withoutField = await canonicalResponseToClaudeMessage(canonicalResponse(), CLAUDE_REQUEST)
-    const withEmptyList = await canonicalResponseToClaudeMessage(canonicalResponse({ featureNotices: [] }), CLAUDE_REQUEST)
+    const withoutField = await canonicalResponseToClaudeMessage(canonicalResponse(), CLAUDE_REQUEST, { featureNotices: true })
+    const withEmptyList = await canonicalResponseToClaudeMessage(canonicalResponse({ featureNotices: [] }), CLAUDE_REQUEST, { featureNotices: true })
     const withEmulateOnly = await canonicalResponseToClaudeMessage(
       canonicalResponse({ featureNotices: [emulate("structuredOutput", "schema enforced by prompt")] }),
       CLAUDE_REQUEST,
+      { featureNotices: true },
     )
     expect(JSON.stringify(withEmptyList)).toBe(JSON.stringify(withoutField))
     // Requirement 9.2 on this path: an emulate notice changes nothing a client can see.
@@ -252,8 +251,8 @@ describe("placement — Claude message body", () => {
   })
 
   test("adds no block type and no field a text-carrying body does not already produce", async () => {
-    const warned = await canonicalResponseToClaudeMessage(canonicalResponse({ featureNotices: [SAMPLING] }), CLAUDE_REQUEST)
-    const plain = await canonicalResponseToClaudeMessage(canonicalResponse(), CLAUDE_REQUEST)
+    const warned = await canonicalResponseToClaudeMessage(canonicalResponse({ featureNotices: [SAMPLING] }), CLAUDE_REQUEST, { featureNotices: true })
+    const plain = await canonicalResponseToClaudeMessage(canonicalResponse(), CLAUDE_REQUEST, { featureNotices: true })
     expect(Object.keys(warned)).toEqual(Object.keys(plain))
     expect(warned.content.map((block: any) => block.type)).toEqual(plain.content.map((block: any) => block.type))
     expect(Object.keys(warned.content[0])).toEqual(Object.keys(plain.content[0]))
@@ -267,6 +266,7 @@ describe("placement — Claude message body", () => {
         featureNotices: [SAMPLING],
       }),
       CLAUDE_REQUEST,
+      { featureNotices: true },
     )
     expect(warned.content[0]).toEqual({ type: "text", text: `${renderClaudeFeatureWarning([SAMPLING])}\n\nHere is the answer.`, citations: [citation] })
   })
@@ -278,6 +278,7 @@ describe("placement — Claude message body", () => {
         featureNotices: [SAMPLING],
       }),
       CLAUDE_REQUEST,
+      { featureNotices: true },
     )
     expect(markerCount(JSON.stringify(warned))).toBe(1)
     // The created block leads the content, so the warning precedes the model's first block.
@@ -295,6 +296,7 @@ describe("placement — Claude message body", () => {
         featureNotices: [SAMPLING],
       }),
       CLAUDE_REQUEST,
+      { featureNotices: true },
     )
     expect(warned.content.map((block: any) => block.type)).toEqual(["tool_use", "text"])
     expect(warned.content[1].text).toBe(`${renderClaudeFeatureWarning([SAMPLING])}\n\nHere is the answer.`)
@@ -418,8 +420,8 @@ describe("late notices", () => {
     expect(text).toBe(
       `${renderClaudeFeatureWarning([SAMPLING])}\n\nHere is the answer.\n\n${renderClaudeFeatureWarning([TOOL_CHOICE])}`,
     )
-    expect(text.split("- sampling:")).toHaveLength(2)
-    expect(text.split("- toolChoiceForced:")).toHaveLength(2)
+    expect(text.split("sampling")).toHaveLength(2)
+    expect(text.split("toolChoiceForced")).toHaveLength(2)
   })
 
   test("a late emulate-only notice leaves the stream byte-identical", async () => {
@@ -463,7 +465,7 @@ function erroringUpstream(featureNotices?: Canonical_FeatureNotice[]) {
 }
 
 async function claudeErrorFor(featureNotices?: Canonical_FeatureNotice[]) {
-  const response = await new Claude_Inbound_Provider().handle(
+  const response = await new Claude_Inbound_Provider({ featureNotices: true }).handle(
     new Request("http://localhost/v1/messages", { method: "POST", body: JSON.stringify({ model: "m", messages: [{ role: "user", content: "hi" }] }) }),
     { path: "/v1/messages", method: "POST" },
     erroringUpstream(featureNotices),
@@ -487,8 +489,8 @@ describe("placement — Claude error response", () => {
   test("the harness parser reads the notices back off the error body", async () => {
     const { text } = await claudeErrorFor([SAMPLING, TOOL_CHOICE])
     expect(textNotices(JSON.parse(text).error.message)).toEqual([
-      { feature: "sampling", detail: "temperature=0.2 was not sent upstream", source: "text" },
-      { feature: "toolChoiceForced", detail: 'tool_choice "required" was applied by narrowing the tool list', source: "text" },
+      { feature: "sampling", source: "text" },
+      { feature: "toolChoiceForced", source: "text" },
     ])
   })
 
@@ -520,7 +522,7 @@ describe("placement — Claude error response", () => {
 
   test("the notices reach telemetry on the proxy log, rendered nowhere else", async () => {
     const logs: RequestProxyLog[] = []
-    const response = await new Claude_Inbound_Provider().handle(
+    const response = await new Claude_Inbound_Provider({ featureNotices: true }).handle(
       new Request("http://localhost/v1/messages", { method: "POST", body: JSON.stringify({ model: "m", messages: [{ role: "user", content: "hi" }] }) }),
       { path: "/v1/messages", method: "POST" },
       erroringUpstream([SAMPLING, emulate("structuredOutput", "schema enforced by prompt")]),

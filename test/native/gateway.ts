@@ -132,18 +132,27 @@ export async function startNativeGateway(options: NativeGatewayOptions): Promise
   }
 }
 
-function applyFlags(flags: NativeFlagValues) {
-  const previous = new Map<NativeFlagName, string | undefined>()
+/**
+ * The flag values the process started with, read once before any case can touch them.
+ *
+ * Restoring to this baseline rather than to a per-call snapshot is what keeps two gateways
+ * whose lifetimes overlap from handing each other a stale value: the outer one's `stop()` would
+ * otherwise re-set the flags the inner one had just cleared, and the inner case would measure
+ * an environment it never declared.
+ */
+const BASELINE_FLAGS: ReadonlyMap<NativeFlagName, string | undefined> = new Map(
+  NATIVE_FLAG_NAMES.map((name) => [name, process.env[name]]),
+)
 
+function applyFlags(flags: NativeFlagValues) {
   for (const name of NATIVE_FLAG_NAMES) {
-    previous.set(name, process.env[name])
     const value = flags[name]
     if (value === undefined) delete process.env[name]
     else process.env[name] = value
   }
 
   return () => {
-    for (const [name, value] of previous) {
+    for (const [name, value] of BASELINE_FLAGS) {
       if (value === undefined) delete process.env[name]
       else process.env[name] = value
     }
