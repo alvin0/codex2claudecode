@@ -296,7 +296,7 @@ function buildPayload(historyMessages: WorkingMessage[], currentMessage: Working
       chatTriggerType: "MANUAL",
       ...(history.length ? { history } : {}),
     },
-    ...(options.authType === "kiro_desktop" && options.profileArn ? { profileArn: options.profileArn } : {}),
+    ...(options.profileArn ? { profileArn: options.profileArn } : {}),
     ...(options.effort ? { additionalModelRequestFields: additionalModelRequestFields(options.effort) } : {}),
   }
   return payload

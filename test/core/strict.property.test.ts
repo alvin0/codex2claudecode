@@ -775,7 +775,10 @@ describe("strict resolves from the environment and escalates from there", () => 
 function kiroProvider(strict: boolean) {
   const calls: unknown[] = []
   const auth = new Kiro_Auth_Manager(
-    { accessToken: "access", refreshToken: "refresh", expiresAt: new Date(Date.now() + 700_000).toISOString(), region: "us-east-1" },
+    {
+      accessToken: "access", refreshToken: "refresh", expiresAt: new Date(Date.now() + 700_000).toISOString(),
+      region: "us-east-1", profileArn: "arn:aws:codewhisperer:us-east-1:123456789012:profile/test",
+    },
     "/tmp/unused",
   )
   const client = new Kiro_Client(auth, {

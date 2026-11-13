@@ -23,6 +23,7 @@ describe("Kiro client properties", () => {
       })
 
       await client.generateAssistantResponse({
+        profileArn: "arn:aws:codewhisperer:us-east-1:123456789012:profile/test",
         conversationState: {
           conversationId: "id",
           currentMessage: { userInputMessage: { content: "hi", modelId: "m", origin: "AI_EDITOR" } },

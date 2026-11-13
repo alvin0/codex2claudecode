@@ -400,7 +400,10 @@ describe("no silent drop — every feature of every upstream is accounted for", 
 describe("no silent drop — the deliveries are observable on a Kiro response", () => {
   function provider() {
     const auth = new Kiro_Auth_Manager(
-      { accessToken: "access", refreshToken: "refresh", expiresAt: new Date(Date.now() + 700_000).toISOString(), region: "us-east-1" },
+      {
+        accessToken: "access", refreshToken: "refresh", expiresAt: new Date(Date.now() + 700_000).toISOString(),
+        region: "us-east-1", profileArn: "arn:aws:codewhisperer:us-east-1:123456789012:profile/test",
+      },
       "/tmp/unused",
     )
     let calls = 0
@@ -475,7 +478,10 @@ describe("no silent drop — the tool_choice path warns zero times", () => {
 
   async function proxyWithWarnSpy(request: Canonical_Request) {
     const auth = new Kiro_Auth_Manager(
-      { accessToken: "access", refreshToken: "refresh", expiresAt: new Date(Date.now() + 700_000).toISOString(), region: "us-east-1" },
+      {
+        accessToken: "access", refreshToken: "refresh", expiresAt: new Date(Date.now() + 700_000).toISOString(),
+        region: "us-east-1", profileArn: "arn:aws:codewhisperer:us-east-1:123456789012:profile/test",
+      },
       "/tmp/unused",
     )
     const client = new Kiro_Client(auth, { fetch: (() => Promise.resolve(new Response(""))) as unknown as typeof fetch })

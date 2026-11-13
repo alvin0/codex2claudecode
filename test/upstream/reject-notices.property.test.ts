@@ -187,7 +187,10 @@ const KIRO: UpstreamUnderTest = {
   proxy: async (request, strict) => {
     let upstreamCalls = 0
     const auth = new Kiro_Auth_Manager(
-      { accessToken: "a", refreshToken: "r", expiresAt: new Date(Date.now() + 700_000).toISOString(), region: "us-east-1" },
+      {
+        accessToken: "a", refreshToken: "r", expiresAt: new Date(Date.now() + 700_000).toISOString(),
+        region: "us-east-1", profileArn: "arn:aws:codewhisperer:us-east-1:123456789012:profile/test",
+      },
       "/tmp/unused-reject-notices",
     )
     const client = new Kiro_Client(auth, {

@@ -2,7 +2,11 @@ import type { HealthStatus } from "../../core/types"
 import { responseHeaders } from "../../core/http"
 import { McpClient, type McpJsonRpcResponse } from "../../core/mcp/client"
 import { isMcpProtocolError } from "../../core/mcp/errors"
-import { BASE_RETRY_DELAY_MS, DEFAULT_KIRO_API_REGION, GENERATE_ASSISTANT_RESPONSE_PATH, GET_USAGE_LIMITS_PATH, KIRO_API_HOST_TEMPLATE, LIST_AVAILABLE_MODELS_PATH, MAX_RETRIES, STREAMING_READ_TIMEOUT_MS, USER_AGENT_TEMPLATE, X_AMZ_USER_AGENT_TEMPLATE } from "./constants"
+import {
+  BASE_RETRY_DELAY_MS, DEFAULT_KIRO_API_REGION, GENERATE_ASSISTANT_RESPONSE_PATH, GET_USAGE_LIMITS_PATH, KIRO_API_HOST_TEMPLATE,
+  LIST_AVAILABLE_MODELS_PATH, LIST_AVAILABLE_PROFILES_MAX_PAGES, LIST_AVAILABLE_PROFILES_PATH, MAX_RETRIES, STREAMING_READ_TIMEOUT_MS,
+  USER_AGENT_TEMPLATE, X_AMZ_USER_AGENT_TEMPLATE, resolveKiroVersion,
+} from "./constants"
 import type { Kiro_Auth_Manager } from "./auth"
 import { parseMcpWebSearchResults, webSearchSummary } from "./web-search"
 import { KiroHttpError, KiroMcpError, KiroNetworkError, type KiroGeneratePayload } from "./types"
@@ -32,22 +36,91 @@ export class Kiro_Client {
   private readonly fingerprint: string
   private readonly kiroVersion: string
   private readonly apiRegion: string
+  private readonly preferredProfileArn?: string
+  private profileCache?: { accessToken: string; profileArn: string }
 
-  constructor(auth: Kiro_Auth_Manager, options: { fetch?: typeof fetch; sleep?: (ms: number) => Promise<void>; fingerprint?: string; kiroVersion?: string; apiRegion?: string } = {}) {
+  constructor(auth: Kiro_Auth_Manager, options: {
+    fetch?: typeof fetch
+    sleep?: (ms: number) => Promise<void>
+    fingerprint?: string
+    kiroVersion?: string
+    apiRegion?: string
+    profileArn?: string
+  } = {}) {
     this.auth = auth
     this.fetchFn = options.fetch ?? fetch
     this.sleepFn = options.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)))
     this.fingerprint = options.fingerprint ?? crypto.randomUUID().replace(/-/g, "").slice(0, 12)
-    this.kiroVersion = options.kiroVersion ?? "unknown"
+    this.kiroVersion = resolveKiroVersion(options.kiroVersion)
     this.apiRegion = options.apiRegion ?? process.env.KIRO_API_REGION ?? DEFAULT_KIRO_API_REGION
+    this.preferredProfileArn = options.profileArn?.trim() || process.env.KIRO_PROFILE_ARN?.trim() || undefined
   }
 
   async generateAssistantResponse(payload: KiroGeneratePayload, options: { signal?: AbortSignal; stream?: boolean } = {}) {
-    return this.requestWithRetries(this.url(GENERATE_ASSISTANT_RESPONSE_PATH), "POST", JSON.stringify(payload), options)
+    const profileArn = await this.resolveProfileArn(payload.profileArn, options.signal)
+    const body = JSON.stringify({ ...payload, profileArn })
+    return this.requestWithRetries(this.url(GENERATE_ASSISTANT_RESPONSE_PATH), "POST", body, options)
+  }
+
+  private async resolveProfileArn(payloadProfileArn?: string, signal?: AbortSignal): Promise<string> {
+    signal?.throwIfAborted()
+    const existing = payloadProfileArn?.trim() || this.auth.getProfileArn()?.trim()
+    if (!this.preferredProfileArn && existing) return existing
+    const accessToken = await this.auth.getAccessToken()
+    const refreshedProfileArn = this.auth.getProfileArn()?.trim()
+    if (!this.preferredProfileArn && refreshedProfileArn) return refreshedProfileArn
+    if (this.profileCache?.accessToken === accessToken) return this.profileCache.profileArn
+
+    const profiles = await this.listAvailableProfileArns(signal)
+    let profileArn = this.preferredProfileArn
+    if (profileArn && !profiles.includes(profileArn)) {
+      throw profileError(400, "The configured Kiro profile is not available to the active account in the configured API region.")
+    }
+    if (!profileArn) {
+      if (!profiles.length) throw profileError(400, "No Kiro profiles are available to the active account in the configured API region.")
+      if (profiles.length > 1) {
+        throw profileError(400, "Multiple Kiro profiles are available. Select one with profileArn or KIRO_PROFILE_ARN.")
+      }
+      profileArn = profiles[0]!
+    }
+    // Cache only for this client's token. A refresh or account change requires another discovery.
+    this.profileCache = { accessToken, profileArn }
+    return profileArn
+  }
+
+  private async listAvailableProfileArns(signal?: AbortSignal): Promise<string[]> {
+    const profiles = new Set<string>()
+    const cursors = new Set<string>()
+    let nextToken: string | undefined
+    for (let page = 0; page < LIST_AVAILABLE_PROFILES_MAX_PAGES; page += 1) {
+      signal?.throwIfAborted()
+      const body = JSON.stringify(nextToken ? { nextToken } : {})
+      const response = await this.requestWithRetries(this.url(LIST_AVAILABLE_PROFILES_PATH), "POST", body, { signal, timeoutMs: 10_000 })
+      const data: unknown = await response.json().catch(() => undefined)
+      signal?.throwIfAborted()
+      if (!isRecord(data) || !Array.isArray(data.profiles)) throw profileError(502, "Kiro returned an invalid profile list.")
+      for (const profile of data.profiles) {
+        if (!isRecord(profile) || typeof profile.arn !== "string" || !profile.arn.trim()) {
+          throw profileError(502, "Kiro returned a profile without a valid ARN.")
+        }
+        const arn = profile.arn.trim()
+        const match = /^arn:[^:]+:codewhisperer:([^:]+):\d{12}:profile\/[A-Za-z0-9_-]+$/.exec(arn)
+        if (!match) throw profileError(502, "Kiro returned a profile without a valid ARN.")
+        if (match[1] !== this.apiRegion) throw profileError(502, "Kiro returned a profile outside the configured API region.")
+        profiles.add(arn)
+      }
+      if (data.nextToken === undefined || data.nextToken === null || data.nextToken === "") return [...profiles]
+      if (typeof data.nextToken !== "string" || cursors.has(data.nextToken)) {
+        throw profileError(502, "Kiro profile pagination returned an invalid or repeated cursor.")
+      }
+      nextToken = data.nextToken
+      cursors.add(nextToken)
+    }
+    throw profileError(502, "Kiro profile discovery exceeded its page limit. No profile was selected.")
   }
 
   async listAvailableModels() {
-    const response = await this.requestWithRetries(this.modelsUrl().toString(), "GET")
+    const response = await this.requestWithRetries((await this.modelsUrl()).toString(), "GET")
     const body = await response.json().catch(() => undefined) as { models?: unknown; modelIds?: unknown } | undefined
     const rawModels = Array.isArray(body?.models) ? body.models : Array.isArray(body?.modelIds) ? body.modelIds : []
     return rawModels.flatMap((model) => {
@@ -59,7 +132,7 @@ export class Kiro_Client {
   }
 
   async listAvailableModelsRaw(): Promise<Response> {
-    return this.requestWithRetries(this.modelsUrl().toString(), "GET")
+    return this.requestWithRetries((await this.modelsUrl()).toString(), "GET")
   }
 
   /**
@@ -132,7 +205,7 @@ export class Kiro_Client {
 
   /** One page of the model catalog, or `undefined` when the body is unusable. */
   private async fetchModelsPage(nextToken: string | undefined): Promise<unknown> {
-    const url = this.modelsUrl()
+    const url = await this.modelsUrl()
     if (nextToken !== undefined) url.searchParams.set("nextToken", nextToken)
     const response = await this.requestWithRetries(url.toString(), "GET")
     return response.json().catch(() => undefined)
@@ -141,7 +214,10 @@ export class Kiro_Client {
   async checkHealth(timeoutMs: number): Promise<HealthStatus> {
     const started = Date.now()
     try {
-      const response = await this.requestOnce(this.modelsUrl().toString(), "GET", undefined, { timeoutMs })
+      const signal = AbortSignal.timeout(timeoutMs)
+      const url = await this.modelsUrl(signal)
+      signal.throwIfAborted()
+      const response = await this.requestOnce(url.toString(), "GET", undefined, { signal, timeoutMs })
       return {
         ok: response.ok,
         checkedAt: new Date().toISOString(),
@@ -154,13 +230,15 @@ export class Kiro_Client {
         ok: false,
         checkedAt: new Date().toISOString(),
         latencyMs: Date.now() - started,
-        error: error instanceof Error ? error.message : String(error),
+        ...(error instanceof KiroHttpError ? { status: error.status } : {}),
+        error: error instanceof KiroHttpError ? error.body : error instanceof Error ? error.message : String(error),
       }
     }
   }
 
   async getUsageLimits(): Promise<Response> {
-    const url = this.usageLimitsUrl()
+    const profileArn = await this.resolveProfileArn()
+    const url = this.usageLimitsUrl(profileArn)
     return this.requestOnce(url.toString(), "GET", undefined, { timeoutMs: 10_000 })
   }
 
@@ -317,22 +395,29 @@ export class Kiro_Client {
     return `${KIRO_API_HOST_TEMPLATE.replace("{region}", this.apiRegion)}${path}`
   }
 
-  private modelsUrl() {
+  private async modelsUrl(signal?: AbortSignal) {
+    const profileArn = await this.resolveProfileArn(undefined, signal)
     const url = new URL(this.url(LIST_AVAILABLE_MODELS_PATH))
     url.searchParams.set("origin", "AI_EDITOR")
-    if (this.auth.getAuthType() === "kiro_desktop" && this.auth.getProfileArn()) url.searchParams.set("profileArn", this.auth.getProfileArn()!)
+    url.searchParams.set("profileArn", profileArn)
     return url
   }
 
-  private usageLimitsUrl() {
+  private usageLimitsUrl(profileArn: string) {
     const url = new URL(this.url(GET_USAGE_LIMITS_PATH))
-    if (this.auth.getAuthType() === "kiro_desktop" && this.auth.getProfileArn()) url.searchParams.set("profileArn", this.auth.getProfileArn()!)
+    url.searchParams.set("origin", "AI_EDITOR")
+    url.searchParams.set("resourceType", "AGENTIC_REQUEST")
+    url.searchParams.set("profileArn", profileArn)
     return url
   }
 
   private async toHttpError(response: Response) {
     return new KiroHttpError(response.status, responseHeaders(response.headers), await response.text())
   }
+}
+
+function profileError(status: number, message: string) {
+  return new KiroHttpError(status, new Headers(), JSON.stringify({ message }))
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

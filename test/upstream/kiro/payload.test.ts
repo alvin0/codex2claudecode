@@ -258,12 +258,12 @@ describe("Kiro payload conversion", () => {
     expect(payload.conversationState.currentMessage.userInputMessage.content).not.toContain("bin.pdf")
   })
 
-  test("includes profileArn only for Desktop auth and omits it for SSO", () => {
+  test("includes profileArn for both Desktop and SSO auth", () => {
     const desktop = convertCanonicalToKiroPayload(request(), [], { modelId: "m", authType: "kiro_desktop", profileArn: "arn:desktop" })
     const sso = convertCanonicalToKiroPayload(request(), [], { modelId: "m", authType: "aws_sso_oidc", profileArn: "arn:sso" })
 
     expect(desktop.profileArn).toBe("arn:desktop")
-    expect(sso.profileArn).toBeUndefined()
+    expect(sso.profileArn).toBe("arn:sso")
   })
 
   test("omits empty toolUses from assistant history entries", () => {
