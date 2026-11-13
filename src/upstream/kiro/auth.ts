@@ -2,7 +2,9 @@ import { readTextFile, setFileMode, writeTextFile } from "../../core/bun-fs"
 import { expandHome } from "../../core/paths"
 import { bunPath as path, homeDir } from "../../core/paths"
 import { isProviderStatePath, updateProviderSection } from "../../core/provider-state"
-import { KIRO_AUTH_TOKEN_PATH, KIRO_DESKTOP_REFRESH_TEMPLATE, SSO_OIDC_ENDPOINT_TEMPLATE, TOKEN_REFRESH_THRESHOLD_SECONDS } from "./constants"
+import {
+  KIRO_AUTH_TOKEN_PATH, KIRO_DESKTOP_REFRESH_TEMPLATE, SSO_OIDC_ENDPOINT_TEMPLATE, TOKEN_REFRESH_THRESHOLD_SECONDS, resolveKiroVersion,
+} from "./constants"
 import { kiroAccountKey, pullKiroSourceAuth, readKiroAuthFileSelection, syncKiroSourceAuth, updateKiroAuthSelection, type KiroAuthFileSelection } from "./account-store"
 import type { KiroAuthTokenFile, KiroAuthType, KiroDeviceRegistrationFile, KiroRefreshResponse, SsoOidcRefreshResponse } from "./types"
 
@@ -47,7 +49,7 @@ export class Kiro_Auth_Manager {
     this.originalCredentials = { ...credentials }
     this.fetchFn = options.fetch ?? fetch
     this.fingerprint = options.fingerprint ?? crypto.randomUUID().replace(/-/g, "").slice(0, 12)
-    this.kiroVersion = options.kiroVersion ?? "unknown"
+    this.kiroVersion = resolveKiroVersion(options.kiroVersion)
     this.selection = options.selection
   }
 

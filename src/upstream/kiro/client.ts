@@ -2,7 +2,10 @@ import type { HealthStatus } from "../../core/types"
 import { responseHeaders } from "../../core/http"
 import { McpClient, type McpJsonRpcResponse } from "../../core/mcp/client"
 import { isMcpProtocolError } from "../../core/mcp/errors"
-import { BASE_RETRY_DELAY_MS, DEFAULT_KIRO_API_REGION, GENERATE_ASSISTANT_RESPONSE_PATH, GET_USAGE_LIMITS_PATH, KIRO_API_HOST_TEMPLATE, LIST_AVAILABLE_MODELS_PATH, MAX_RETRIES, STREAMING_READ_TIMEOUT_MS, USER_AGENT_TEMPLATE, X_AMZ_USER_AGENT_TEMPLATE } from "./constants"
+import {
+  BASE_RETRY_DELAY_MS, DEFAULT_KIRO_API_REGION, GENERATE_ASSISTANT_RESPONSE_PATH, GET_USAGE_LIMITS_PATH, KIRO_API_HOST_TEMPLATE,
+  LIST_AVAILABLE_MODELS_PATH, MAX_RETRIES, STREAMING_READ_TIMEOUT_MS, USER_AGENT_TEMPLATE, X_AMZ_USER_AGENT_TEMPLATE, resolveKiroVersion,
+} from "./constants"
 import type { Kiro_Auth_Manager } from "./auth"
 import { parseMcpWebSearchResults, webSearchSummary } from "./web-search"
 import { KiroHttpError, KiroMcpError, KiroNetworkError, type KiroGeneratePayload } from "./types"
@@ -38,7 +41,7 @@ export class Kiro_Client {
     this.fetchFn = options.fetch ?? fetch
     this.sleepFn = options.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)))
     this.fingerprint = options.fingerprint ?? crypto.randomUUID().replace(/-/g, "").slice(0, 12)
-    this.kiroVersion = options.kiroVersion ?? "unknown"
+    this.kiroVersion = resolveKiroVersion(options.kiroVersion)
     this.apiRegion = options.apiRegion ?? process.env.KIRO_API_REGION ?? DEFAULT_KIRO_API_REGION
   }
 

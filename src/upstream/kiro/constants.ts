@@ -5,6 +5,7 @@ export const SSO_OIDC_ENDPOINT_TEMPLATE = "https://oidc.{region}.amazonaws.com/t
 
 export const KIRO_API_HOST_TEMPLATE = "https://q.{region}.amazonaws.com"
 export const DEFAULT_KIRO_API_REGION = "us-east-1"
+export const DEFAULT_KIRO_VERSION = "1.4.154"
 export const GENERATE_ASSISTANT_RESPONSE_PATH = "/generateAssistantResponse"
 export const LIST_AVAILABLE_MODELS_PATH = "/ListAvailableModels"
 export const GET_USAGE_LIMITS_PATH = "/getUsageLimits"
@@ -20,6 +21,15 @@ export const TOOL_DESCRIPTION_MAX_LENGTH = 10_000
 export const TOOL_NAME_MAX_LENGTH = 64
 export const MODEL_CACHE_TTL_SECONDS = 3600
 export const DEFAULT_MAX_INPUT_TOKENS = 200_000
+
+/** Explicit configuration takes precedence over the environment and the bundled default. */
+export function resolveKiroVersion(version?: string, env: Record<string, string | undefined> = process.env) {
+  const resolved = version?.trim() || env.KIRO_VERSION?.trim() || DEFAULT_KIRO_VERSION
+  if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(resolved)) {
+    throw new Error("Kiro client version must be a version such as 1.4.154. Set kiroVersion or KIRO_VERSION.")
+  }
+  return resolved
+}
 
 export function kiroPayloadSizeLimitBytes(env: Record<string, string | undefined> = process.env) {
   const bytes = parsePositiveInteger(env.KIRO_PAYLOAD_SIZE_LIMIT_BYTES)

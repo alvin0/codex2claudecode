@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test"
 
 import { Kiro_Auth_Manager } from "../../../src/upstream/kiro"
+import { resolveKiroVersion } from "../../../src/upstream/kiro/constants"
 import { homedir, mkdir, mkdtemp, path, randomUUID, readFile, rm, stat, tmpdir, writeFile } from "../../helpers"
 
 const tempDirs: string[] = []
@@ -219,6 +220,21 @@ describe("Kiro auth manager", () => {
       profileArn: "arn:new",
     })
     if (process.platform !== "win32") expect((await stat(file)).mode & 0o777).toBe(0o600)
+  })
+
+  test("uses the resolved default version for Desktop token refresh", async () => {
+    const file = await tempAuthFile(token())
+    let userAgent = ""
+    const auth = await Kiro_Auth_Manager.fromAuthFile(file, {
+      fingerprint: "fingerprint",
+      fetch: ((_, init) => {
+        userAgent = new Headers(init?.headers).get("user-agent") ?? ""
+        return Promise.resolve(Response.json({ accessToken: "new", refreshToken: "new-refresh", expiresIn: 3600 }))
+      }) as unknown as typeof fetch,
+    })
+    await auth.refresh()
+    expect(userAgent).toBe(`KiroIDE-${resolveKiroVersion()}-fingerprint`)
+    expect(userAgent).not.toContain("unknown")
   })
 
   test("treats an unparseable expiresAt as expired and expiring soon", () => {
