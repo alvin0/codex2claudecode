@@ -54,6 +54,7 @@ function auth() {
     refreshToken: "refresh",
     expiresAt: new Date(Date.now() + 700_000).toISOString(),
     region: "us-east-1",
+    profileArn: "arn:aws:codewhisperer:us-east-1:123456789012:profile/test",
   }, "/tmp/unused")
 }
 

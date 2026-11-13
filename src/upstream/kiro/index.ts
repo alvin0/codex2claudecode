@@ -31,6 +31,7 @@ interface KiroClientOptions extends KiroAuthManagerOptions {
   fetch?: typeof fetch
   sleep?: (ms: number) => Promise<void>
   apiRegion?: string
+  profileArn?: string
 }
 
 export class Kiro_Upstream_Provider implements Upstream_Provider {

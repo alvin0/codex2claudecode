@@ -10,6 +10,7 @@ function auth(overrides: Record<string, unknown> = {}) {
     refreshToken: "refresh",
     expiresAt: new Date(Date.now() + 700_000).toISOString(),
     region: "us-east-1",
+    profileArn: "arn:aws:codewhisperer:us-east-1:123456789012:profile/test",
     ...overrides,
   } as any, "/tmp/unused")
 }
@@ -119,7 +120,7 @@ describe("Kiro model handling", () => {
     ])
   })
 
-  test("omits profileArn for SSO OIDC model listing requests", async () => {
+  test("includes profileArn for SSO OIDC model listing requests", async () => {
     let url = ""
     const manager = auth({ clientId: "client-id", clientSecret: "client-secret", profileArn: "arn:aws:sso:::profile/example" })
     const client = new Kiro_Client(manager, {
@@ -132,7 +133,7 @@ describe("Kiro model handling", () => {
 
     await upstream.listModels()
     expect(url).toContain("origin=AI_EDITOR")
-    expect(url).not.toContain("profileArn=")
+    expect(new URL(url).searchParams.get("profileArn")).toBe("arn:aws:sso:::profile/example")
   })
 
   test("delegates checkHealth to the client", async () => {

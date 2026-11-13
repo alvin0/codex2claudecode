@@ -9,6 +9,7 @@ function auth(overrides: Record<string, unknown> = {}) {
     refreshToken: "refresh",
     expiresAt: new Date(Date.now() + 700_000).toISOString(),
     region: "us-west-2",
+    profileArn: "arn:aws:codewhisperer:us-east-1:123456789012:profile/test",
     ...overrides,
   } as any, "/tmp/unused", {
     fetch: (() => Promise.resolve(Response.json({ accessToken: "refreshed", refreshToken: "refresh2", expiresIn: 700 }))) as unknown as typeof fetch,
@@ -17,6 +18,7 @@ function auth(overrides: Record<string, unknown> = {}) {
 
 function payload() {
   return {
+    profileArn: "arn:aws:codewhisperer:us-east-1:123456789012:profile/test",
     conversationState: {
       conversationId: "id",
       currentMessage: {
@@ -254,7 +256,7 @@ describe("Kiro client", () => {
       fetch: (() => Promise.reject(abortError)) as unknown as typeof fetch,
     })
 
-    controller.abort()
+    controller.abort(abortError)
 
     try {
       await client.generateAssistantResponse(payload(), { signal: controller.signal })
@@ -319,6 +321,7 @@ describe("Kiro client", () => {
       refreshToken: "refresh",
       expiresAt: new Date(Date.now() - 1000).toISOString(),
       region: "us-west-2",
+      profileArn: "arn:aws:codewhisperer:us-east-1:123456789012:profile/test",
     }, "/tmp/unused", {
       fetch: ((url) => {
         calls.push(String(url))
@@ -373,7 +376,7 @@ describe("Kiro client", () => {
     expect(url).toContain("profileArn=arn%3Adesktop")
   })
 
-  test("listAvailableModels omits profileArn for SSO OIDC", async () => {
+  test("listAvailableModels includes profileArn for SSO OIDC", async () => {
     let url = ""
     const client = new Kiro_Client(auth({ clientId: "id", clientSecret: "secret", profileArn: "arn" }), {
       fetch: ((input) => {
@@ -384,7 +387,7 @@ describe("Kiro client", () => {
 
     expect(await client.listAvailableModels()).toEqual(["claude-sonnet-4"])
     expect(url).toContain("origin=AI_EDITOR")
-    expect(url).not.toContain("profileArn")
+    expect(new URL(url).searchParams.get("profileArn")).toBe("arn")
   })
 
   test("getUsageLimits uses GET account credit endpoint", async () => {
@@ -403,7 +406,11 @@ describe("Kiro client", () => {
     const response = await client.getUsageLimits()
 
     expect(response.ok).toBe(true)
-    expect(url).toBe("https://q.us-east-1.amazonaws.com/getUsageLimits?profileArn=arn%3Adesktop")
+    const usageUrl = new URL(url)
+    expect(usageUrl.origin + usageUrl.pathname).toBe("https://q.us-east-1.amazonaws.com/getUsageLimits")
+    expect(usageUrl.searchParams.get("profileArn")).toBe("arn:desktop")
+    expect(usageUrl.searchParams.get("origin")).toBe("AI_EDITOR")
+    expect(usageUrl.searchParams.get("resourceType")).toBe("AGENTIC_REQUEST")
     expect(method).toBe("GET")
     expect(body).toBeUndefined()
   })
@@ -502,6 +509,7 @@ describe("Kiro client", () => {
       refreshToken: "refresh",
       expiresAt: new Date(Date.now() - 1000).toISOString(),
       region: "us-west-2",
+      profileArn: "arn:aws:codewhisperer:us-east-1:123456789012:profile/test",
     }, "/tmp/unused", {
       fetch: ((url) => {
         calls.push(String(url))

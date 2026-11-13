@@ -8,6 +8,8 @@ export const DEFAULT_KIRO_API_REGION = "us-east-1"
 export const DEFAULT_KIRO_VERSION = "1.4.154"
 export const GENERATE_ASSISTANT_RESPONSE_PATH = "/generateAssistantResponse"
 export const LIST_AVAILABLE_MODELS_PATH = "/ListAvailableModels"
+export const LIST_AVAILABLE_PROFILES_PATH = "/ListAvailableProfiles"
+export const LIST_AVAILABLE_PROFILES_MAX_PAGES = 10
 export const GET_USAGE_LIMITS_PATH = "/getUsageLimits"
 
 export const TOKEN_REFRESH_THRESHOLD_SECONDS = 600
